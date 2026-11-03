@@ -1,0 +1,14 @@
+{
+  "Hosts": [
+    {
+      "Name": "lab-centos",
+      "Host": "192.168.0.178",
+      "Port": 22,
+      "Username": "root",
+      "Auth": "PrivateKey",
+      "PrivateKeyPath": "%USERPROFILE%\\.ssh\\radiusproxy_ed25519",
+      "DistroHint": "CentOS",
+      "IsSelected": true
+    }
+  ]
+}

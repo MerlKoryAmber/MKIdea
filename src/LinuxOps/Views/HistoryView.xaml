@@ -1,0 +1,49 @@
+﻿<UserControl x:Class="LinuxOps.Views.HistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="24,18">
+      <Border Style="{StaticResource Surface}">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
+            <DockPanel>
+              <StackPanel>
+                <TextBlock Text="History" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Последние dry-run / apply по хостам и действиям."
+                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
+              </StackPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Обновить" Style="{StaticResource Btn}" Height="28" MinWidth="90" Margin="0,0,6,0" Command="{Binding ReloadCommand}"/>
+                <Button Content="Очистить" Style="{StaticResource Btn}" Height="28" MinWidth="90" Command="{Binding ClearCommand}"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="1.2*"/>
+              <ColumnDefinition Width="8"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DataGrid x:Name="HistoryGrid" ItemsSource="{Binding Entries}" SelectedItem="{Binding Selected, Mode=TwoWay}" Margin="10" AutoGenerateColumns="False" IsReadOnly="True"
+                      HeadersVisibility="Column" CanUserAddRows="False" SelectionMode="Single"
+                      
+                      Background="Transparent" BorderThickness="0" RowHeaderWidth="0"
+                      GridLinesVisibility="Horizontal" AlternatingRowBackground="#F7FAFC">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Когда" Binding="{Binding AtLocalText}" Width="140"/>
+                <DataGridTextColumn Header="Режим" Binding="{Binding Mode}" Width="70"/>
+                <DataGridTextColumn Header="Хост" Binding="{Binding Host}" Width="120"/>
+                <DataGridTextColumn Header="Действие" Binding="{Binding Action}" Width="*"/>
+                <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="70"/>
+              </DataGrid.Columns>
+            </DataGrid>
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+            <DockPanel Grid.Column="2" Margin="0,10,10,10">
+              <TextBlock DockPanel.Dock="Top" Text="Детали" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+              <TextBox Style="{StaticResource LogBox}" Text="{Binding Detail, Mode=OneWay}"
+                       />
+            </DockPanel>
+          </Grid>
+        </DockPanel>
+      </Border>
+    </Grid>
+</UserControl>

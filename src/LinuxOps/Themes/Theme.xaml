@@ -1,0 +1,302 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Color x:Key="InkColor">#102033</Color>
+  <Color x:Key="PaperColor">#E8EEF4</Color>
+  <Color x:Key="LineColor">#C5D0DB</Color>
+  <Color x:Key="TextColor">#15202B</Color>
+  <Color x:Key="MutedColor">#5A6B7D</Color>
+  <Color x:Key="AccentColor">#1A9B8E</Color>
+  <Color x:Key="AccentDeepColor">#117A70</Color>
+  <Color x:Key="WarnColor">#C4852C</Color>
+  <Color x:Key="WarnBgColor">#F8EBD4</Color>
+
+  <SolidColorBrush x:Key="InkBrush" Color="{StaticResource InkColor}"/>
+  <SolidColorBrush x:Key="PaperBrush" Color="{StaticResource PaperColor}"/>
+  <SolidColorBrush x:Key="LineBrush" Color="{StaticResource LineColor}"/>
+  <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}"/>
+  <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}"/>
+  <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
+  <SolidColorBrush x:Key="AccentDeepBrush" Color="{StaticResource AccentDeepColor}"/>
+  <SolidColorBrush x:Key="WarnBrush" Color="{StaticResource WarnColor}"/>
+  <SolidColorBrush x:Key="WarnBgBrush" Color="{StaticResource WarnBgColor}"/>
+  <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF"/>
+
+  <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI, sans-serif</FontFamily>
+  <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas, Courier New</FontFamily>
+
+  <LinearGradientBrush x:Key="HeaderGradient" StartPoint="0,0" EndPoint="1,1">
+    <GradientStop Color="#0B1624" Offset="0"/>
+    <GradientStop Color="#14304A" Offset="0.55"/>
+    <GradientStop Color="#0F3D3A" Offset="1"/>
+  </LinearGradientBrush>
+
+  <Style TargetType="Window">
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Background" Value="{StaticResource PaperBrush}"/>
+  </Style>
+
+  <Style TargetType="TextBox">
+    <Setter Property="Padding" Value="8,4"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+  </Style>
+
+  <Style TargetType="ComboBox">
+    <Setter Property="Padding" Value="6,2"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+  </Style>
+
+  <Style x:Key="BrandTitle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="22"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="#F2F7FA"/>
+  </Style>
+  <Style x:Key="BrandSub" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="12.5"/>
+    <Setter Property="Foreground" Value="#9BB0C2"/>
+  </Style>
+  <Style x:Key="SectionTitle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="14"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    <Setter Property="Margin" Value="0,0,0,0"/>
+  </Style>
+
+  <Style x:Key="Surface" TargetType="Border">
+    <Setter Property="Background" Value="#FFFFFF"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="6"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+  </Style>
+  <Style x:Key="SurfaceHeader" TargetType="Border">
+    <Setter Property="Background" Value="#F0F3F7"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="0,0,0,1"/>
+    <Setter Property="Padding" Value="12,10"/>
+  </Style>
+
+  <!-- Папка = жёлтый folder; файл = белый лист — разные формы -->
+  <DrawingImage x:Key="IconFolder">
+    <DrawingImage.Drawing>
+      <DrawingGroup>
+        <GeometryDrawing Brush="#E2B039">
+          <GeometryDrawing.Geometry>
+            <PathGeometry Figures="M1,3 L7,3 L9,5 L23,5 L23,6 L1,6 Z"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#F2C94C">
+          <GeometryDrawing.Geometry>
+            <PathGeometry Figures="M1,6 L23,6 L21,18 L3,18 Z"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#C9922A">
+          <GeometryDrawing.Geometry>
+            <PathGeometry Figures="M3,18 L21,18 L23,6 L21,6 L19.5,17 L4.5,17 Z"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+      </DrawingGroup>
+    </DrawingImage.Drawing>
+  </DrawingImage>
+  <DrawingImage x:Key="IconFile">
+    <DrawingImage.Drawing>
+      <DrawingGroup>
+        <GeometryDrawing Brush="#FFFFFF">
+          <GeometryDrawing.Geometry>
+            <PathGeometry Figures="M4,1 L14,1 L20,7 L20,23 L4,23 Z"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#D0D5DB">
+          <GeometryDrawing.Geometry>
+            <PathGeometry Figures="M14,1 L14,7 L20,7 Z"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#B0B8C0">
+          <GeometryDrawing.Geometry>
+            <GeometryGroup>
+              <RectangleGeometry Rect="7,11,10,1.4"/>
+              <RectangleGeometry Rect="7,14.5,10,1.4"/>
+              <RectangleGeometry Rect="7,18,7,1.4"/>
+            </GeometryGroup>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+      </DrawingGroup>
+    </DrawingImage.Drawing>
+  </DrawingImage>
+
+  <DataTemplate x:Key="FileIconTemplate">
+    <Image Width="20" Height="18" Stretch="Uniform" Margin="2,0,6,0" SnapsToDevicePixels="True">
+      <Image.Style>
+        <Style TargetType="Image">
+          <Setter Property="Source" Value="{StaticResource IconFile}"/>
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+              <Setter Property="Source" Value="{StaticResource IconFolder}"/>
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </Image.Style>
+    </Image>
+  </DataTemplate>
+
+  <Style TargetType="GridViewColumnHeader">
+    <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+    <Setter Property="FontSize" Value="11.5"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="GridViewColumnHeader">
+          <Border Background="#F7FAFC" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1"
+                  Padding="8,5">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style TargetType="ListViewItem">
+    <Setter Property="Padding" Value="4,3"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="MinHeight" Value="26"/>
+  </Style>
+  <Style TargetType="ListBoxItem">
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Padding" Value="0"/>
+  </Style>
+
+  <Style x:Key="Btn" TargetType="Button">
+    <Setter Property="Height" Value="32"/>
+    <Setter Property="MinWidth" Value="88"/>
+    <Setter Property="Padding" Value="12,0"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Background" Value="#FFFFFF"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+  <Style x:Key="BtnIcon" TargetType="Button">
+    <Setter Property="Width" Value="30"/>
+    <Setter Property="Height" Value="30"/>
+    <Setter Property="MinWidth" Value="30"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Background" Value="#FFFFFF"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Margin" Value="0,0,8,0"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+  <Style x:Key="BtnPrimary" TargetType="Button" BasedOn="{StaticResource Btn}">
+    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource AccentDeepBrush}"/>
+  </Style>
+  <Style x:Key="ModeChip" TargetType="ToggleButton">
+    <Setter Property="Height" Value="30"/>
+    <Setter Property="Padding" Value="14,0"/>
+    <Setter Property="Margin" Value="0,0,8,0"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="#C9D7E4"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToggleButton">
+          <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="bd" Property="Background" Value="#1A9B8E"/>
+              <Setter Property="Foreground" Value="#FFFFFF"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="bd" Property="Background" Value="#1E3348"/>
+            </Trigger>
+            <MultiTrigger>
+              <MultiTrigger.Conditions>
+                <Condition Property="IsChecked" Value="True"/>
+                <Condition Property="IsMouseOver" Value="True"/>
+              </MultiTrigger.Conditions>
+              <Setter TargetName="bd" Property="Background" Value="#117A70"/>
+              <Setter Property="Foreground" Value="#FFFFFF"/>
+            </MultiTrigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="ActionCard" TargetType="Border">
+    <Setter Property="Background" Value="#FFFFFF"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Padding" Value="14,12"/>
+    <Setter Property="Margin" Value="0,0,0,10"/>
+  </Style>
+
+  <Style x:Key="LogBox" TargetType="TextBox">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Background" Value="#0A240B"/>
+    <Setter Property="Foreground" Value="#D7E0D8"/>
+    <Setter Property="BorderBrush" Value="#1A3A1C"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="10,8"/>
+    <Setter Property="AcceptsReturn" Value="True"/>
+    <Setter Property="TextWrapping" Value="NoWrap"/>
+    <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+    <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+    <Setter Property="IsReadOnly" Value="True"/>
+  </Style>
+
+  <Style x:Key="FileList" TargetType="ListView">
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="Background" Value="#FFFFFF"/>
+    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+    <Setter Property="FontSize" Value="12.5"/>
+  </Style>
+
+  <Style x:Key="FKeyBtn" TargetType="Button">
+    <Setter Property="Height" Value="30"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Background" Value="#EEF2F6"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1,0,0,0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+
+  <Style x:Key="BtnToolbar" TargetType="Button">
+    <Setter Property="Height" Value="32"/>
+    <Setter Property="MinWidth" Value="88"/>
+    <Setter Property="Padding" Value="10,0"/>
+    <Setter Property="Margin" Value="0,0,6,0"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="FontSize" Value="12.5"/>
+    <Setter Property="Background" Value="#FFFFFF"/>
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
+</ResourceDictionary>

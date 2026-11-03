@@ -1,0 +1,11 @@
+---
+description: Держать docs/SKELETON и CURRENT в актуальном состоянии при работе в MKIdea
+alwaysApply: true
+---
+
+# MKIdea — docs
+
+- Источник правды: `docs/SKELETON.md` + `docs/<app>/SKELETON.md` + `docs/<app>/CURRENT.md`.
+- После фичи / смены контракта / новой лабы / bump версии — **обновить CURRENT** (и SKELETON, если изменилась структура).
+- Site-данные и секреты не вшивать в код; лаба — в defaults/docs, не в коммит DPAPI.
+- Вопрос ≠ команда кодить; после реализации по команде — publish в `dist\` когда работа закончена.

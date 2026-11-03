@@ -7,3 +7,5 @@ dist/
 appsettings.*.local.json
 **/AdServerGroups.settings
 **/AdServerGroups.state
+**/LinuxOps.settings
+**/LinuxOps.state

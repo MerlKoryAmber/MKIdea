@@ -1,0 +1,241 @@
+﻿<UserControl x:Class="LinuxOps.Views.ActionsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="28,20">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="0.85*" MinWidth="240"/>
+        <ColumnDefinition Width="12"/>
+        <ColumnDefinition Width="1.15*" MinWidth="280"/>
+        <ColumnDefinition Width="12"/>
+        <ColumnDefinition Width="1.2*" MinWidth="300"/>
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Style="{StaticResource Surface}">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Хосты" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+              <Button Grid.Column="1" Content="Опросить" Style="{StaticResource Btn}" Height="28" MinWidth="88"
+                      Padding="10,0" Margin="8,0,10,0" ToolTip="SSH: определить дистрибутив и статус"
+                      Command="{Binding ProbeCommand}"/>
+              <TextBlock Grid.Column="2" VerticalAlignment="Center"
+                         Foreground="{StaticResource MutedBrush}" FontSize="12" Text="{Binding HostsSelectedText}"/>
+            </Grid>
+          </Border>
+          <Border DockPanel.Dock="Bottom" Padding="16,10" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+            <CheckBox x:Name="SelectAllHosts" Content="Выбрать все / снять все"
+                      IsChecked="{Binding SelectAllChecked, Mode=OneWay}" Click="SelectAllHosts_Click"/>
+          </Border>
+          <ListBox x:Name="HostsList" ItemsSource="{Binding Hosts}" BorderThickness="0" Margin="14,10,14,8" SelectionMode="Single"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                   MouseDoubleClick="HostsList_DoubleClick">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Margin" Value="0"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Focusable" Value="False"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <!-- Макет: [✓] [лого] имя/IP …… ● Online [тег] -->
+                <Border Padding="12,11" BorderBrush="#E6EDF3" BorderThickness="0,0,0,1" Background="Transparent">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                              VerticalAlignment="Center" Margin="0,0,8,0"
+                             />
+                    <Grid Grid.Column="1" Width="28" Height="28" Margin="0,0,10,0" VerticalAlignment="Center"
+                          ToolTip="{Binding DistroBadge}">
+                      <Ellipse Fill="{Binding DistroColorBrush}"/>
+                      <TextBlock Text="{Binding DistroLetter}" Foreground="White" FontWeight="Bold" FontSize="13"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                    <StackPanel Grid.Column="2" MinWidth="0" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis"/>
+                      <TextBlock Text="{Binding Host}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                      <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#8A9AAB" VerticalAlignment="Center"/>
+                      <TextBlock x:Name="StatusText" Text="{Binding Status}" Margin="6,0,8,0" FontSize="11.5"
+                                 Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                      <Border Background="#EEF3F7" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding DistroBadge}" FontSize="11" Foreground="#3D5668"/>
+                      </Border>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+                <DataTemplate.Triggers>
+                  <DataTrigger Binding="{Binding Status}" Value="Online">
+                    <Setter TargetName="StatusDot" Property="Fill" Value="#2F9E6F"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="Warning">
+                    <Setter TargetName="StatusDot" Property="Fill" Value="#C4852C"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="Offline">
+                    <Setter TargetName="StatusDot" Property="Fill" Value="#C45C5C"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="—">
+                    <Setter TargetName="StatusText" Property="Text" Value="не проверен"/>
+                  </DataTrigger>
+                </DataTemplate.Triggers>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+
+      <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+
+      <Border Grid.Column="2" Style="{StaticResource Surface}">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
+            <TextBlock Text="Каталог действий" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+          </Border>
+          <Border DockPanel.Dock="Top" Padding="16,10" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Background="#FAFCFD">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Button Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Margin="0,0,6,0" Command="{Binding AddCommand}"/>
+              <Button Content="Изменить" Style="{StaticResource Btn}" Height="28" MinWidth="84" Padding="10,0" Margin="0,0,6,0" Command="{Binding EditCommand}"/>
+              <Button Content="Клон" Style="{StaticResource Btn}" Height="28" MinWidth="64" Padding="10,0" Margin="0,0,6,0" Command="{Binding CloneCommand}"/>
+              <Button Content="Удалить" Style="{StaticResource Btn}" Height="28" MinWidth="78" Padding="10,0" Command="{Binding RemoveCommand}"/>
+            </StackPanel>
+          </Border>
+          <ListBox x:Name="ActionsList" ItemsSource="{Binding Actions}" BorderThickness="0" Margin="16,12,16,14" SelectionMode="Extended"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                   SelectionChanged="ActionsList_SelectionChanged"
+                   MouseDoubleClick="ActionsList_DoubleClick">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Margin" Value="0,0,0,8"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Template">
+                  <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                      <Border x:Name="CardChrome" Background="Transparent" BorderBrush="Transparent"
+                              BorderThickness="2" CornerRadius="10" Padding="2" SnapsToDevicePixels="True">
+                        <ContentPresenter/>
+                      </Border>
+                      <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                          <Setter TargetName="CardChrome" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                          <Setter TargetName="CardChrome" Property="Background" Value="#E8F7F4"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                          <Setter TargetName="CardChrome" Property="Background" Value="#F3F9F7"/>
+                        </Trigger>
+                      </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                  </Setter.Value>
+                </Setter>
+              </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Border Background="#FFFFFF" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                        CornerRadius="8" Padding="14,12" HorizontalAlignment="Stretch">
+                  <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Right" Background="#E8F4F2" CornerRadius="4" Padding="7,2"
+                            VerticalAlignment="Top" Margin="10,0,0,0">
+                      <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{StaticResource AccentDeepBrush}"/>
+                    </Border>
+                    <StackPanel>
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding Description}" Foreground="{StaticResource MutedBrush}"
+                                 FontSize="12" Margin="0,3,0,6" TextWrapping="Wrap"/>
+                      <ItemsControl ItemsSource="{Binding DistroTags}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel/>
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border Background="#EEF3F7" CornerRadius="4" Padding="7,2" Margin="0,0,6,4">
+                              <TextBlock Text="{Binding}" FontSize="11" Foreground="#3D5668"/>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+
+      <GridSplitter Grid.Column="3" Width="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+
+      <Border Grid.Column="4" Style="{StaticResource Surface}" Background="#0F1C2B" BorderBrush="#1E3348">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="0.55*"/>
+            <RowDefinition Height="6"/>
+            <RowDefinition Height="0.45*"/>
+          </Grid.RowDefinitions>
+          <Border Grid.Row="0" Background="#152536" Padding="12,10" BorderBrush="#1E3348" BorderThickness="0,0,0,1">
+            <DockPanel>
+              <TextBlock Text="Запуск плана" Foreground="#D5E4EF" FontWeight="SemiBold"/>
+              <TextBlock DockPanel.Dock="Right" Foreground="#7EB8AE" FontSize="12" Text="{Binding RunStatus}"/>
+            </DockPanel>
+          </Border>
+          <ListBox x:Name="ResultsList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                   Foreground="#D5E4EF" Margin="4" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedResult, Mode=TwoWay}">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <DockPanel Margin="4,6">
+                  <Border x:Name="Badge" DockPanel.Dock="Left" Width="64" CornerRadius="3" Padding="4,2" Margin="0,0,10,0"
+                          Background="#3D9B7A" VerticalAlignment="Top">
+                    <TextBlock Text="{Binding Status}" Foreground="White" FontWeight="SemiBold"
+                               FontSize="11" HorizontalAlignment="Center"/>
+                  </Border>
+                  <StackPanel>
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="#E8F1F7"/>
+                    <TextBlock Text="{Binding Preview}" Foreground="#8EB8B0" FontSize="11.5" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DockPanel>
+                <DataTemplate.Triggers>
+                  <DataTrigger Binding="{Binding Status}" Value="FAIL">
+                    <Setter TargetName="Badge" Property="Background" Value="#C45C5C"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="SKIP">
+                    <Setter TargetName="Badge" Property="Background" Value="#5A7A8C"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="DRY-RUN">
+                    <Setter TargetName="Badge" Property="Background" Value="#5A7A8C"/>
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="INFO">
+                    <Setter TargetName="Badge" Property="Background" Value="#3D6B9B"/>
+                  </DataTrigger>
+                </DataTemplate.Triggers>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" Background="#1E3348"/>
+          <DockPanel Grid.Row="3">
+            <TextBlock DockPanel.Dock="Top" Text="Детали" Foreground="#7EB8AE" Margin="12,8,12,0" FontSize="11"/>
+            <TextBox Style="{StaticResource LogBox}" BorderThickness="0"
+                     IsReadOnly="True" Text="{Binding Detail, Mode=OneWay}"/>
+          </DockPanel>
+        </Grid>
+      </Border>
+    </Grid>
+</UserControl>
