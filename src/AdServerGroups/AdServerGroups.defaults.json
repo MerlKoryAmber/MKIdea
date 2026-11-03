@@ -1,0 +1,21 @@
+{
+  "DomainDns": "merl.loc",
+  "DomainNetBios": "MERL",
+  "LdapHost": "192.168.0.175",
+  "Username": "merl\\merlkory",
+  "DefaultContainerDn": "OU=Servers,OU=Infra,DC=Merl,DC=loc",
+  "GroupsOuDn": "OU=LocalAdmins,OU=Groups,DC=Merl,DC=loc",
+  "GroupNameTemplate": "GRP-LA-{ComputerName}",
+  "GroupDescriptionTemplate": "Local Administrators for {ComputerName}",
+  "SqlGroupNameTemplate": "GRP-SQL-{ComputerName}",
+  "SqlGroupDescriptionTemplate": "SQL sysadmin for {ComputerName}",
+  "SqlMigrateDomainSysadmins": true,
+  "OperatingSystemContains": "Windows Server",
+  "IncludeNestedContainers": true,
+  "CreateMissingGroups": true,
+  "AddGroupToLocalAdministrators": true,
+  "MigrateDirectMembersToGroup": true,
+  "ExpandNestedGroupsOnMigrate": true,
+  "RemoveNonTargetMembers": false,
+  "AlwaysKeepMembers": "Administrator,Administrators,Domain Admins,Exchange Trusted Subsystem,Organization Management"
+}

@@ -1,0 +1,155 @@
+<Window x:Class="AdServerGroups.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки"
+        Height="640" Width="680"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+  <Window.Resources>
+    <!-- Вводимый текст −1pt; высота полей (32) не трогаем -->
+    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style TargetType="PasswordBox" BasedOn="{StaticResource {x:Type PasswordBox}}">
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style x:Key="MonoBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+  </Window.Resources>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0" Background="{StaticResource HeaderGradient}" Padding="20,16">
+      <StackPanel>
+        <TextBlock Text="Настройки" Style="{StaticResource BrandTitle}" FontSize="22"/>
+        <TextBlock Text="Шаблон групп и параметры подключения к AD"
+                   Style="{StaticResource BrandSub}" Margin="0,4,0,0"/>
+      </StackPanel>
+    </Border>
+
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="18" Background="{StaticResource ShellGradient}">
+      <StackPanel>
+        <Border Style="{StaticResource Surface}" Padding="16" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="Подключение к AD" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="170"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+
+              <TextBlock Grid.Row="0" Text="DNS домена" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <TextBox Grid.Row="0" Grid.Column="1" x:Name="DomainDnsBox" Margin="0,0,0,10"/>
+
+              <TextBlock Grid.Row="1" Text="Контроллер домена" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <TextBox Grid.Row="1" Grid.Column="1" x:Name="LdapHostBox" Margin="0,0,0,10"
+                       ToolTip="Имя или IP контроллера домена"/>
+
+              <TextBlock Grid.Row="2" Text="Учётка (если SSO нет)" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <TextBox Grid.Row="2" Grid.Column="1" x:Name="UsernameBox" Margin="0,0,0,10"
+                       ToolTip="Только когда прозрачная авторизация не сработала"/>
+
+              <TextBlock Grid.Row="3" Text="Контейнер серверов" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,10">
+                <TextBox x:Name="DefaultContainerBox" Style="{StaticResource MonoBox}" TextChanged="DefaultContainerBox_TextChanged"/>
+                <TextBlock x:Name="DefaultContainerFriendly" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0"/>
+              </StackPanel>
+
+              <TextBlock Grid.Row="4" Text="Куда создавать группы" Style="{StaticResource FieldLabel}"/>
+              <StackPanel Grid.Row="4" Grid.Column="1">
+                <TextBox x:Name="GroupsOuBox" Style="{StaticResource MonoBox}" TextChanged="GroupsOuBox_TextChanged"/>
+                <TextBlock x:Name="GroupsOuFriendly" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0"/>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Surface}" Padding="16" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="Шаблон именования групп (по умолчанию)" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
+            <TextBlock Text="Плейсхолдер {ComputerName} обязателен. Local Admins — вкладка «Группы»; SQL — вкладка «SQL sysadmin» (сессия) или здесь по умолчанию."
+                       Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="170"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Text="Local Admins" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <TextBox Grid.Row="0" Grid.Column="1" x:Name="GroupTemplateBox" Style="{StaticResource MonoBox}" Margin="0,0,0,10"
+                       ToolTip="Шаблон AD-группы для локальных Administrators"/>
+              <TextBlock Grid.Row="1" Text="Описание LA" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <TextBox Grid.Row="1" Grid.Column="1" x:Name="GroupDescriptionBox" Margin="0,0,0,10"/>
+              <TextBlock Grid.Row="2" Text="SQL sysadmin" Style="{StaticResource FieldLabel}"/>
+              <TextBox Grid.Row="2" Grid.Column="1" x:Name="SqlGroupTemplateBox" Style="{StaticResource MonoBox}"
+                       ToolTip="Шаблон AD-группы для SQL sysadmin (Windows Auth)"/>
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Surface}" Padding="16">
+          <StackPanel>
+            <TextBlock Text="Фильтр и поведение" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="170"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+
+              <TextBlock Grid.Row="0" Text="ОС содержит" Style="{StaticResource FieldLabel}" Margin="0,0,0,10"/>
+              <TextBox Grid.Row="0" Grid.Column="1" x:Name="OsFilterBox" Margin="0,0,0,10"/>
+
+              <CheckBox Grid.Row="1" Grid.Column="1" x:Name="IncludeNestedBox" Content="Включая вложенные OU"/>
+              <CheckBox Grid.Row="2" Grid.Column="1" x:Name="CreateGroupsBox" Content="Создавать отсутствующие группы"/>
+              <CheckBox Grid.Row="3" Grid.Column="1" x:Name="AddLocalBox" Content="Добавлять группу в локальные Administrators"/>
+              <CheckBox Grid.Row="4" Grid.Column="1" x:Name="MigrateBox" Content="Переносить прямых членов в целевую группу"/>
+              <CheckBox Grid.Row="5" Grid.Column="1" x:Name="ExpandBox" Content="Распаковывать вложенные группы (кроме защищённых)"/>
+              <CheckBox Grid.Row="6" Grid.Column="1" x:Name="RemoveBox" Content="Удалять из Administrators всех кроме целевых и защищённых"/>
+
+              <TextBlock Grid.Row="7" Text="Всегда оставлять" Style="{StaticResource FieldLabel}" Margin="0,8,0,0"/>
+              <TextBox Grid.Row="7" Grid.Column="1" x:Name="KeepBox" Margin="0,8,0,0"/>
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Row="2" Background="#E8EEF4" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="18,12">
+      <DockPanel>
+        <TextBlock x:Name="ErrorText" DockPanel.Dock="Left" Foreground="{StaticResource DangerBrush}"
+                   VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button Content="Сохранить" Style="{StaticResource BtnPrimary}" Margin="0,0,8,0" IsDefault="True" Click="Save_Click"/>
+          <Button Content="Отмена" Style="{StaticResource Btn}" IsCancel="True" Click="Cancel_Click"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+  </Grid>
+</Window>

@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+
+    <!-- Метаданные для белого списка (Касперский и др.): FileVersion/Version поднимать на каждый релиз -->
+    <Version>0.3.11</Version>
+    <AssemblyVersion>0.3.11.0</AssemblyVersion>
+    <FileVersion>0.3.11.0</FileVersion>
+    <InformationalVersion>0.3.11</InformationalVersion>
+    <Company>Merl</Company>
+    <Product>AD Server Groups</Product>
+    <AssemblyTitle>AD Server Groups</AssemblyTitle>
+    <AssemblyName>AdServerGroups</AssemblyName>
+    <Description>Утилита создания AD-групп для Windows Server и назначения в локальные Administrators</Description>
+    <Copyright>Copyright © Merl 2026</Copyright>
+    <NeutralLanguage>ru-RU</NeutralLanguage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AdServerGroups.Abstractions\AdServerGroups.Abstractions.csproj" />
+    <PackageReference Include="System.DirectoryServices" Version="10.0.14" />
+    <PackageReference Include="System.DirectoryServices.AccountManagement" Version="10.0.14" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <!-- Базовые настройки среды (не вшиваются в код) — копируются рядом с exe при publish -->
+  <ItemGroup>
+    <None Include="AdServerGroups.defaults.json"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+dist/
+*.user
+*.suo
+appsettings.*.local.json
+**/AdServerGroups.settings
+**/AdServerGroups.state
