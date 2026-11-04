@@ -11,8 +11,9 @@
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
       <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{StaticResource MutedBrush}"
-                 Text="Применение только добавляет: пользователей, ключи и sudo, которых нет на хосте, не удаляет."/>
-      <ListBox x:Name="Cards" Grid.Row="1" BorderThickness="0">
+                 Text="Применение только добавляет. Пользователей, ключи и sudo, которых нет в списке, на хостах не трогает."/>
+      <Grid Grid.Row="1">
+      <ListBox x:Name="Cards" BorderThickness="0">
           <ListBox.ItemTemplate>
             <DataTemplate>
               <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="4,8">
@@ -35,6 +36,11 @@
             </DataTemplate>
           </ListBox.ItemTemplate>
       </ListBox>
+      <TextBlock x:Name="EmptyText" Text="Список пуст — нажмите «Добавить» или «Взять с хоста»."
+                 HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                 TextWrapping="Wrap" Margin="24" Foreground="{StaticResource MutedBrush}"
+                 Visibility="Collapsed"/>
+      </Grid>
       <WrapPanel Grid.Row="2" Margin="0,12,0,0">
         <Button Content="Добавить" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,8" Click="Add_Click"/>
         <Button Content="Изменить" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,8" Click="Edit_Click"/>
@@ -78,6 +84,7 @@
     <Grid x:Name="ImportPane" Visibility="Collapsed">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
@@ -85,7 +92,8 @@
         <Button DockPanel.Dock="Right" Content="Прочитать" Style="{StaticResource Btn}" Height="28" Width="110" Click="ReadHost_Click"/>
         <ComboBox x:Name="HostBox" Height="28" DisplayMemberPath="Title" Margin="0,0,8,0"/>
       </DockPanel>
-      <ListBox x:Name="ImportList" Grid.Row="1" BorderThickness="0">
+      <TextBlock x:Name="ImportNote" Grid.Row="1" Margin="0,0,0,6" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+      <ListBox x:Name="ImportList" Grid.Row="2" BorderThickness="0">
         <ListBox.ItemTemplate>
           <DataTemplate>
             <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" Margin="0,4">
@@ -97,7 +105,7 @@
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
-      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
         <TextBlock x:Name="ImportError" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="#C45C5C"/>
         <Button Content="Назад" Style="{StaticResource Btn}" Width="100" Margin="0,0,8,0" Click="ImportBack_Click"/>
         <Button Content="Добавить отмеченных" Style="{StaticResource BtnPrimary}" Width="180" Click="ImportAdd_Click"/>

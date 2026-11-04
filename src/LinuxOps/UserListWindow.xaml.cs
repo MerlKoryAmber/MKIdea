@@ -29,7 +29,11 @@ public partial class UserListWindow : Window
         _cards.Clear();
         foreach (var user in UserListStore.Load())
             _cards.Add(new UserCard(user, Persist));
+        UpdateEmpty();
     }
+
+    private void UpdateEmpty()
+        => EmptyText.Visibility = _cards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private void Persist()
     {
@@ -123,6 +127,7 @@ public partial class UserListWindow : Window
         else
             _editing.Refresh();
         Persist();
+        UpdateEmpty();
         Show(ListPane);
     }
 
@@ -137,6 +142,7 @@ public partial class UserListWindow : Window
         if (!AppDialog.Confirm(this, $"Убрать {card.Login} из списка? На хостах учётка не удалится.")) return;
         _cards.Remove(card);
         Persist();
+        UpdateEmpty();
     }
 
     private void Import_Click(object sender, RoutedEventArgs e)
@@ -145,6 +151,7 @@ public partial class UserListWindow : Window
         HostBox.SelectedItem = _hosts.FirstOrDefault(h => h.IsSelected) ?? _hosts.FirstOrDefault();
         ImportList.ItemsSource = null;
         ImportError.Text = "";
+        ImportNote.Text = "";
         Show(ImportPane);
     }
 
@@ -162,8 +169,9 @@ public partial class UserListWindow : Window
         try
         {
             var found = await Task.Run(() => UserProvisioning.ReadFromHost(host));
-            ImportList.ItemsSource = found.Select(c => new ImportRow(c)).ToList();
-            ImportError.Text = found.Count == 0 ? "Подходящих учёток нет." : "";
+            ImportList.ItemsSource = found.Users.Select(c => new ImportRow(c)).ToList();
+            ImportNote.Text = "Пропущено ключей с опциями: " + found.OptionKeys;
+            ImportError.Text = found.Users.Count == 0 ? "Подходящих учёток нет." : "";
         }
         catch (Exception ex)
         {
@@ -190,8 +198,8 @@ public partial class UserListWindow : Window
             }
             else
             {
-                existing.Source.Sudo = row.Candidate.Sudo;
-                existing.Source.Keys = row.Candidate.Keys;
+                existing.Source.Sudo = existing.Source.Sudo || row.Candidate.Sudo;
+                existing.Source.Keys = UserProvisioning.MergeKeys(existing.Source.Keys, row.Candidate.Keys);
                 if (string.IsNullOrWhiteSpace(existing.Source.Comment))
                     existing.Source.Comment = row.Candidate.Comment;
                 existing.Refresh();
@@ -199,6 +207,7 @@ public partial class UserListWindow : Window
         }
 
         Persist();
+        UpdateEmpty();
         Show(ListPane);
     }
 

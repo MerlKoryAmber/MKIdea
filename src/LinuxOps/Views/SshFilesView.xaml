@@ -5,9 +5,10 @@
           PreviewKeyDown="PanelSsh_PreviewKeyDown">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
-        <RowDefinition Height="1.2*"/>
-        <RowDefinition Height="6"/>
-        <RowDefinition Height="1*"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
       <!-- тулбар как на mockup-ssh -->
@@ -37,12 +38,6 @@
               <StackPanel Orientation="Horizontal">
                 <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
                 <TextBlock Text="Delete" VerticalAlignment="Center"/>
-              </StackPanel>
-            </Button>
-            <Button Style="{StaticResource BtnToolbar}" Click="SshTermFocus_Click">
-              <StackPanel Orientation="Horizontal">
-                <TextBlock Text="&#xE756;" FontFamily="Segoe MDL2 Assets" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                <TextBlock Text="Terminal" VerticalAlignment="Center"/>
               </StackPanel>
             </Button>
             <Button Style="{StaticResource BtnToolbar}" Margin="0" Click="SshRefresh_Click">
@@ -196,26 +191,33 @@
         </Border>
       </Grid>
 
-      <GridSplitter Grid.Row="2" Height="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+      <TextBlock Grid.Row="2" Margin="2,6,2,0" FontSize="12" Foreground="{StaticResource MutedBrush}"
+                 Text="{Binding LastOperation}" TextTrimming="CharacterEllipsis"/>
 
-      <Border Grid.Row="3" Background="{StaticResource ConsoleBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" BorderThickness="1" CornerRadius="4">
-        <DockPanel>
-          <Border DockPanel.Dock="Bottom" Padding="10,8" Background="{StaticResource ConsoleBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" BorderThickness="0,1,0,0">
-            <DockPanel LastChildFill="True">
-              <TextBlock x:Name="SshTermPrompt" Text="{Binding TermPrompt}" Foreground="{StaticResource ConsoleTextBrush}" VerticalAlignment="Center"
-                         Margin="0,0,8,0" FontFamily="{StaticResource MonoFont}"/>
-              <Button DockPanel.Dock="Right" Content="&#xE751;" FontFamily="Segoe MDL2 Assets" Width="32" Height="26" Margin="8,0,0,0"
-                      Background="{StaticResource ConsoleBorderBrush}" Foreground="{StaticResource ConsoleTextBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" Click="SshTermRun_Click"/>
-              <TextBox x:Name="SshTermInput" Height="26" VerticalContentAlignment="Center"
-                       FontFamily="{StaticResource MonoFont}" Padding="8,2"
-                       Background="{StaticResource ConsoleBrush}" Foreground="{StaticResource ConsoleTextBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" CaretBrush="{StaticResource ConsoleTextBrush}"
-                       KeyDown="SshTermInput_KeyDown"/>
-            </DockPanel>
-          </Border>
-          <TextBox x:Name="SshTermOut" Style="{StaticResource LogBox}"
-                   Text="Connect — remote /etc и ls в терминал."/>
-        </DockPanel>
-      </Border>
-      <TextBlock x:Name="SshTermHostLabel" Text="{Binding TermHostLabel}" Grid.Row="3" Visibility="Collapsed"/>
+      <DockPanel Grid.Row="3" Margin="0,6,0,0" LastChildFill="True">
+        <Button DockPanel.Dock="Right" Content="Редактор для F4" Style="{StaticResource Btn}" Height="26" Click="PickEditor_Click"/>
+        <ItemsControl ItemsSource="{Binding OpenEdits}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <DockPanel Margin="0,2,8,2">
+                <Button DockPanel.Dock="Right" Content="Закрыть правку" Style="{StaticResource Btn}" Height="26" Click="CloseEdit_Click"/>
+                <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              </DockPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </DockPanel>
+
+      <UniformGrid x:Name="FnKeys" Grid.Row="4" Columns="9" Margin="0,8,0,0">
+        <Button x:Name="KeyF1" Content="F1 Помощь" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF1_Click"/>
+        <Button x:Name="KeyF3" Content="F3 Просмотр" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF3_Click"/>
+        <Button x:Name="KeyF4" Content="F4 Правка" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF4_Click"/>
+        <Button x:Name="KeyF5" Content="F5 Копировать" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF5_Click"/>
+        <Button x:Name="KeyF6" Content="F6 Переименовать" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF6_Click"/>
+        <Button x:Name="KeyF7" Content="F7 Папка" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF7_Click"/>
+        <Button x:Name="KeyF8" Content="F8 Удалить" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF8_Click"/>
+        <Button x:Name="KeyF9" Content="F9 Терминал" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF9_Click"/>
+        <Button x:Name="KeyF10" Content="F10 Отключить" Style="{StaticResource Btn}" Height="32" Margin="2,0" Click="SshF10_Click"/>
+      </UniformGrid>
     </Grid>
 </UserControl>

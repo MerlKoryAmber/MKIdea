@@ -1,0 +1,32 @@
+<UserControl x:Class="LinuxOps.Views.SshTerminalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Margin="12,8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <DockPanel Margin="0,0,0,8" LastChildFill="False">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button Content="Подключить" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,0" Click="Connect_Click"/>
+        <Button Content="Отключить" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,0" Click="Disconnect_Click"/>
+        <Button Content="Очистить" Style="{StaticResource Btn}" Height="28" Click="Clear_Click"/>
+      </StackPanel>
+      <TextBlock Text="Хост:" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="SemiBold"/>
+      <ComboBox Width="280" Height="28" DisplayMemberPath="Display"
+                ItemsSource="{Binding Hosts}" SelectedItem="{Binding SelectedHost, Mode=TwoWay}"/>
+      <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Margin="12,0,0,0"
+                 Foreground="{StaticResource MutedBrush}"/>
+    </DockPanel>
+
+    <TextBox x:Name="Out" Grid.Row="1" IsReadOnly="True" IsReadOnlyCaretVisible="True"
+             AcceptsReturn="True" IsUndoEnabled="False" Focusable="True"
+             FontFamily="{StaticResource MonoFont}" FontSize="13"
+             Background="{StaticResource ConsoleBrush}" Foreground="{StaticResource ConsoleTextBrush}"
+             BorderBrush="{StaticResource ConsoleBorderBrush}" CaretBrush="{StaticResource ConsoleTextBrush}"
+             VerticalContentAlignment="Top" Padding="8"
+             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+             TextWrapping="NoWrap"/>
+  </Grid>
+</UserControl>

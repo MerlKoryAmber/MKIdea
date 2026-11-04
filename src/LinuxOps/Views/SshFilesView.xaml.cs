@@ -17,37 +17,60 @@ public partial class SshFilesView : UserControl
         InitializeComponent();
         DataContextChanged += (_, e) =>
         {
-            if (e.OldValue is SshFilesViewModel old)
-            {
-                old.TerminalWrite -= OnTerm;
-                old.ClearInput -= OnClearInput;
-                old.FocusInput -= OnFocusInput;
-            }
-
             if (e.NewValue is not SshFilesViewModel vm) return;
             _vm = vm;
             vm.Owner = () => Window.GetWindow(this);
-            vm.TerminalWrite += OnTerm;
-            vm.ClearInput += OnClearInput;
-            vm.FocusInput += OnFocusInput;
+            vm.ShowText += ShowText;
             vm.Sudo = IsSudo();
+            vm.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName is nameof(SshFilesViewModel.Connected)
+                    or nameof(SshFilesViewModel.ActiveLocal)
+                    or nameof(SshFilesViewModel.SelectedHost))
+                    Dispatcher.BeginInvoke(RefreshKeys);
+            };
+            RefreshKeys();
         };
     }
 
-    private void OnTerm(string text, bool replace)
+    private void RefreshKeys()
     {
-        if (replace) SshTermOut.Text = text;
-        else SshTermOut.AppendText(text);
-        SshTermOut.CaretIndex = SshTermOut.Text.Length;
-        SshTermOut.ScrollToEnd();
+        if (_vm is null) return;
+        var on = _vm.Connected;
+        var local = _vm.ActiveLocal;
+        KeyF3.IsEnabled = local || on;
+        KeyF4.IsEnabled = local || on;
+        KeyF5.IsEnabled = on;
+        KeyF6.IsEnabled = local || on;
+        KeyF7.IsEnabled = local || on;
+        KeyF8.IsEnabled = local || on;
+        KeyF9.IsEnabled = _vm.SelectedHost is not null;
+        KeyF10.IsEnabled = on;
     }
 
-    private void OnClearInput() => SshTermInput.Clear();
-
-    private void OnFocusInput()
+    private void ShowText(string title, string text)
     {
-        SshTermInput.Focus();
-        Keyboard.Focus(SshTermInput);
+        var box = new TextBox
+        {
+            Text = text,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            FontFamily = (System.Windows.Media.FontFamily)FindResource("MonoFont"),
+            FontSize = 13,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0)
+        };
+        var win = new Window
+        {
+            Title = title,
+            Width = 760,
+            Height = 560,
+            Owner = Window.GetWindow(this),
+            Content = box,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        win.Show();
     }
 
     private bool IsSudo() =>
@@ -154,45 +177,37 @@ public partial class SshFilesView : UserControl
         if (_vm is not null) await _vm.DeleteRemote();
     }
 
-    private void SshTermRun_Click(object sender, RoutedEventArgs e) => RunTerminal();
-
-    private void SshTermInput_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter) RunTerminal();
-    }
-
-    private void RunTerminal()
-    {
-        PushSelection();
-        _vm?.RunTerminal(SshTermInput.Text);
-    }
-
     private void PanelSsh_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Visibility != Visibility.Visible) return;
-        if (Keyboard.FocusedElement is TextBox { IsReadOnly: false } tb &&
-            tb != SshTermInput && e.Key is not (>= Key.F1 and <= Key.F10))
-            return;
-        if (Keyboard.FocusedElement == SshTermInput && e.Key is not (>= Key.F1 and <= Key.F10))
+        if (Keyboard.FocusedElement is TextBox { IsReadOnly: false } && e.Key is not (>= Key.F1 and <= Key.F10))
             return;
 
         switch (e.Key)
         {
+            case Key.F1: SshF1_Click(sender, e); e.Handled = true; break;
             case Key.F3: SshF3_Click(sender, e); e.Handled = true; break;
             case Key.F4: SshF4_Click(sender, e); e.Handled = true; break;
             case Key.F5: SshF5_Click(sender, e); e.Handled = true; break;
             case Key.F6: SshF6_Click(sender, e); e.Handled = true; break;
             case Key.F7: SshF7_Click(sender, e); e.Handled = true; break;
             case Key.F8: SshF8_Click(sender, e); e.Handled = true; break;
-            case Key.F9: SshTermFocus_Click(sender, e); e.Handled = true; break;
+            case Key.F9: SshF9_Click(sender, e); e.Handled = true; break;
             case Key.F10: SshF10_Click(sender, e); e.Handled = true; break;
         }
     }
 
-    private void SshF3_Click(object sender, RoutedEventArgs e)
+    private void SshF1_Click(object sender, RoutedEventArgs e)
+    {
+        LinuxOps.AppDialog.Info(Window.GetWindow(this)!,
+            "F1 Помощь\nF3 Просмотр\nF4 Правка\nF5 Копировать\nF6 Переименовать\nF7 Папка\nF8 Удалить\nF9 Терминал\nF10 Отключить",
+            "Клавиши");
+    }
+
+    private async void SshF3_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.ViewFile();
+        if (_vm is not null) await _vm.ViewFile();
     }
 
     private async void SshF4_Click(object sender, RoutedEventArgs e)
@@ -312,7 +327,28 @@ public partial class SshFilesView : UserControl
             await _vm.UploadPaths(files);
     }
 
-    private void SshTermFocus_Click(object sender, RoutedEventArgs e) => OnFocusInput();
+    private void SshF9_Click(object sender, RoutedEventArgs e)
+    {
+        PushSelection();
+        _vm?.OpenTerminal();
+    }
 
-    private void SshF10_Click(object sender, RoutedEventArgs e) => _vm?.Disconnect();
+    private void PickEditor_Click(object sender, RoutedEventArgs e)
+    {
+        var next = TextPrompt.Ask(Window.GetWindow(this), "Редактор для F4", "Программа:", DefaultsStore.F4Editor);
+        if (!string.IsNullOrWhiteSpace(next))
+            DefaultsStore.F4Editor = next;
+    }
+
+    private void CloseEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: RemoteEditSession session })
+            _vm?.CloseEdit(session);
+    }
+
+    private void SshF10_Click(object sender, RoutedEventArgs e)
+    {
+        _vm?.Disconnect();
+        RefreshKeys();
+    }
 }

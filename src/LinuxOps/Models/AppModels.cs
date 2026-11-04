@@ -85,6 +85,8 @@ public sealed class AppDefaults
     public List<HostConfig> Hosts { get; set; } = new();
     /// <summary>Id действий, отмеченных в план в прошлой сессии.</summary>
     public List<string> SelectedActionIds { get; set; } = new();
+    /// <summary>Программа для F4. По умолчанию notepad.exe.</summary>
+    public string F4Editor { get; set; } = "notepad.exe";
 }
 
 public sealed class ActionDefinition

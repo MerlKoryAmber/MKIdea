@@ -178,6 +178,8 @@ public sealed class SshRunner : IDisposable
         return null;
     }
 
+    public static string? AskSudo(HostConfig host) => SudoMemory.Ask(host);
+
     private static class SudoMemory
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);

@@ -25,6 +25,8 @@
                         IsChecked="True" Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="actions"/>
           <ToggleButton x:Name="ChipSsh" Content="SSH Files" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="ssh"/>
+          <ToggleButton x:Name="ChipTerminal" Content="SSH Terminal" Style="{StaticResource ModeChip}"
+                        Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="terminal"/>
           <ToggleButton x:Name="ChipHistory" Content="History" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="history"/>
         </StackPanel>
@@ -34,6 +36,7 @@
     <views:ActionsView x:Name="Actions" Grid.Row="1"/>
     <views:InventoryView x:Name="Inventory" Grid.Row="1" Visibility="Collapsed"/>
     <views:SshFilesView x:Name="Ssh" Grid.Row="1" Visibility="Collapsed"/>
+    <views:SshTerminalView x:Name="Terminal" Grid.Row="1" Visibility="Collapsed"/>
     <views:HistoryView x:Name="History" Grid.Row="1" Visibility="Collapsed"/>
 
     <Border x:Name="FooterBar" Grid.Row="2" Background="#E8EEF4" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="28,14">

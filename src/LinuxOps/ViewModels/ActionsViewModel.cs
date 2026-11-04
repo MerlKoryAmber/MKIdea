@@ -27,10 +27,10 @@ public partial class ActionsViewModel : ObservableObject
         RefreshBaseUsers();
     }
 
-    [ObservableProperty] private string baseUsersText = "Базовые пользователи: 0";
+    [ObservableProperty] private string baseUsersText = "Базовые пользователи (0)";
 
     public void RefreshBaseUsers()
-        => BaseUsersText = "Базовые пользователи: " + UserListStore.Load().Count;
+        => BaseUsersText = "Базовые пользователи (" + UserListStore.Load().Count + ")";
 
     public ObservableCollection<HostConfig> Hosts => _session.Hosts;
     public ObservableCollection<ActionItemView> Actions { get; } = new();

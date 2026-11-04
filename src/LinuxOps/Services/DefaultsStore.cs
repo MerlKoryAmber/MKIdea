@@ -48,6 +48,21 @@ public static class DefaultsStore
         Write(defaults);
     }
 
+    public static string F4Editor
+    {
+        get
+        {
+            var editor = Load().F4Editor;
+            return string.IsNullOrWhiteSpace(editor) ? "notepad.exe" : editor;
+        }
+        set
+        {
+            var defaults = Load();
+            defaults.F4Editor = string.IsNullOrWhiteSpace(value) ? "notepad.exe" : value.Trim();
+            Write(defaults);
+        }
+    }
+
     public static void SaveSelectedActions(IEnumerable<string> actionIds)
     {
         var defaults = Load();

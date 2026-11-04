@@ -90,8 +90,14 @@ public static class UserProvisioning
         public string Fingerprints => string.Join(", ", KeyFingerprints(Keys));
     }
 
+    public sealed class HostUserRead
+    {
+        public required IReadOnlyList<HostUserCandidate> Users { get; init; }
+        public int OptionKeys { get; init; }
+    }
+
     /// <summary>Чтение учёток с ключом или sudo. Пароли не читаются. Создание — тем же <see cref="Script"/>.</summary>
-    public static IReadOnlyList<HostUserCandidate> ReadFromHost(HostConfig host)
+    public static HostUserRead ReadFromHost(HostConfig host)
     {
         using var ssh = SshRunner.Connect(host);
         var action = new ActionDefinition { Id = "read-users", Privilege = "sudo/root", TimeoutSeconds = 60 };
@@ -101,7 +107,31 @@ public static class UserProvisioning
         return ParseCandidates(result.StdOut);
     }
 
-    private static IReadOnlyList<HostUserCandidate> ParseCandidates(string text)
+    /// <summary>Склеивает ключи. Повтор того же типа и base64 не добавляется, остаётся первая строка.</summary>
+    public static string MergeKeys(string? existing, string? incoming)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var lines = new List<string>();
+        foreach (var line in SplitKeyLines(existing).Concat(SplitKeyLines(incoming)))
+        {
+            var id = KeyIdentity(line);
+            if (id is null || !seen.Add(id)) continue;
+            lines.Add(line.Trim());
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static IEnumerable<string> SplitKeyLines(string? raw)
+        => (raw ?? "").Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string? KeyIdentity(string line)
+    {
+        var m = KeyRx.Match(line.Trim());
+        return m.Success ? m.Groups[1].Value + " " + m.Groups[2].Value : null;
+    }
+
+    private static HostUserRead ParseCandidates(string text)
     {
         var list = new List<HostUserCandidate>();
         string? login = null;
@@ -109,9 +139,16 @@ public static class UserProvisioning
         var comment = "";
         var keys = new List<string>();
         var inKeys = false;
+        var optionKeys = 0;
         foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
         {
             var line = raw.TrimEnd();
+            if (line.StartsWith("OPTIONS ", StringComparison.Ordinal) && int.TryParse(line[8..].Trim(), out var n))
+            {
+                optionKeys = n;
+                continue;
+            }
+
             if (line.StartsWith("USER ", StringComparison.Ordinal))
             {
                 Flush();
@@ -134,7 +171,7 @@ public static class UserProvisioning
         }
 
         Flush();
-        return list;
+        return new HostUserRead { Users = list, OptionKeys = optionKeys };
 
         void Flush()
         {
@@ -151,13 +188,21 @@ public static class UserProvisioning
     }
 
     private const string ReadScript = """
-        getent passwd | while IFS=: read -r login _ uid _ gecos home _; do
+        opt_total=0
+        while IFS=: read -r login _ uid _ gecos home _; do
           case "$uid" in ''|*[!0-9]*) continue ;; esac
           if [ "$uid" -ne 0 ] && [ "$uid" -lt 1000 ]; then continue; fi
           if [ "$uid" -ge 65534 ]; then continue; fi
           keys=""
           if [ -r "$home/.ssh/authorized_keys" ]; then
-            keys=$(grep -E '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-)' "$home/.ssh/authorized_keys" || true)
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in ''|\#*) continue ;; esac
+              if printf '%s\n' "$line" | grep -Eq '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-)'; then
+                keys="${keys}${line}"$'\n'
+              elif printf '%s\n' "$line" | grep -Eq '(^|[[:space:]])(ssh-ed25519|ssh-rsa|ecdsa-sha2-|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-)([[:space:]]|$)'; then
+                opt_total=$((opt_total+1))
+              fi
+            done < "$home/.ssh/authorized_keys"
           fi
           sudo_yes=no
           if id -nG "$login" 2>/dev/null | tr ' ' '\n' | grep -Eq '^(wheel|sudo)$'; then sudo_yes=yes; fi
@@ -169,7 +214,8 @@ public static class UserProvisioning
           echo KEYS_BEGIN
           printf '%s\n' "$keys"
           echo KEYS_END
-        done
+        done < <(getent passwd)
+        printf 'OPTIONS %s\n' "$opt_total"
         """;
 
     public static string HumanLine(string host, string stdout)

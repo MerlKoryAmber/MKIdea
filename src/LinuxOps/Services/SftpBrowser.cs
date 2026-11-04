@@ -84,6 +84,22 @@ public sealed class SftpBrowser : IDisposable
             .ToList();
     }
 
+    public byte[] ReadHead(string remotePath, int maxBytes)
+    {
+        using var stream = _client.OpenRead(remotePath);
+        var n = (int)Math.Min(maxBytes, Math.Max(0, stream.Length));
+        var buf = new byte[n];
+        var off = 0;
+        while (off < n)
+        {
+            var read = stream.Read(buf, off, n - off);
+            if (read == 0) break;
+            off += read;
+        }
+
+        return off == buf.Length ? buf : buf[..off];
+    }
+
     public void Download(string remotePath, string localPath)
     {
         using var fs = File.Create(localPath);
@@ -149,6 +165,49 @@ public sealed class SftpBrowser : IDisposable
     public void MkDir(string remotePath) => _client.CreateDirectory(remotePath);
 
     public void Rename(string fromPath, string toPath) => _client.RenameFile(fromPath, toPath);
+
+    public (long Size, DateTime Mtime) Stat(string remotePath)
+    {
+        var attrs = _client.GetAttributes(remotePath);
+        return (attrs.Size, attrs.LastWriteTime);
+    }
+
+    public bool CanCreateIn(string directory)
+    {
+        var probe = directory.TrimEnd('/') + "/.linuxops-w-" + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            using (var stream = _client.OpenWrite(probe))
+                stream.WriteByte(0);
+            _client.DeleteFile(probe);
+            return true;
+        }
+        catch
+        {
+            try { _client.DeleteFile(probe); } catch { /* пробы не было */ }
+            return false;
+        }
+    }
+
+    /// <summary>Загрузка во временный файл рядом и posix-rename поверх. Права и владелец прежние.</summary>
+    public void UploadReplace(string localPath, string remotePath)
+    {
+        var attrs = _client.GetAttributes(remotePath);
+        var tmp = remotePath + ".linuxops.tmp";
+        using (var fs = File.Open(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            _client.UploadFile(fs, tmp, true);
+        _client.RenameFile(tmp, remotePath, true);
+        _client.SetAttributes(remotePath, attrs);
+    }
+
+    public string Stage(string localPath)
+    {
+        var remote = "/tmp/linuxops-edit-" + Guid.NewGuid().ToString("N");
+        using var fs = File.Open(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        _client.UploadFile(fs, remote, true);
+        try { _client.ChangePermissions(remote, 0b110_100_100); } catch { /* /tmp и так читается root */ }
+        return remote;
+    }
 
     public void Dispose()
     {

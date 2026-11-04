@@ -11,6 +11,7 @@ public partial class MainWindow : Window
 {
     private readonly ActionsViewModel _actions;
     private readonly SshFilesViewModel _ssh;
+    private readonly SshTerminalViewModel _terminal;
     private readonly HistoryViewModel _history;
     private bool _modeSwitching;
     private bool _sshDocsOnce;
@@ -23,11 +24,18 @@ public partial class MainWindow : Window
         _actions = new ActionsViewModel(session);
         var inventory = new InventoryViewModel(session);
         _ssh = new SshFilesViewModel(session);
+        _terminal = new SshTerminalViewModel(session);
         _history = new HistoryViewModel();
         Actions.DataContext = _actions;
         Inventory.DataContext = inventory;
         Ssh.DataContext = _ssh;
+        Terminal.DataContext = _terminal;
         History.DataContext = _history;
+        _ssh.OpenTerminalRequested += host =>
+        {
+            if (host is not null) _terminal.UseHost(host);
+            ShowMode("terminal");
+        };
         _actions.Load();
         _ssh.Init();
         FooterVersionText.Text = $"v{GetVersion()}";
@@ -57,7 +65,7 @@ public partial class MainWindow : Window
     {
         if (_modeSwitching) return;
         if (ChipInventory.IsChecked == true || ChipActions.IsChecked == true ||
-            ChipSsh.IsChecked == true || ChipHistory.IsChecked == true)
+            ChipSsh.IsChecked == true || ChipTerminal.IsChecked == true || ChipHistory.IsChecked == true)
             return;
         _modeSwitching = true;
         ((ToggleButton)sender).IsChecked = true;
@@ -70,12 +78,14 @@ public partial class MainWindow : Window
         ChipInventory.IsChecked = mode == "inventory";
         ChipActions.IsChecked = mode == "actions";
         ChipSsh.IsChecked = mode == "ssh";
+        ChipTerminal.IsChecked = mode == "terminal";
         ChipHistory.IsChecked = mode == "history";
         _modeSwitching = false;
 
         Inventory.Visibility = mode == "inventory" ? Visibility.Visible : Visibility.Collapsed;
         Actions.Visibility = mode == "actions" ? Visibility.Visible : Visibility.Collapsed;
         Ssh.Visibility = mode == "ssh" ? Visibility.Visible : Visibility.Collapsed;
+        Terminal.Visibility = mode == "terminal" ? Visibility.Visible : Visibility.Collapsed;
         History.Visibility = mode == "history" ? Visibility.Visible : Visibility.Collapsed;
         var actions = mode == "actions";
         FooterBar.Visibility = actions ? Visibility.Visible : Visibility.Collapsed;
@@ -95,6 +105,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _ssh.Dispose();
+        _terminal.Dispose();
         base.OnClosed(e);
     }
 

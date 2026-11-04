@@ -18,11 +18,6 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     private int _suppressDrive;
     private bool _suppressHost;
     private bool _nav;
-    private FileSystemWatcher? _editWatch;
-    private DateTime _editAfter;
-    private string? _editLocal;
-    private string? _editRemote;
-    private int _editBusy;
 
     public SshFilesViewModel(AppSession session)
     {
@@ -34,13 +29,12 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     public ObservableCollection<FileEntry> LocalFiles { get; } = new();
     public ObservableCollection<FileEntry> RemoteFiles { get; } = new();
     public ObservableCollection<string> Drives { get; } = new();
+    public ObservableCollection<RemoteEditSession> OpenEdits { get; } = new();
 
     public Func<Window?>? Owner { get; set; }
 
-    /// <summary>text, replaceWhole</summary>
-    public event Action<string, bool>? TerminalWrite;
-    public event Action? ClearInput;
-    public event Action? FocusInput;
+    public event Action<HostConfig?>? OpenTerminalRequested;
+    public event Action<string, string>? ShowText;
 
     public FileEntry? SelectedLocal { get; set; }
     public FileEntry? SelectedRemote { get; set; }
@@ -52,8 +46,8 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string localPath;
     [ObservableProperty] private string remotePath = "";
     [ObservableProperty] private string? selectedDrive;
-    [ObservableProperty] private string termPrompt = "$";
-    [ObservableProperty] private string termHostLabel = "";
+    [ObservableProperty] private bool connected;
+    [ObservableProperty] private string lastOperation = "";
 
     public void Init()
     {
@@ -61,7 +55,6 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         foreach (var d in DriveInfo.GetDrives().Where(x => x.IsReady))
             Drives.Add(d.Name.TrimEnd('\\'));
         ReloadLocal();
-        UpdatePrompt();
     }
 
     public void EnterDocuments()
@@ -78,23 +71,20 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
             _suppressHost = true;
             SelectedHost = Hosts.FirstOrDefault(h => h.IsSelected) ?? Hosts[0];
             _suppressHost = false;
-            UpdatePrompt();
         }
     }
 
     partial void OnSelectedHostChanged(HostConfig? value)
     {
         if (_suppressHost) return;
-        CloseSftp();
+        FlushEdits();
+        CloseSftp(flush: false);
         _back.Clear();
         _fwd.Clear();
         RemotePath = "";
         RemoteFiles.Clear();
-        Term("Подключитесь к хосту (Connect).", replace: true);
-        UpdatePrompt();
+        LastOperation = "Подключитесь к хосту (Connect).";
     }
-
-    partial void OnSudoChanged(bool value) => UpdatePrompt();
 
     partial void OnSelectedDriveChanged(string? value)
     {
@@ -104,21 +94,6 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         if (LocalPath.StartsWith(path, StringComparison.OrdinalIgnoreCase)) return;
         LocalPath = path;
         ReloadLocal();
-    }
-
-    public void UpdatePrompt()
-    {
-        if (SelectedHost is HostConfig h)
-        {
-            var mark = Sudo ? "#" : "$";
-            TermPrompt = $"{h.Username}@{h.Host}:~{mark}";
-            TermHostLabel = $"{h.Display} · {(Sudo ? "sudo" : "user")}";
-        }
-        else
-        {
-            TermPrompt = Sudo ? "#" : "$";
-            TermHostLabel = "";
-        }
     }
 
     public async Task Connect()
@@ -132,10 +107,11 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         try
         {
             TransferStatus = "подключение…";
+            FlushEdits();
             await _io.WaitAsync();
             try
             {
-                CloseSftp();
+                CloseSftp(flush: false);
                 var browser = await Task.Run(() => SftpBrowser.Connect(host));
                 _sftp = browser;
                 host.Status = "Online";
@@ -155,26 +131,15 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
                 _io.Release();
             }
 
-            UpdatePrompt();
-            Term("", replace: true);
-            var mark = Sudo ? "#" : "$";
-            var probe = await Task.Run(() =>
+            var distro = await Task.Run(() =>
             {
                 using var ssh = SshRunner.Connect(host);
-                var d = ssh.DetectDistro();
-                var cwd = RemotePath;
-                var lsCmd = $"ls -la -- '{cwd.Replace("'", "'\\''")}' | head -n 15";
-                var r = ssh.Run("term", lsCmd, 45, Sudo, host);
-                return (d, lsCmd, r);
+                return ssh.DetectDistro();
             });
-            host.DistroHint = probe.d.Id;
+            host.DistroHint = distro.Id;
             _session.Persist();
-            Term($"{host.Username}@{host.Host}:{RemotePath}{mark} {probe.lsCmd}\n");
-            if (!string.IsNullOrWhiteSpace(probe.r.StdOut))
-                Term(probe.r.StdOut.TrimEnd() + "\n");
-            if (!string.IsNullOrWhiteSpace(probe.r.StdErr))
-                Term(probe.r.StdErr.TrimEnd() + "\n");
-            FocusInput?.Invoke();
+            Connected = true;
+            LastOperation = $"подключено {host.Username}@{host.Host} {RemotePath}";
         }
         catch (Exception ex)
         {
@@ -527,55 +492,70 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void RunTerminal(string? raw)
-    {
-        if (SelectedHost is not HostConfig host) return;
-        var cmd = raw?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(cmd)) return;
-        try
-        {
-            using var ssh = SshRunner.Connect(host);
-            var r = ssh.Run("term", cmd, 60, Sudo, host);
-            var mark = Sudo ? "#" : "$";
-            Term($"{host.Username}@{host.Host}:~{mark} {cmd}\n");
-            if (!string.IsNullOrWhiteSpace(r.StdOut))
-                Term(r.StdOut.TrimEnd() + "\n");
-            if (!string.IsNullOrWhiteSpace(r.StdErr))
-                Term(r.StdErr.TrimEnd() + "\n");
-            if (r.ExitCode != 0)
-                Term($"[exit {r.ExitCode}]\n");
-            ClearInput?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            Term("error: " + ex.Message + "\n");
-        }
-    }
+    public void OpenTerminal() => OpenTerminalRequested?.Invoke(SelectedHost);
 
-    public void ViewFile()
+    public async Task ViewFile()
     {
         var f = Active();
-        if (f is null || f.IsDirectory)
+        if (f is null || f.IsDirectory || f.IsParentNav)
         {
             AppDialog.Info(OwnerWin(), "Выберите файл для View.", "F3");
             return;
         }
 
-        if (ActiveLocal)
+        const int max = 1024 * 1024;
+        try
         {
-            try
+            byte[] bytes;
+            bool cut;
+            if (ActiveLocal)
             {
-                var text = File.ReadAllText(f.FullPath);
-                if (text.Length > 8000) text = text[..8000] + "\n…";
-                Term($"--- view {f.Name} ---\n{text.TrimEnd()}\n");
+                (bytes, cut) = await Task.Run(() => ReadHeadLocal(f.FullPath, max));
             }
-            catch (Exception ex) { Term("view error: " + ex.Message + "\n"); }
+            else
+            {
+                if (_sftp is null)
+                {
+                    AppDialog.Info(OwnerWin(), "Сначала Connect.", "F3");
+                    return;
+                }
+
+                await _io.WaitAsync();
+                try
+                {
+                    var got = await Task.Run(() => _sftp.ReadHead(f.FullPath, max + 1));
+                    cut = got.Length > max;
+                    bytes = cut ? got[..max] : got;
+                }
+                finally { _io.Release(); }
+            }
+
+            var text = System.Text.Encoding.UTF8.GetString(bytes);
+            if (cut) text += "\n… обрезано до 1 МБ";
+            ShowText?.Invoke(f.FullPath, text);
+            LastOperation = "просмотр " + f.FullPath;
         }
-        else
+        catch (Exception ex)
         {
-            if (SelectedHost is null) return;
-            RunTerminal($"sed -n '1,200p' -- '{f.FullPath.Replace("'", "'\\''")}'");
+            AppDialog.Info(OwnerWin(), ex.Message, "F3");
         }
+    }
+
+    private static (byte[] Bytes, bool Cut) ReadHeadLocal(string path, int max)
+    {
+        using var fs = File.OpenRead(path);
+        var n = (int)Math.Min(max + 1L, fs.Length);
+        var buf = new byte[n];
+        var off = 0;
+        while (off < n)
+        {
+            var read = fs.Read(buf, off, n - off);
+            if (read == 0) break;
+            off += read;
+        }
+
+        var cut = off > max;
+        return (cut ? buf[..max] : buf[..off], cut);
     }
 
     public async Task EditFile()
@@ -587,40 +567,51 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var editor = DefaultsStore.F4Editor;
         if (ActiveLocal)
         {
             try
             {
-                Process.Start(new ProcessStartInfo(f.FullPath) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(editor, "\"" + f.FullPath + "\"") { UseShellExecute = false });
+                LastOperation = "правка " + f.FullPath;
             }
             catch (Exception ex) { AppDialog.Info(OwnerWin(), ex.Message, "F4"); }
             return;
         }
 
-        if (_sftp is null)
+        if (_sftp is null || SelectedHost is not HostConfig host)
         {
             AppDialog.Info(OwnerWin(), "Сначала Connect.", "F4");
             return;
         }
 
+        if (OpenEdits.Any(s => s.RemotePath == f.FullPath))
+        {
+            AppDialog.Info(OwnerWin(), "Этот файл уже открыт.", "F4");
+            return;
+        }
+
         try
         {
-            var dir = Path.Combine(Path.GetTempPath(), "LinuxOpsEdit");
-            Directory.CreateDirectory(dir);
-            var local = Path.Combine(dir, f.Name);
-            await DownloadTo(f, local);
-            _editWatch?.Dispose();
-            _editLocal = local;
-            _editRemote = f.FullPath;
-            _editAfter = DateTime.UtcNow.AddSeconds(1.5);
-            _editWatch = new FileSystemWatcher(dir, f.Name)
+            var local = RemoteEditSession.LocalCopyPath(host.Host, f.FullPath);
+            try
             {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
-                EnableRaisingEvents = true
-            };
-            _editWatch.Changed += OnRemoteEditChanged;
-            Process.Start(new ProcessStartInfo(local) { UseShellExecute = true });
-            Term($"edit {f.FullPath} → {local}\n");
+                await DownloadTo(f, local);
+            }
+            catch (Renci.SshNet.Common.SftpPermissionDeniedException) when (Sudo)
+            {
+                await Task.Run(() => RemoteEditSession.DownloadElevated(_sftp, host, f.FullPath, local));
+            }
+
+            var stat = await Task.Run(() => _sftp.Stat(f.FullPath));
+            var session = new RemoteEditSession(
+                host.Display, f.FullPath, local, stat.Size, stat.Mtime, editor, launchEditor: true,
+                s => RemoteEditSession.AskSave(OwnerWin(), s.RemotePath, s.HostLabel),
+                s => RemoteEditSession.AskConflict(OwnerWin()),
+                SaveSession);
+            session.Closed += s => Application.Current?.Dispatcher.BeginInvoke(() => OpenEdits.Remove(s));
+            OpenEdits.Add(session);
+            LastOperation = "правка " + f.FullPath;
         }
         catch (Exception ex)
         {
@@ -628,40 +619,58 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void OnRemoteEditChanged(object? sender, FileSystemEventArgs e)
+    public void CloseEdit(RemoteEditSession session)
     {
-        if (DateTime.UtcNow < _editAfter) return;
-        if (Interlocked.Exchange(ref _editBusy, 1) == 1) return;
-        _editAfter = DateTime.UtcNow.AddSeconds(2);
-        Application.Current.Dispatcher.BeginInvoke(async () =>
+        if (session.Dirty)
+            session.Commit(fromClose: true).GetAwaiter().GetResult();
+        session.Dispose();
+    }
+
+    private RemoteSaveResult SaveSession(RemoteEditSession session)
+    {
+        if (_sftp is null || SelectedHost is not HostConfig host)
+            return new RemoteSaveResult { Detail = "нет подключения" };
+        _io.Wait();
+        try
         {
-            try
-            {
-                if (_editLocal is null || _editRemote is null || _sftp is null) return;
-                if (!AppDialog.Confirm(OwnerWin(), "Загрузить обратно?")) return;
-                await _io.WaitAsync();
-                try
+            var result = RemoteEditSession.SaveBack(
+                _sftp, host, Sudo, session.LocalPath, session.RemotePath,
+                session.RemoteSize, session.RemoteMtime,
+                () =>
                 {
-                    var progress = new Progress<long>(n => TransferStatus = $"↑ {Path.GetFileName(_editLocal)} · {n / 1024} КБ");
-                    await _sftp.UploadAsync(_editLocal, _editRemote, progress, CancellationToken.None);
-                    Term($"upload back {_editRemote}\n");
-                    await FillRemoteAsync(record: false);
-                }
-                finally
+                    var app = Application.Current;
+                    if (app is null) return false;
+                    return app.Dispatcher.CheckAccess()
+                        ? RemoteEditSession.AskConflict(OwnerWin())
+                        : app.Dispatcher.Invoke(() => RemoteEditSession.AskConflict(OwnerWin()));
+                });
+            HistoryStore.Append(new[]
+            {
+                new HistoryEntry
                 {
-                    _io.Release();
-                    TransferStatus = "";
+                    Mode = "edit",
+                    Host = host.Display,
+                    Action = session.RemotePath,
+                    Status = result.Saved ? "OK" : "ERR",
+                    Preview = $"{session.RemotePath} · {result.Size} байт · {result.Detail}"
                 }
-            }
-            catch (Exception ex)
+            });
+            if (result.Saved)
             {
-                AppDialog.Info(OwnerWin(), ex.Message, "F4");
+                var now = _sftp.Stat(session.RemotePath);
+                session.NoteRemote(now.Size, now.Mtime, RemoteEditSession.FileHash(session.LocalPath));
+                LastOperation = "загружено " + session.RemotePath;
             }
-            finally
-            {
-                Interlocked.Exchange(ref _editBusy, 0);
-            }
-        });
+            else if (result.Conflict)
+                LastOperation = result.Detail;
+            else
+                Application.Current?.Dispatcher.BeginInvoke(() => AppDialog.Info(OwnerWin(), result.Detail, "F4"));
+            return result;
+        }
+        finally
+        {
+            _io.Release();
+        }
     }
 
     public async Task CopyActive()
@@ -763,16 +772,39 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
 
     public void Disconnect()
     {
-        CloseSftp();
+        FlushEdits();
+        CloseSftp(flush: false);
         RemoteFiles.Clear();
         RemotePath = "";
         _back.Clear();
         _fwd.Clear();
-        Term("disconnected\n");
-        UpdatePrompt();
+        LastOperation = "отключено";
     }
 
-    public void Dispose() => CloseSftp();
+    public void Dispose()
+    {
+        FlushEdits();
+        CloseSftp(flush: false);
+    }
+
+    private void FlushEdits()
+    {
+        var list = OpenEdits.ToList();
+        if (list.Count == 0) return;
+        var dirty = list.Where(s => s.Dirty).ToList();
+        if (dirty.Count > 0 && _sftp is not null && SelectedHost is not null)
+        {
+            var text = "Есть несохранённые изменения:\n" + string.Join("\n", dirty.Select(s => s.RemotePath)) + "\nЗагрузить на хост?";
+            if (AppDialog.Confirm(OwnerWin(), text, "Правка"))
+            {
+                foreach (var session in dirty)
+                    SaveSession(session);
+            }
+        }
+
+        foreach (var session in list)
+            session.Dispose();
+    }
 
     private FileEntry? Active() => ActiveLocal ? SelectedLocal : SelectedRemote;
 
@@ -791,20 +823,21 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
             _back.Add(cwd);
     }
 
-    private void CloseSftp()
+    private void CloseSftp(bool flush)
     {
-        if (_editWatch is not null)
-        {
-            _editWatch.EnableRaisingEvents = false;
-            _editWatch.Dispose();
-            _editWatch = null;
-        }
-
+        if (flush) FlushEdits();
         _sftp?.Dispose();
         _sftp = null;
+        Connected = false;
     }
 
-    private void Term(string text, bool replace = false) => TerminalWrite?.Invoke(text, replace);
+    private void Term(string text)
+    {
+        var line = text.Replace("\r", "").Trim();
+        if (line.Length == 0) return;
+        var first = line.Split('\n')[0].Trim();
+        LastOperation = first.Length > 200 ? first[..200] : first;
+    }
 
     private Window OwnerWin() => Owner?.Invoke() ?? Application.Current.MainWindow!;
 }
