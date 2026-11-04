@@ -9,6 +9,7 @@ namespace LinuxOps;
 public partial class ActionEditWindow : Window
 {
     private readonly bool _readOnly;
+    private readonly bool _newId;
     public ActionDefinition Result { get; private set; } = new();
 
     public ActionEditWindow(ActionDefinition? existing = null, bool clone = false)
@@ -31,8 +32,9 @@ public partial class ActionEditWindow : Window
         PrivBox.SelectedIndex = string.Equals(existing.Privilege, "user", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
 
         SetDistros(existing.Distros);
-        Result.Id = clone || !existing.BuiltIn
-            ? (clone ? existing.Id + "-custom" : existing.Id)
+        _newId = clone || string.IsNullOrWhiteSpace(existing.Id);
+        Result.Id = clone
+            ? existing.Id + "-custom"
             : existing.Id;
 
         if (_readOnly)
@@ -88,8 +90,8 @@ public partial class ActionEditWindow : Window
         if (!int.TryParse(TimeoutBox.Text.Trim(), out var timeout) || timeout < 5)
             timeout = 60;
 
-        var id = string.IsNullOrWhiteSpace(Result.Id)
-            ? Slug(NameBox.Text)
+        var id = _newId || string.IsNullOrWhiteSpace(Result.Id)
+            ? ActionCatalog.UniqueId(string.IsNullOrWhiteSpace(Result.Id) ? Slug(NameBox.Text) : Result.Id)
             : Result.Id;
 
         Result = new ActionDefinition
@@ -111,8 +113,23 @@ public partial class ActionEditWindow : Window
 
     private static string Slug(string name)
     {
-        var s = name.Trim().ToLowerInvariant();
-        s = Regex.Replace(s, @"[^a-z0-9]+", "-").Trim('-');
+        var sb = new System.Text.StringBuilder(name.Length);
+        foreach (var ch in name.Trim().ToLowerInvariant())
+        {
+            if (Cyrillic.TryGetValue(ch, out var lat)) sb.Append(lat);
+            else sb.Append(ch);
+        }
+
+        var s = Regex.Replace(sb.ToString(), @"[^a-z0-9]+", "-").Trim('-');
         return string.IsNullOrWhiteSpace(s) ? "custom-action" : s;
     }
+
+    private static readonly Dictionary<char, string> Cyrillic = new()
+    {
+        ['а'] = "a", ['б'] = "b", ['в'] = "v", ['г'] = "g", ['д'] = "d", ['е'] = "e", ['ё'] = "e",
+        ['ж'] = "zh", ['з'] = "z", ['и'] = "i", ['й'] = "y", ['к'] = "k", ['л'] = "l", ['м'] = "m",
+        ['н'] = "n", ['о'] = "o", ['п'] = "p", ['р'] = "r", ['с'] = "s", ['т'] = "t", ['у'] = "u",
+        ['ф'] = "f", ['х'] = "h", ['ц'] = "ts", ['ч'] = "ch", ['ш'] = "sh", ['щ'] = "sch",
+        ['ъ'] = "", ['ы'] = "y", ['ь'] = "", ['э'] = "e", ['ю'] = "yu", ['я'] = "ya"
+    };
 }

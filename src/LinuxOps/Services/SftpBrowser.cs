@@ -36,6 +36,7 @@ public sealed class SftpBrowser : IDisposable
     public static SftpBrowser Connect(HostConfig host)
     {
         var client = new SftpClient(SshAuth.Build(host));
+        SshAuth.AttachHostKey(client, host);
         client.Connect();
         return new SftpBrowser(client);
     }
@@ -89,19 +90,60 @@ public sealed class SftpBrowser : IDisposable
         _client.DownloadFile(remotePath, fs);
     }
 
+    public async Task DownloadAsync(string remotePath, string localPath, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        await using var fs = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.Read, 81920, useAsync: true);
+        var relay = progress is null
+            ? null
+            : new Progress<DownloadFileProgressReport>(r => progress.Report((long)r.TotalBytesDownloaded));
+        await _client.DownloadFileAsync(remotePath, fs, relay, cancellationToken);
+    }
+
     public void Upload(string localPath, string remotePath)
     {
         using var fs = File.OpenRead(localPath);
         _client.UploadFile(fs, remotePath, true);
     }
 
+    public async Task UploadAsync(string localPath, string remotePath, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        await using var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 81920, useAsync: true);
+        var relay = progress is null
+            ? null
+            : new Progress<UploadFileProgressReport>(r => progress.Report((long)r.TotalBytesUploaded));
+        await _client.UploadFileAsync(fs, remotePath, true, relay, cancellationToken);
+    }
+
+    public int CountFiles(string remotePath)
+    {
+        var attrs = _client.GetAttributes(remotePath);
+        if (!attrs.IsDirectory) return 1;
+        var n = 0;
+        foreach (var f in _client.ListDirectory(remotePath))
+        {
+            if (f.Name is "." or "..") continue;
+            n += f.IsDirectory ? CountFiles(f.FullName) : 1;
+        }
+
+        return n;
+    }
+
     public void Delete(string remotePath)
     {
         var attrs = _client.GetAttributes(remotePath);
-        if (attrs.IsDirectory)
-            _client.DeleteDirectory(remotePath);
-        else
+        if (!attrs.IsDirectory)
+        {
             _client.DeleteFile(remotePath);
+            return;
+        }
+
+        foreach (var f in _client.ListDirectory(remotePath).ToList())
+        {
+            if (f.Name is "." or "..") continue;
+            Delete(f.FullName);
+        }
+
+        _client.DeleteDirectory(remotePath);
     }
 
     public void MkDir(string remotePath) => _client.CreateDirectory(remotePath);

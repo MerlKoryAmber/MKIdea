@@ -6,14 +6,14 @@
         <DockPanel>
           <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
             <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Обновить" Style="{StaticResource Btn}" Height="28" MinWidth="90" Margin="0,0,6,0" Command="{Binding ReloadCommand}"/>
+                <Button Content="Очистить" Style="{StaticResource Btn}" Height="28" MinWidth="90" Command="{Binding ClearCommand}"/>
+              </StackPanel>
               <StackPanel>
                 <TextBlock Text="History" Style="{StaticResource SectionTitle}"/>
                 <TextBlock Text="Последние dry-run / apply по хостам и действиям."
                            Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
-              </StackPanel>
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="Обновить" Style="{StaticResource Btn}" Height="28" MinWidth="90" Margin="0,0,6,0" Command="{Binding ReloadCommand}"/>
-                <Button Content="Очистить" Style="{StaticResource Btn}" Height="28" MinWidth="90" Command="{Binding ClearCommand}"/>
               </StackPanel>
             </DockPanel>
           </Border>

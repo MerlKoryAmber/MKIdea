@@ -14,7 +14,9 @@
     </Grid.RowDefinitions>
 
     <Border Grid.Row="0" Background="{StaticResource HeaderGradient}" Padding="20,14">
-      <DockPanel>
+      <DockPanel LastChildFill="False">
+        <TextBlock DockPanel.Dock="Right" x:Name="FooterVersionText"
+                   Foreground="#8EB8B0" VerticalAlignment="Center" FontSize="12"/>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <TextBlock Text="LinuxOps" Style="{StaticResource BrandTitle}" Margin="0,0,22,0" VerticalAlignment="Center"/>
           <ToggleButton x:Name="ChipInventory" Content="Inventory" Style="{StaticResource ModeChip}"
@@ -26,8 +28,6 @@
           <ToggleButton x:Name="ChipHistory" Content="History" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="history"/>
         </StackPanel>
-        <TextBlock DockPanel.Dock="Right" x:Name="FooterVersionText"
-                   Foreground="#8EB8B0" VerticalAlignment="Center" FontSize="12"/>
       </DockPanel>
     </Border>
 
@@ -38,8 +38,6 @@
 
     <Border Grid.Row="2" Background="#E8EEF4" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="28,14">
       <DockPanel>
-        <TextBlock x:Name="DefaultsPathText" Foreground="{StaticResource MutedBrush}" FontSize="11.5"
-                   VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="560"/>
         <StackPanel x:Name="ActionsFooter" DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
           <Button Content="Очистить план" Style="{StaticResource Btn}" Margin="0,0,8,0"
                   Command="{Binding DataContext.ClearResultsCommand, ElementName=Actions}"/>
@@ -50,6 +48,8 @@
           <Button Content="Применить" Style="{StaticResource BtnPrimary}" Width="130"
                   Command="{Binding DataContext.ApplyCommand, ElementName=Actions}"/>
         </StackPanel>
+        <TextBlock x:Name="DefaultsPathText" Foreground="{StaticResource MutedBrush}" FontSize="11.5"
+                   VerticalAlignment="Center" TextWrapping="Wrap"/>
       </DockPanel>
     </Border>
   </Grid>

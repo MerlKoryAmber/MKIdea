@@ -12,6 +12,7 @@ public static class BuiltinActions
             Name = "Проверить обновления",
             Description = "Доступные пакеты: apt / dnf / zypper",
             BuiltIn = true,
+            TimeoutSeconds = 300,
             Distros = new List<string> { "ubuntu", "debian", "rhel", "alma", "suse" }
         },
         new ActionDefinition
@@ -21,6 +22,7 @@ public static class BuiltinActions
             Description = "Полный upgrade (нужен Применить)",
             BuiltIn = true,
             Destructive = true,
+            TimeoutSeconds = 1800,
             Distros = new List<string> { "ubuntu", "debian", "rhel", "alma", "suse" }
         },
         new ActionDefinition
@@ -31,14 +33,6 @@ public static class BuiltinActions
             BuiltIn = true,
             Distros = new List<string> { "any" }
         },
-        new ActionDefinition
-        {
-            Id = "ensure-user-demo",
-            Name = "Пользователь и роль",
-            Description = "План: создать пользователя и добавить в wheel/sudo",
-            BuiltIn = true,
-            Distros = new List<string> { "any" }
-        }
     };
 
     public static string ResolveScript(string id, DistroInfo distro)
@@ -48,7 +42,6 @@ public static class BuiltinActions
             "check-updates" => CheckUpdates(distro),
             "install-updates" => InstallUpdates(distro),
             "list-users" => ListUsers(distro),
-            "ensure-user-demo" => EnsureUserDemo(distro),
             _ => throw new InvalidOperationException($"Неизвестное built-in действие: {id}")
         };
     }
@@ -94,11 +87,42 @@ public static class BuiltinActions
         "debian" => """
             set -e
             export DEBIAN_FRONTEND=noninteractive
-            apt-get -y upgrade
+            apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade
             """,
         "suse" => """
             set -e
             zypper --non-interactive update
+            """,
+            _ => "echo unsupported >&2; exit 3"
+    };
+
+    public static bool TrySimulate(string id, DistroInfo distro, out string script)
+    {
+        script = "";
+        if (!string.Equals(id, "install-updates", StringComparison.OrdinalIgnoreCase))
+            return false;
+        script = SimulateInstall(distro);
+        return true;
+    }
+
+    private static string SimulateInstall(DistroInfo d) => d.Family switch
+    {
+        "rhel" => """
+            set -e
+            if command -v dnf >/dev/null 2>&1; then
+              dnf upgrade --assumeno || true
+            else
+              yum update --assumeno || true
+            fi
+            """,
+        "debian" => """
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get -s upgrade
+            """,
+        "suse" => """
+            set -e
+            zypper -n update --dry-run
             """,
         _ => "echo unsupported >&2; exit 3"
     };
@@ -119,19 +143,4 @@ public static class BuiltinActions
           ls -1 /etc/sudoers.d 2>/dev/null || echo "(empty)"
         fi
         """;
-
-    private static string EnsureUserDemo(DistroInfo d)
-    {
-        var group = d.Family == "debian" ? "sudo" : "wheel";
-        return string.Join('\n', new[]
-        {
-            "USERNAME=\"${LINUXOPS_USER:-opsuser}\"",
-            $"echo \"# dry plan for user=$USERNAME group={group}\"",
-            "echo \"id \\\"$USERNAME\\\" || useradd -m -s /bin/bash \\\"$USERNAME\\\"\"",
-            $"echo \"usermod -aG {group} \\\"$USERNAME\\\"\"",
-            "echo \"# set password interactively on host; not automated here\"",
-            "id \"$USERNAME\" 2>/dev/null || echo \"(user not present yet)\"",
-            $"getent group {group} || true"
-        });
-    }
 }

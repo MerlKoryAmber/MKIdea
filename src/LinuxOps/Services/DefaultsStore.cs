@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using LinuxOps.Models;
 
@@ -25,6 +27,8 @@ public static class DefaultsStore
                 if (loaded is not null)
                 {
                     ExpandPaths(loaded);
+                    foreach (var h in loaded.Hosts)
+                        h.Password = Unprotect(h.Password);
                     return loaded;
                 }
             }
@@ -65,10 +69,36 @@ public static class DefaultsStore
         Username = h.Username,
         Auth = string.IsNullOrWhiteSpace(h.Auth) ? "Key" : h.Auth,
         PrivateKeyPath = CollapseUserProfile(h.PrivateKeyPath),
-        Password = h.Password,
+        Password = Protect(h.Password),
+        UseSudo = h.UseSudo,
         DistroHint = h.DistroHint,
         IsSelected = h.IsSelected
     };
+
+    public const string PasswordPrefix = "dpapi:";
+
+    public static string Protect(string? password)
+    {
+        if (string.IsNullOrEmpty(password) || password.StartsWith(PasswordPrefix, StringComparison.Ordinal))
+            return password ?? string.Empty;
+        var bytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.CurrentUser);
+        return PasswordPrefix + Convert.ToBase64String(bytes);
+    }
+
+    public static string Unprotect(string? stored)
+    {
+        if (string.IsNullOrEmpty(stored) || !stored.StartsWith(PasswordPrefix, StringComparison.Ordinal))
+            return stored ?? string.Empty;
+        try
+        {
+            var raw = Convert.FromBase64String(stored[PasswordPrefix.Length..]);
+            return Encoding.UTF8.GetString(ProtectedData.Unprotect(raw, null, DataProtectionScope.CurrentUser));
+        }
+        catch
+        {
+            return stored;
+        }
+    }
 
     private static string CollapseUserProfile(string? path)
     {

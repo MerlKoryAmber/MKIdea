@@ -67,15 +67,70 @@ public partial class ActionsViewModel : ObservableObject
         ActionsReloaded?.Invoke();
     }
 
-    public void SyncSelection(IEnumerable<ActionItemView> selected, bool persist)
+    public void NoteCursor(ActionItemView? item)
     {
-        var ids = selected.Select(a => a.Definition.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        CanEditOne = ids.Count == 1;
-        CanRemove = ids.Count > 0;
-        foreach (var a in Actions)
-            a.IsSelected = ids.Contains(a.Definition.Id);
-        if (persist)
-            DefaultsStore.SaveSelectedActions(Actions.Where(a => a.IsSelected).Select(a => a.Definition.Id));
+        CanEditOne = item is not null;
+        CanRemove = item is not null;
+    }
+
+    public void PersistPlan()
+        => DefaultsStore.SaveSelectedActions(Actions.Where(a => a.IsSelected).Select(a => a.Definition.Id));
+
+    public void RefreshPreview()
+    {
+        if (IsRunning) return;
+        Results.Clear();
+        SelectedResult = null;
+        var planned = Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
+        var hosts = Hosts.Where(h => h.IsSelected).ToList();
+        if (hosts.Count == 0 || planned.Count == 0)
+        {
+            Results.Add(PlanRunner.MakeRow("INFO", "План пуст", "Отметьте хосты и «В плане» у действий.", "", true));
+            return;
+        }
+
+        foreach (var host in hosts)
+        {
+            var distro = GuessDistro(host.DistroHint);
+            foreach (var action in planned)
+            {
+                if (!ActionCatalog.Supports(action, distro))
+                {
+                    Results.Add(PlanRunner.MakeRow(
+                        "SKIP",
+                        $"{host.Title} · {action.Name}",
+                        $"не для {distro.Id} / {distro.Family}",
+                        $"Действие {action.Id} не совпало с id={distro.Id}, family={distro.Family}, like={distro.Like}.",
+                        true));
+                }
+                else
+                {
+                    Results.Add(PlanRunner.MakeRow(
+                        "INFO",
+                        $"{host.Title} · {action.Name}",
+                        "войдёт в запуск",
+                        $"{action.Privilege}. Дистрибутив по подсказке: {distro.Id} ({distro.Family}).",
+                        true));
+                }
+            }
+        }
+
+        SelectedResult = Results.FirstOrDefault();
+    }
+
+    private static DistroInfo GuessDistro(string? hint)
+    {
+        var id = string.IsNullOrWhiteSpace(hint) ? "unknown" : hint.Trim();
+        var blob = id.ToLowerInvariant();
+        var family = "unknown";
+        if (blob.Contains("rhel") || blob.Contains("centos") || blob.Contains("fedora") ||
+            blob.Contains("rocky") || blob.Contains("alma") || blob.Contains("oracle") || blob == "ol")
+            family = "rhel";
+        else if (blob.Contains("debian") || blob.Contains("ubuntu"))
+            family = "debian";
+        else if (blob.Contains("suse") || blob.Contains("sles"))
+            family = "suse";
+        return new DistroInfo { Id = id, Like = id, PrettyName = id, Family = family };
     }
 
     partial void OnSelectedResultChanged(ResultRow? value)
@@ -89,6 +144,7 @@ public partial class ActionsViewModel : ObservableObject
     {
         DryRunCommand.NotifyCanExecuteChanged();
         ApplyCommand.NotifyCanExecuteChanged();
+        AddUserCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
     }
 
@@ -211,8 +267,73 @@ public partial class ActionsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStart))]
     private Task Apply() => RunAsync(apply: true);
 
+    [RelayCommand(CanExecute = nameof(CanStart))]
+    private async Task AddUser()
+    {
+        var hosts = Hosts.Where(h => h.IsSelected).ToList();
+        if (hosts.Count == 0)
+        {
+            Warn("Отметьте хост.");
+            return;
+        }
+
+        var dlg = new AddUserWindow(hosts) { Owner = OwnerWin() };
+        if (dlg.ShowDialog() != true || dlg.Request is null) return;
+
+        Results.Clear();
+        SelectedResult = null;
+        RunStatus = "пользователь…";
+        IsRunning = true;
+        _runCts = new CancellationTokenSource();
+        var progress = new Progress<PlanProgress>(ApplyProgress);
+        var history = new List<HistoryEntry>();
+        try
+        {
+            await UserProvisioning.ApplyAsync(hosts, dlg.Request, progress, _runCts.Token);
+            foreach (var row in Results)
+            {
+                history.Add(new HistoryEntry
+                {
+                    AtUtc = DateTime.UtcNow,
+                    Mode = "add-user",
+                    Host = row.Title,
+                    Action = dlg.Request.Login,
+                    Status = row.Status,
+                    Preview = row.Preview,
+                    Detail = row.Detail
+                });
+            }
+
+            if (history.Count > 0)
+                HistoryStore.Append(history);
+            var failN = PlanRunner.Count(Results, "FAIL");
+            RunStatus = failN == 0 ? "пользователь готов" : $"{failN} FAIL";
+        }
+        catch (OperationCanceledException)
+        {
+            RunStatus = "отменено";
+        }
+        catch (Exception ex)
+        {
+            Warn(ex.Message);
+        }
+        finally
+        {
+            IsRunning = false;
+            _runCts.Dispose();
+            _runCts = null;
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _runCts?.Cancel();
+
+    [RelayCommand]
+    private void CopyDetail()
+    {
+        if (!string.IsNullOrWhiteSpace(Detail))
+            Clipboard.SetText(Detail);
+    }
 
     [RelayCommand]
     private void ClearResults()
@@ -241,6 +362,20 @@ public partial class ActionsViewModel : ObservableObject
         {
             Warn("Отметьте действие.");
             return;
+        }
+
+        if (apply)
+        {
+            var destructive = actions.Where(a => a.Destructive).ToList();
+            if (destructive.Count > 0)
+            {
+                var list = string.Join(", ", hosts.Select(h => string.IsNullOrWhiteSpace(h.Name) ? h.Host : h.Name));
+                var msg = destructive.All(a => string.Equals(a.Id, "install-updates", StringComparison.OrdinalIgnoreCase))
+                    ? $"Установить обновления на {hosts.Count} хостах ({list})? Продолжить?"
+                    : $"Применить {string.Join(", ", destructive.Select(a => a.Name))} на {hosts.Count} хостах ({list})? Продолжить?";
+                if (!AppDialog.Confirm(OwnerWin(), msg))
+                    return;
+            }
         }
 
         Results.Clear();
@@ -356,9 +491,14 @@ public partial class ActionsViewModel : ObservableObject
         var n = Hosts.Count(h => h.IsSelected);
         HostsSelectedText = n == 0 ? "ничего не выбрано" : $"{n} выбрано";
         var all = Hosts.Count > 0 && n == Hosts.Count;
-        if (SelectAllChecked == all) return;
+        if (SelectAllChecked == all) 
+        {
+            if (!IsRunning) RefreshPreview();
+            return;
+        }
         _bulkHosts = true;
         SelectAllChecked = all;
         _bulkHosts = false;
+        if (!IsRunning) RefreshPreview();
     }
 }

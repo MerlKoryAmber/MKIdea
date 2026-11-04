@@ -11,9 +11,18 @@ namespace LinuxOps.ViewModels;
 public partial class SshFilesViewModel : ObservableObject, IDisposable
 {
     private readonly AppSession _session;
+    private readonly SemaphoreSlim _io = new(1, 1);
+    private readonly List<string> _back = new();
+    private readonly List<string> _fwd = new();
     private SftpBrowser? _sftp;
     private int _suppressDrive;
     private bool _suppressHost;
+    private bool _nav;
+    private FileSystemWatcher? _editWatch;
+    private DateTime _editAfter;
+    private string? _editLocal;
+    private string? _editRemote;
+    private int _editBusy;
 
     public SshFilesViewModel(AppSession session)
     {
@@ -36,6 +45,7 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     public FileEntry? SelectedLocal { get; set; }
     public FileEntry? SelectedRemote { get; set; }
 
+    [ObservableProperty] private string transferStatus = "";
     [ObservableProperty] private HostConfig? selectedHost;
     [ObservableProperty] private bool sudo;
     [ObservableProperty] private bool activeLocal = true;
@@ -76,6 +86,8 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     {
         if (_suppressHost) return;
         CloseSftp();
+        _back.Clear();
+        _fwd.Clear();
         RemotePath = "";
         RemoteFiles.Clear();
         Term("Подключитесь к хосту (Connect).", replace: true);
@@ -109,7 +121,7 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Connect()
+    public async Task Connect()
     {
         if (SelectedHost is not HostConfig host)
         {
@@ -119,48 +131,68 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
 
         try
         {
-            CloseSftp();
-            _sftp = SftpBrowser.Connect(host);
-            host.Status = "Online";
-            try { _sftp.ChangeDirectory("/etc"); }
-            catch
+            TransferStatus = "подключение…";
+            await _io.WaitAsync();
+            try
             {
-                try { _sftp.ChangeDirectory(_sftp.WorkingDirectory); }
-                catch { /* leave cwd */ }
+                CloseSftp();
+                var browser = await Task.Run(() => SftpBrowser.Connect(host));
+                _sftp = browser;
+                host.Status = "Online";
+                await Task.Run(() =>
+                {
+                    try { browser.ChangeDirectory("/etc"); }
+                    catch
+                    {
+                        try { browser.ChangeDirectory(browser.WorkingDirectory); }
+                        catch { /* leave cwd */ }
+                    }
+                });
+                await FillRemoteAsync(record: true);
+            }
+            finally
+            {
+                _io.Release();
             }
 
-            RefreshRemote();
             UpdatePrompt();
             Term("", replace: true);
             var mark = Sudo ? "#" : "$";
-            using var ssh = SshRunner.Connect(host);
-            var d = ssh.DetectDistro();
-            host.DistroHint = d.Id;
+            var probe = await Task.Run(() =>
+            {
+                using var ssh = SshRunner.Connect(host);
+                var d = ssh.DetectDistro();
+                var cwd = RemotePath;
+                var lsCmd = $"ls -la -- '{cwd.Replace("'", "'\\''")}' | head -n 15";
+                var r = ssh.Run("term", lsCmd, 45, Sudo, host);
+                return (d, lsCmd, r);
+            });
+            host.DistroHint = probe.d.Id;
             _session.Persist();
-
-            string? sudoPass = null;
-            if (Sudo && string.Equals(host.Auth, "Password", StringComparison.OrdinalIgnoreCase))
-                sudoPass = host.Password;
-            var cwd = _sftp.WorkingDirectory;
-            var lsCmd = $"ls -la -- '{cwd.Replace("'", "'\\''")}' | head -n 15";
-            var r = ssh.Run("term", lsCmd, 45, Sudo, sudoPass);
-            Term($"{host.Username}@{host.Host}:{cwd}{mark} {lsCmd}\n");
-            if (!string.IsNullOrWhiteSpace(r.StdOut))
-                Term(r.StdOut.TrimEnd() + "\n");
-            if (!string.IsNullOrWhiteSpace(r.StdErr))
-                Term(r.StdErr.TrimEnd() + "\n");
+            Term($"{host.Username}@{host.Host}:{RemotePath}{mark} {probe.lsCmd}\n");
+            if (!string.IsNullOrWhiteSpace(probe.r.StdOut))
+                Term(probe.r.StdOut.TrimEnd() + "\n");
+            if (!string.IsNullOrWhiteSpace(probe.r.StdErr))
+                Term(probe.r.StdErr.TrimEnd() + "\n");
             FocusInput?.Invoke();
         }
         catch (Exception ex)
         {
             AppDialog.Info(OwnerWin(), ex.Message, "SSH Files");
         }
+        finally
+        {
+            TransferStatus = "";
+        }
     }
 
-    public void Refresh()
+    public async Task Refresh()
     {
         ReloadLocal();
-        if (_sftp is not null) RefreshRemote();
+        if (_sftp is null) return;
+        await _io.WaitAsync();
+        try { await FillRemoteAsync(record: false); }
+        finally { _io.Release(); }
     }
 
     public void ReloadLocal()
@@ -240,22 +272,84 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         catch { /* ignore */ }
     }
 
-    public void RemoteUp()
+    public async Task RemoteUp()
     {
         if (_sftp is null) return;
         try
         {
-            var cur = _sftp.WorkingDirectory.TrimEnd('/');
-            if (string.IsNullOrEmpty(cur) || cur == "/") return;
-            var idx = cur.LastIndexOf('/');
-            var parent = idx <= 0 ? "/" : cur[..idx];
-            _sftp.ChangeDirectory(parent);
-            RefreshRemote();
+            await _io.WaitAsync();
+            try
+            {
+                var cur = _sftp.WorkingDirectory.TrimEnd('/');
+                if (string.IsNullOrEmpty(cur) || cur == "/") return;
+                var idx = cur.LastIndexOf('/');
+                var parent = idx <= 0 ? "/" : cur[..idx];
+                await Task.Run(() => _sftp.ChangeDirectory(parent));
+                await FillRemoteAsync(record: true);
+            }
+            finally { _io.Release(); }
         }
         catch (Exception ex)
         {
             Term("cd .. error: " + ex.Message + "\n");
         }
+    }
+
+    public async Task GoRemote(string path)
+    {
+        if (_sftp is null || string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            await _io.WaitAsync();
+            try
+            {
+                await Task.Run(() => _sftp.ChangeDirectory(path.Trim()));
+                await FillRemoteAsync(record: true);
+            }
+            finally { _io.Release(); }
+        }
+        catch (Exception ex)
+        {
+            Term("cd error: " + ex.Message + "\n");
+        }
+    }
+
+    public async Task RemoteBack()
+    {
+        if (_sftp is null || _back.Count < 2) return;
+        var current = _back[^1];
+        _back.RemoveAt(_back.Count - 1);
+        _fwd.Add(current);
+        await Jump(_back[^1]);
+    }
+
+    public async Task RemoteForward()
+    {
+        if (_sftp is null || _fwd.Count == 0) return;
+        var next = _fwd[^1];
+        _fwd.RemoveAt(_fwd.Count - 1);
+        _back.Add(next);
+        await Jump(next);
+    }
+
+    private async Task Jump(string path)
+    {
+        try
+        {
+            _nav = true;
+            await _io.WaitAsync();
+            try
+            {
+                await Task.Run(() => _sftp!.ChangeDirectory(path));
+                await FillRemoteAsync(record: false);
+            }
+            finally { _io.Release(); }
+        }
+        catch (Exception ex)
+        {
+            Term("cd error: " + ex.Message + "\n");
+        }
+        finally { _nav = false; }
     }
 
     public void ApplyTypedPath(string path)
@@ -273,13 +367,18 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         ReloadLocal();
     }
 
-    public void OpenRemote(FileEntry? f)
+    public async Task OpenRemote(FileEntry? f)
     {
         if (_sftp is null || f is null || (!f.IsDirectory && !f.IsParentNav)) return;
         try
         {
-            _sftp.ChangeDirectory(f.FullPath);
-            RefreshRemote();
+            await _io.WaitAsync();
+            try
+            {
+                await Task.Run(() => _sftp.ChangeDirectory(f.FullPath));
+                await FillRemoteAsync(record: true);
+            }
+            finally { _io.Release(); }
         }
         catch (Exception ex)
         {
@@ -287,7 +386,9 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Upload()
+    public Task Upload() => UploadPaths(SelectedLocal is FileEntry local ? new[] { local.FullPath } : Array.Empty<string>());
+
+    public async Task UploadPaths(IReadOnlyList<string> localPaths)
     {
         if (_sftp is null)
         {
@@ -295,26 +396,45 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (SelectedLocal is not FileEntry local || local.IsDirectory || local.IsParentNav)
+        var files = localPaths.Where(p => File.Exists(p)).ToList();
+        if (files.Count == 0)
         {
             AppDialog.Info(OwnerWin(), "Выберите локальный файл.", "SSH Files");
             return;
         }
 
-        var remote = (_sftp.WorkingDirectory.TrimEnd('/') + "/" + local.Name).Replace("//", "/");
         try
         {
-            _sftp.Upload(local.FullPath, remote);
-            Term($"upload {local.Name} → {remote}\n");
-            RefreshRemote();
+            await _io.WaitAsync();
+            try
+            {
+                foreach (var local in files)
+                {
+                    var name = Path.GetFileName(local);
+                    var remote = (_sftp.WorkingDirectory.TrimEnd('/') + "/" + name).Replace("//", "/");
+                    var progress = new Progress<long>(n => TransferStatus = $"↑ {name} · {n / 1024} КБ");
+                    TransferStatus = $"↑ {name}";
+                    await _sftp.UploadAsync(local, remote, progress, CancellationToken.None);
+                    Term($"upload {name} → {remote}\n");
+                }
+
+                await FillRemoteAsync(record: false);
+            }
+            finally { _io.Release(); }
         }
         catch (Exception ex)
         {
             AppDialog.Info(OwnerWin(), ex.Message, "Upload");
         }
+        finally
+        {
+            TransferStatus = "";
+        }
     }
 
-    public void Download()
+    public Task Download() => DownloadEntries(SelectedRemote is FileEntry remote ? new[] { remote } : Array.Empty<FileEntry>());
+
+    public async Task DownloadEntries(IReadOnlyList<FileEntry> entries)
     {
         if (_sftp is null)
         {
@@ -322,40 +442,88 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (SelectedRemote is not FileEntry remote || remote.IsDirectory || remote.IsParentNav)
+        var files = entries.Where(f => !f.IsDirectory && !f.IsParentNav).ToList();
+        if (files.Count == 0)
         {
             AppDialog.Info(OwnerWin(), "Выберите удалённый файл.", "SSH Files");
             return;
         }
 
-        var local = Path.Combine(LocalPath, remote.Name);
         try
         {
-            _sftp.Download(remote.FullPath, local);
-            Term($"download {remote.FullPath} → {local}\n");
+            await _io.WaitAsync();
+            try
+            {
+                foreach (var remote in files)
+                {
+                    var local = Path.Combine(LocalPath, remote.Name);
+                    var progress = new Progress<long>(n => TransferStatus = $"↓ {remote.Name} · {n / 1024} КБ");
+                    TransferStatus = $"↓ {remote.Name}";
+                    await _sftp.DownloadAsync(remote.FullPath, local, progress, CancellationToken.None);
+                    Term($"download {remote.FullPath} → {local}\n");
+                }
+            }
+            finally { _io.Release(); }
             ReloadLocal();
         }
         catch (Exception ex)
         {
             AppDialog.Info(OwnerWin(), ex.Message, "Download");
         }
+        finally
+        {
+            TransferStatus = "";
+        }
     }
 
-    public void DeleteRemote()
+    public async Task DownloadTo(FileEntry remote, string localPath)
+    {
+        if (_sftp is null) return;
+        await _io.WaitAsync();
+        try
+        {
+            var progress = new Progress<long>(n => TransferStatus = $"↓ {remote.Name} · {n / 1024} КБ");
+            await _sftp.DownloadAsync(remote.FullPath, localPath, progress, CancellationToken.None);
+        }
+        finally
+        {
+            _io.Release();
+            TransferStatus = "";
+        }
+    }
+
+    public async Task DeleteRemote()
     {
         if (_sftp is null || SelectedRemote is not FileEntry remote || remote.IsParentNav)
             return;
-        if (!AppDialog.Confirm(OwnerWin(), $"Удалить {remote.Name}?"))
+        int files;
+        await _io.WaitAsync();
+        try { files = await Task.Run(() => remote.IsDirectory ? _sftp.CountFiles(remote.FullPath) : 1); }
+        finally { _io.Release(); }
+        var ask = remote.IsDirectory
+            ? $"Удалить {remote.Name}? Внутри файлов: {files}."
+            : $"Удалить {remote.Name}?";
+        if (!AppDialog.Confirm(OwnerWin(), ask))
             return;
         try
         {
-            _sftp.Delete(remote.FullPath);
-            Term($"delete {remote.FullPath}\n");
-            RefreshRemote();
+            await _io.WaitAsync();
+            try
+            {
+                TransferStatus = $"удаление {remote.Name}";
+                await Task.Run(() => _sftp.Delete(remote.FullPath));
+                Term($"delete {remote.FullPath}\n");
+                await FillRemoteAsync(record: false);
+            }
+            finally { _io.Release(); }
         }
         catch (Exception ex)
         {
             AppDialog.Info(OwnerWin(), ex.Message, "Delete");
+        }
+        finally
+        {
+            TransferStatus = "";
         }
     }
 
@@ -367,10 +535,7 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         try
         {
             using var ssh = SshRunner.Connect(host);
-            string? sudoPass = null;
-            if (Sudo && string.Equals(host.Auth, "Password", StringComparison.OrdinalIgnoreCase))
-                sudoPass = host.Password;
-            var r = ssh.Run("term", cmd, 60, Sudo, sudoPass);
+            var r = ssh.Run("term", cmd, 60, Sudo, host);
             var mark = Sudo ? "#" : "$";
             Term($"{host.Username}@{host.Host}:~{mark} {cmd}\n");
             if (!string.IsNullOrWhiteSpace(r.StdOut))
@@ -413,10 +578,10 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void EditFile()
+    public async Task EditFile()
     {
         var f = Active();
-        if (f is null || f.IsDirectory)
+        if (f is null || f.IsDirectory || f.IsParentNav)
         {
             AppDialog.Info(OwnerWin(), "Выберите файл для Edit.", "F4");
             return;
@@ -429,18 +594,83 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
                 Process.Start(new ProcessStartInfo(f.FullPath) { UseShellExecute = true });
             }
             catch (Exception ex) { AppDialog.Info(OwnerWin(), ex.Message, "F4"); }
+            return;
         }
-        else
-            Term("F4 Edit remote: скачайте файл (F5) и правьте локально.\n");
+
+        if (_sftp is null)
+        {
+            AppDialog.Info(OwnerWin(), "Сначала Connect.", "F4");
+            return;
+        }
+
+        try
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "LinuxOpsEdit");
+            Directory.CreateDirectory(dir);
+            var local = Path.Combine(dir, f.Name);
+            await DownloadTo(f, local);
+            _editWatch?.Dispose();
+            _editLocal = local;
+            _editRemote = f.FullPath;
+            _editAfter = DateTime.UtcNow.AddSeconds(1.5);
+            _editWatch = new FileSystemWatcher(dir, f.Name)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+                EnableRaisingEvents = true
+            };
+            _editWatch.Changed += OnRemoteEditChanged;
+            Process.Start(new ProcessStartInfo(local) { UseShellExecute = true });
+            Term($"edit {f.FullPath} → {local}\n");
+        }
+        catch (Exception ex)
+        {
+            AppDialog.Info(OwnerWin(), ex.Message, "F4");
+        }
     }
 
-    public void CopyActive()
+    private void OnRemoteEditChanged(object? sender, FileSystemEventArgs e)
     {
-        if (ActiveLocal) Upload();
-        else Download();
+        if (DateTime.UtcNow < _editAfter) return;
+        if (Interlocked.Exchange(ref _editBusy, 1) == 1) return;
+        _editAfter = DateTime.UtcNow.AddSeconds(2);
+        Application.Current.Dispatcher.BeginInvoke(async () =>
+        {
+            try
+            {
+                if (_editLocal is null || _editRemote is null || _sftp is null) return;
+                if (!AppDialog.Confirm(OwnerWin(), "Загрузить обратно?")) return;
+                await _io.WaitAsync();
+                try
+                {
+                    var progress = new Progress<long>(n => TransferStatus = $"↑ {Path.GetFileName(_editLocal)} · {n / 1024} КБ");
+                    await _sftp.UploadAsync(_editLocal, _editRemote, progress, CancellationToken.None);
+                    Term($"upload back {_editRemote}\n");
+                    await FillRemoteAsync(record: false);
+                }
+                finally
+                {
+                    _io.Release();
+                    TransferStatus = "";
+                }
+            }
+            catch (Exception ex)
+            {
+                AppDialog.Info(OwnerWin(), ex.Message, "F4");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _editBusy, 0);
+            }
+        });
     }
 
-    public void RenameActive()
+    public async Task CopyActive()
+    {
+        if (ActiveLocal) await Upload();
+        else await Download();
+    }
+
+    public async Task RenameActive()
     {
         var f = Active();
         if (f is null) return;
@@ -462,8 +692,13 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
                 var idx = parent.LastIndexOf('/');
                 var dest = (idx <= 0 ? "/" : parent[..idx]) + "/" + name;
                 dest = dest.Replace("//", "/");
-                _sftp.Rename(f.FullPath, dest);
-                RefreshRemote();
+                await _io.WaitAsync();
+                try
+                {
+                    await Task.Run(() => _sftp.Rename(f.FullPath, dest));
+                    await FillRemoteAsync(record: false);
+                }
+                finally { _io.Release(); }
             }
 
             Term($"rename {f.Name} → {name}\n");
@@ -471,7 +706,7 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         catch (Exception ex) { AppDialog.Info(OwnerWin(), ex.Message, "F6"); }
     }
 
-    public void MkDir()
+    public async Task MkDir()
     {
         var name = TextPrompt.Ask(OwnerWin(), "MkDir", "Имя папки:", "new-folder");
         if (string.IsNullOrWhiteSpace(name)) return;
@@ -491,8 +726,13 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
                 }
 
                 var path = (_sftp.WorkingDirectory.TrimEnd('/') + "/" + name).Replace("//", "/");
-                _sftp.MkDir(path);
-                RefreshRemote();
+                await _io.WaitAsync();
+                try
+                {
+                    await Task.Run(() => _sftp.MkDir(path));
+                    await FillRemoteAsync(record: false);
+                }
+                finally { _io.Release(); }
             }
 
             Term($"mkdir {name}\n");
@@ -500,11 +740,11 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         catch (Exception ex) { AppDialog.Info(OwnerWin(), ex.Message, "F7"); }
     }
 
-    public void DeleteActive()
+    public async Task DeleteActive()
     {
         if (!ActiveLocal)
         {
-            DeleteRemote();
+            await DeleteRemote();
             return;
         }
 
@@ -526,6 +766,8 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         CloseSftp();
         RemoteFiles.Clear();
         RemotePath = "";
+        _back.Clear();
+        _fwd.Clear();
         Term("disconnected\n");
         UpdatePrompt();
     }
@@ -534,17 +776,30 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
 
     private FileEntry? Active() => ActiveLocal ? SelectedLocal : SelectedRemote;
 
-    private void RefreshRemote()
+    private async Task FillRemoteAsync(bool record)
     {
         if (_sftp is null) return;
+        var entries = await Task.Run(() => _sftp.List());
+        var cwd = _sftp.WorkingDirectory;
         RemoteFiles.Clear();
-        foreach (var f in _sftp.List())
+        foreach (var f in entries)
             RemoteFiles.Add(f);
-        RemotePath = _sftp.WorkingDirectory;
+        RemotePath = cwd;
+        if (!record || _nav) return;
+        _fwd.Clear();
+        if (_back.Count == 0 || _back[^1] != cwd)
+            _back.Add(cwd);
     }
 
     private void CloseSftp()
     {
+        if (_editWatch is not null)
+        {
+            _editWatch.EnableRaisingEvents = false;
+            _editWatch.Dispose();
+            _editWatch = null;
+        }
+
         _sftp?.Dispose();
         _sftp = null;
     }

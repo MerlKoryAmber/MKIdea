@@ -9,7 +9,6 @@ namespace LinuxOps.Views;
 public partial class ActionsView : UserControl
 {
     private ActionsViewModel? _vm;
-    private bool _restoring;
 
     public ActionsView()
     {
@@ -19,38 +18,28 @@ public partial class ActionsView : UserControl
             if (e.NewValue is not ActionsViewModel vm) return;
             _vm = vm;
             vm.Owner = () => Window.GetWindow(this);
-            vm.ReadActions = ReadActions;
+            vm.ReadActions = () => vm.Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
             vm.CurrentAction = () => ActionsList.SelectedItem as ActionItemView;
             vm.ActionsReloaded += OnActionsReloaded;
         };
     }
 
-    private IReadOnlyList<ActionDefinition> ReadActions()
-        => ActionsList.SelectedItems.Cast<ActionItemView>().Select(a => a.Definition).ToList();
-
     private void OnActionsReloaded()
     {
-        _restoring = true;
-        Dispatcher.BeginInvoke(() =>
-        {
-            ActionsList.SelectedItems.Clear();
-            if (_vm is null)
-            {
-                _restoring = false;
-                return;
-            }
-
-            foreach (var item in _vm.Actions.Where(a => a.IsSelected))
-                ActionsList.SelectedItems.Add(item);
-            _restoring = false;
-            _vm.SyncSelection(ActionsList.SelectedItems.Cast<ActionItemView>(), persist: true);
-        });
+        _vm?.RefreshPreview();
     }
 
     private void ActionsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_restoring || _vm is null || _vm.SuspendSelection) return;
-        _vm.SyncSelection(ActionsList.SelectedItems.Cast<ActionItemView>(), IsLoaded);
+        if (_vm is null || _vm.SuspendSelection) return;
+        _vm.NoteCursor(ActionsList.SelectedItem as ActionItemView);
+    }
+
+    private void PlanCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || _vm is null || _vm.SuspendSelection) return;
+        _vm.PersistPlan();
+        _vm.RefreshPreview();
     }
 
     private void ActionsList_DoubleClick(object sender, MouseButtonEventArgs e)

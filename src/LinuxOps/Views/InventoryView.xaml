@@ -6,15 +6,15 @@
         <DockPanel>
           <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
             <DockPanel>
-              <StackPanel>
-                <TextBlock Text="Inventory · хосты" Style="{StaticResource SectionTitle}"/>
-                <TextBlock Text="Добавление и правка SSH-целей. Сохраняется в LinuxOps.defaults.json."
-                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
-              </StackPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Добавить" Style="{StaticResource Btn}" Width="100" Margin="0,0,6,0" Command="{Binding AddCommand}"/>
                 <Button Content="Изменить" Style="{StaticResource Btn}" Width="100" Margin="0,0,6,0" Command="{Binding EditCommand}"/>
                 <Button Content="Удалить" Style="{StaticResource Btn}" Width="100" Command="{Binding RemoveCommand}"/>
+              </StackPanel>
+              <StackPanel>
+                <TextBlock Text="Inventory · хосты" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Добавление и правка SSH-целей. Сохраняется в LinuxOps.defaults.json."
+                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
               </StackPanel>
             </DockPanel>
           </Border>

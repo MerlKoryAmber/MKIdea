@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -9,6 +10,7 @@ namespace LinuxOps.Views;
 public partial class SshFilesView : UserControl
 {
     private SshFilesViewModel? _vm;
+    private Point _dragStart;
 
     public SshFilesView()
     {
@@ -60,15 +62,40 @@ public partial class SshFilesView : UserControl
         _vm.Sudo = IsSudo();
     }
 
-    private void SshConnect_Click(object sender, RoutedEventArgs e)
+    private async void SshConnect_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.Connect();
+        if (_vm is not null) await _vm.Connect();
     }
 
-    private void SshRefresh_Click(object sender, RoutedEventArgs e) => _vm?.Refresh();
+    private async void SshRefresh_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm is not null) await _vm.Refresh();
+    }
+
     private void LocalUp_Click(object sender, RoutedEventArgs e) => _vm?.LocalUp();
-    private void RemoteUp_Click(object sender, RoutedEventArgs e) => _vm?.RemoteUp();
+
+    private async void RemoteUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm is not null) await _vm.RemoteUp();
+    }
+
+    private async void RemoteBack_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm is not null) await _vm.RemoteBack();
+    }
+
+    private async void RemoteForward_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm is not null) await _vm.RemoteForward();
+    }
+
+    private async void RemotePathBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || _vm is null) return;
+        e.Handled = true;
+        await _vm.GoRemote(RemotePathBox.Text);
+    }
 
     private void SshPrivCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -101,28 +128,30 @@ public partial class SshFilesView : UserControl
         _vm?.OpenLocal(LocalFilesList.SelectedItem as FileEntry);
     }
 
-    private void RemoteFiles_DoubleClick(object sender, MouseButtonEventArgs e)
+    private async void RemoteFiles_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         PushSelection();
-        _vm?.OpenRemote(RemoteFilesList.SelectedItem as FileEntry);
+        if (_vm is not null) await _vm.OpenRemote(RemoteFilesList.SelectedItem as FileEntry);
     }
 
-    private void SshUpload_Click(object sender, RoutedEventArgs e)
+    private async void SshUpload_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.Upload();
+        if (_vm is null) return;
+        await _vm.UploadPaths(LocalPaths());
     }
 
-    private void SshDownload_Click(object sender, RoutedEventArgs e)
+    private async void SshDownload_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.Download();
+        if (_vm is null) return;
+        await _vm.DownloadEntries(RemoteEntries());
     }
 
-    private void SshDelete_Click(object sender, RoutedEventArgs e)
+    private async void SshDelete_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.DeleteRemote();
+        if (_vm is not null) await _vm.DeleteRemote();
     }
 
     private void SshTermRun_Click(object sender, RoutedEventArgs e) => RunTerminal();
@@ -166,34 +195,121 @@ public partial class SshFilesView : UserControl
         _vm?.ViewFile();
     }
 
-    private void SshF4_Click(object sender, RoutedEventArgs e)
+    private async void SshF4_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.EditFile();
+        if (_vm is not null) await _vm.EditFile();
     }
 
-    private void SshF5_Click(object sender, RoutedEventArgs e)
+    private async void SshF5_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.CopyActive();
+        if (_vm is null) return;
+        if (_vm.ActiveLocal) await _vm.UploadPaths(LocalPaths());
+        else await _vm.DownloadEntries(RemoteEntries());
     }
 
-    private void SshF6_Click(object sender, RoutedEventArgs e)
+    private async void SshF6_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.RenameActive();
+        if (_vm is not null) await _vm.RenameActive();
     }
 
-    private void SshF7_Click(object sender, RoutedEventArgs e)
+    private async void SshF7_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.MkDir();
+        if (_vm is not null) await _vm.MkDir();
     }
 
-    private void SshF8_Click(object sender, RoutedEventArgs e)
+    private async void SshF8_Click(object sender, RoutedEventArgs e)
     {
         PushSelection();
-        _vm?.DeleteActive();
+        if (_vm is not null) await _vm.DeleteActive();
+    }
+
+    private List<string> LocalPaths() =>
+        LocalFilesList.SelectedItems.Cast<FileEntry>()
+            .Where(f => !f.IsDirectory && !f.IsParentNav)
+            .Select(f => f.FullPath)
+            .ToList();
+
+    private List<FileEntry> RemoteEntries() =>
+        RemoteFilesList.SelectedItems.Cast<FileEntry>().ToList();
+
+    private void LocalDrag_Down(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(null);
+
+    private void RemoteDrag_Down(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(null);
+
+    private void LocalDrag_Move(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed) return;
+        if ((e.GetPosition(null) - _dragStart).Length < 8) return;
+        var files = LocalPaths().ToArray();
+        if (files.Length == 0) return;
+        var data = new DataObject();
+        data.SetData(DataFormats.FileDrop, files);
+        data.SetData("LinuxOpsLocal", files);
+        DragDrop.DoDragDrop(LocalFilesList, data, DragDropEffects.Copy);
+    }
+
+    private void RemoteDrag_Move(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed) return;
+        if ((e.GetPosition(null) - _dragStart).Length < 8) return;
+        var files = RemoteEntries().Where(f => !f.IsDirectory && !f.IsParentNav).Select(f => f.FullPath).ToArray();
+        if (files.Length == 0) return;
+        var data = new DataObject("LinuxOpsRemote", files);
+        DragDrop.DoDragDrop(RemoteFilesList, data, DragDropEffects.Copy);
+    }
+
+    private void Local_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent("LinuxOpsRemote") || e.Data.GetDataPresent(DataFormats.FileDrop)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void Local_Drop(object sender, DragEventArgs e)
+    {
+        if (_vm is null) return;
+        if (e.Data.GetData("LinuxOpsRemote") is string[] remote && remote.Length > 0)
+        {
+            var entries = remote.Select(p => new FileEntry { Name = Path.GetFileName(p), FullPath = p }).ToList();
+            await _vm.DownloadEntries(entries);
+            return;
+        }
+
+        if (e.Data.GetDataPresent("LinuxOpsLocal")) return;
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] dropped)
+        {
+            foreach (var src in dropped.Where(File.Exists))
+            {
+                var dest = Path.Combine(_vm.LocalPath, Path.GetFileName(src));
+                if (!string.Equals(src, dest, StringComparison.OrdinalIgnoreCase))
+                    File.Copy(src, dest, true);
+            }
+
+            _vm.ReloadLocal();
+        }
+    }
+
+    private void Remote_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent("LinuxOpsLocal")
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void Remote_Drop(object sender, DragEventArgs e)
+    {
+        if (_vm is null) return;
+        string[]? files = null;
+        if (e.Data.GetData("LinuxOpsLocal") is string[] local) files = local;
+        else if (e.Data.GetData(DataFormats.FileDrop) is string[] dropped) files = dropped;
+        if (files is { Length: > 0 })
+            await _vm.UploadPaths(files);
     }
 
     private void SshTermFocus_Click(object sender, RoutedEventArgs e) => OnFocusInput();

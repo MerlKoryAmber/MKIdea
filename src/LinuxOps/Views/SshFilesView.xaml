@@ -8,7 +8,6 @@
         <RowDefinition Height="1.2*"/>
         <RowDefinition Height="6"/>
         <RowDefinition Height="1*"/>
-        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
       <!-- тулбар как на mockup-ssh -->
@@ -91,8 +90,11 @@
               </StackPanel>
             </Border>
             <ListView x:Name="LocalFilesList" ItemsSource="{Binding LocalFiles}" Style="{StaticResource FileList}" Margin="4,0,4,4"
+                      SelectionMode="Extended" AllowDrop="True"
                       MouseDoubleClick="LocalFiles_DoubleClick" GotFocus="LocalFilesList_GotFocus"
-                      PreviewMouseDown="LocalFilesList_GotFocus">
+                      PreviewMouseDown="LocalFilesList_GotFocus"
+                      PreviewMouseLeftButtonDown="LocalDrag_Down" PreviewMouseMove="LocalDrag_Move"
+                      DragOver="Local_DragOver" Drop="Local_Drop">
               <ListView.View>
                 <GridView>
                   <GridViewColumn Header="" Width="28" CellTemplate="{StaticResource FileIconTemplate}"/>
@@ -131,16 +133,27 @@
               <StackPanel>
                 <TextBlock Text="Удалённо" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
                 <DockPanel LastChildFill="True">
-                  <Button DockPanel.Dock="Left" Style="{StaticResource BtnIcon}" Click="RemoteUp_Click" ToolTip="Вверх">
+                  <Button DockPanel.Dock="Left" Style="{StaticResource BtnIcon}" Click="RemoteBack_Click" ToolTip="Назад" Margin="0,0,4,0">
+                    <TextBlock Text="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                  </Button>
+                  <Button DockPanel.Dock="Left" Style="{StaticResource BtnIcon}" Click="RemoteForward_Click" ToolTip="Вперёд" Margin="0,0,4,0">
+                    <TextBlock Text="&#xE72A;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                  </Button>
+                  <Button DockPanel.Dock="Left" Style="{StaticResource BtnIcon}" Click="RemoteUp_Click" ToolTip="Вверх" Margin="0,0,4,0">
                     <TextBlock Text="&#xE74A;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
                   </Button>
-                  <TextBox x:Name="RemotePathBox" Height="28" Padding="8,2" IsReadOnly="True" Text="{Binding RemotePath, Mode=OneWay}"/>
+                  <TextBox x:Name="RemotePathBox" Height="28" Padding="8,2" Text="{Binding RemotePath, Mode=OneWay}"
+                           KeyDown="RemotePathBox_KeyDown" ToolTip="Путь. Enter — перейти"/>
                 </DockPanel>
+                <TextBlock Text="{Binding TransferStatus}" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0"/>
               </StackPanel>
             </Border>
             <ListView x:Name="RemoteFilesList" ItemsSource="{Binding RemoteFiles}" Style="{StaticResource FileList}" Margin="4,0,4,4"
+                      SelectionMode="Extended" AllowDrop="True"
                       MouseDoubleClick="RemoteFiles_DoubleClick" GotFocus="RemoteFilesList_GotFocus"
-                      PreviewMouseDown="RemoteFilesList_GotFocus">
+                      PreviewMouseDown="RemoteFilesList_GotFocus"
+                      PreviewMouseLeftButtonDown="RemoteDrag_Down" PreviewMouseMove="RemoteDrag_Move"
+                      DragOver="Remote_DragOver" Drop="Remote_Drop">
               <ListView.View>
                 <GridView>
                   <GridViewColumn Header="" Width="28" CellTemplate="{StaticResource FileIconTemplate}"/>
@@ -174,17 +187,17 @@
 
       <GridSplitter Grid.Row="2" Height="8" HorizontalAlignment="Stretch" Background="Transparent"/>
 
-      <Border Grid.Row="3" Background="#0A240B" BorderBrush="#1A3A1C" BorderThickness="1" CornerRadius="4">
+      <Border Grid.Row="3" Background="{StaticResource ConsoleBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" BorderThickness="1" CornerRadius="4">
         <DockPanel>
-          <Border DockPanel.Dock="Bottom" Padding="10,8" Background="#0A240B" BorderBrush="#1A3A1C" BorderThickness="0,1,0,0">
+          <Border DockPanel.Dock="Bottom" Padding="10,8" Background="{StaticResource ConsoleBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" BorderThickness="0,1,0,0">
             <DockPanel LastChildFill="True">
-              <TextBlock x:Name="SshTermPrompt" Text="{Binding TermPrompt}" Foreground="#6BCB77" VerticalAlignment="Center"
+              <TextBlock x:Name="SshTermPrompt" Text="{Binding TermPrompt}" Foreground="{StaticResource ConsoleTextBrush}" VerticalAlignment="Center"
                          Margin="0,0,8,0" FontFamily="{StaticResource MonoFont}"/>
               <Button DockPanel.Dock="Right" Content="&#xE751;" FontFamily="Segoe MDL2 Assets" Width="32" Height="26" Margin="8,0,0,0"
-                      Background="#143216" Foreground="#D7E0D8" BorderBrush="#1A3A1C" Click="SshTermRun_Click"/>
+                      Background="{StaticResource ConsoleBorderBrush}" Foreground="{StaticResource ConsoleTextBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" Click="SshTermRun_Click"/>
               <TextBox x:Name="SshTermInput" Height="26" VerticalContentAlignment="Center"
                        FontFamily="{StaticResource MonoFont}" Padding="8,2"
-                       Background="#0C2A0E" Foreground="#D7E0D8" BorderBrush="#1A3A1C" CaretBrush="#D7E0D8"
+                       Background="{StaticResource ConsoleBrush}" Foreground="{StaticResource ConsoleTextBrush}" BorderBrush="{StaticResource ConsoleBorderBrush}" CaretBrush="{StaticResource ConsoleTextBrush}"
                        KeyDown="SshTermInput_KeyDown"/>
             </DockPanel>
           </Border>
@@ -193,18 +206,5 @@
         </DockPanel>
       </Border>
       <TextBlock x:Name="SshTermHostLabel" Text="{Binding TermHostLabel}" Grid.Row="3" Visibility="Collapsed"/>
-
-      <Border Grid.Row="4" Background="#E8EEF4" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Margin="0,8,0,0" CornerRadius="0">
-        <UniformGrid Rows="1" Columns="8">
-          <Button Style="{StaticResource FKeyBtn}" Content="F3 View" Click="SshF3_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F4 Edit" Click="SshF4_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F5 Copy" Click="SshF5_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F6 Ren" Click="SshF6_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F7 MkDir" Click="SshF7_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F8 Del" Click="SshF8_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F9 Term" Click="SshTermFocus_Click"/>
-          <Button Style="{StaticResource FKeyBtn}" Content="F10 Disc" Click="SshF10_Click" BorderThickness="1,0,1,0"/>
-        </UniformGrid>
-      </Border>
     </Grid>
 </UserControl>

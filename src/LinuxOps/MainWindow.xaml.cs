@@ -1,6 +1,8 @@
 ﻿using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using LinuxOps.ViewModels;
 
 namespace LinuxOps;
@@ -11,6 +13,7 @@ public partial class MainWindow : Window
     private readonly SshFilesViewModel _ssh;
     private readonly HistoryViewModel _history;
     private bool _modeSwitching;
+    private bool _sshDocsOnce;
 
     public MainWindow()
     {
@@ -30,6 +33,18 @@ public partial class MainWindow : Window
         FooterVersionText.Text = $"v{GetVersion()}";
         ShowMode("actions");
     }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var dark = 1;
+        if (DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int)) != 0)
+            DwmSetWindowAttribute(hwnd, 19, ref dark, sizeof(int));
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
     private void ModeChip_Checked(object sender, RoutedEventArgs e)
     {
@@ -67,7 +82,11 @@ public partial class MainWindow : Window
         if (mode == "ssh")
         {
             DefaultsPathText.Text = "";
-            _ssh.EnterDocuments();
+            if (!_sshDocsOnce)
+            {
+                _ssh.EnterDocuments();
+                _sshDocsOnce = true;
+            }
         }
         else
             DefaultsPathText.Text = mode switch

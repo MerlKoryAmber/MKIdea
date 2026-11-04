@@ -12,7 +12,8 @@
 ## Ключевые типы
 
 - `SshRunner` / `SshAuth` / `SftpBrowser`
-- `PlanRunner` — план с отменой и прогрессом
+- `PlanRunner` — план параллельно (до 4 хостов), отмена и прогресс
+- `UserProvisioning` + `AddUserWindow` — учётка на отмеченных хостах
 - `AppSession` + ViewModels вкладок (`CommunityToolkit.Mvvm`)
 - `ActionCatalog` + `BuiltinActions` + `ActionEditWindow`
 - `DistroLabel` + цветные монограмм-иконки в списке хостов

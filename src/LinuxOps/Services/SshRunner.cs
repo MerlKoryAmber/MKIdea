@@ -15,39 +15,117 @@ public sealed class SshRunner : IDisposable
     public static SshRunner Connect(HostConfig host, TimeSpan? timeout = null)
     {
         var client = new SshClient(SshAuth.Build(host, timeout));
+        SshAuth.AttachHostKey(client, host);
         client.Connect();
         return new SshRunner(client);
     }
 
     /// <summary>
-    /// Выполняет скрипт через bash -s (base64), чтобы CRLF из Windows и кавычки не ломали shell.
+    /// Скрипт уходит в stdin <c>bash -s</c>. Пароль sudo — первой строкой stdin, не в argv.
     /// </summary>
     public ActionResult Run(string actionId, string command, int timeoutSeconds = 180,
-        bool sudo = false, string? sudoPassword = null)
+        bool sudo = false, HostConfig? host = null, IReadOnlyDictionary<string, string>? env = null)
     {
-        var script = NormalizeLf(command);
-        var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
-        // LC_ALL=C — стабильный вывод; pipefail не везде, поэтому без него
-        // sudo -S ест stdin → пароль отдельно, скрипт — внутри bash -c
-        string wrapper;
-        if (!sudo)
-            wrapper = $"echo '{b64}' | base64 -d | bash -s";
-        else if (!string.IsNullOrEmpty(sudoPassword))
+        var script = env is { Count: > 0 } ? EncodeEnv(env) + NormalizeLf(command) : NormalizeLf(command);
+        if (!script.EndsWith('\n'))
+            script += "\n";
+
+        string? sudoPassword = null;
+        if (sudo)
         {
-            var passB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(sudoPassword));
-            wrapper =
-                $"echo '{passB64}' | base64 -d | sudo -S -p '' bash -c \"echo '{b64}' | base64 -d | bash -s\"";
+            if (host is not null && string.Equals(host.Auth, "Password", StringComparison.OrdinalIgnoreCase))
+                sudoPassword = host.Password;
+            else
+            {
+                sudoPassword = host is null ? null : SudoMemory.Get(host);
+                if (string.IsNullOrEmpty(sudoPassword))
+                {
+                    var probe = Exec(actionId, "export LC_ALL=C LANG=C; sudo -n true", null, Math.Min(30, timeoutSeconds));
+                    var probeHint = FriendlySudo(probe.StdErr, probe.StdOut);
+                    if (probe.ExitCode == 0)
+                        sudoPassword = null;
+                    else if (probeHint is not null && probeHint.Contains("sudoers", StringComparison.Ordinal))
+                        return WithHint(probe, probeHint);
+                    else if (probeHint is not null && probeHint.Contains("пароль", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sudoPassword = host is null ? null : SudoMemory.Ask(host);
+                        if (string.IsNullOrEmpty(sudoPassword))
+                        {
+                            return new ActionResult
+                            {
+                                ActionId = actionId,
+                                ExitCode = 1,
+                                StdErr = "Нужен пароль sudo. Окно закрыли без ввода."
+                            };
+                        }
+                    }
+                    else
+                        return probeHint is null ? probe : WithHint(probe, probeHint);
+                }
+            }
         }
-        else
-            wrapper = $"echo '{b64}' | base64 -d | sudo -n bash -s";
 
-        using var cmd = _client.CreateCommand(wrapper);
-        cmd.CommandTimeout = TimeSpan.FromSeconds(Math.Max(5, timeoutSeconds));
-        var stdout = cmd.Execute() ?? string.Empty;
-        var stderr = cmd.Error ?? string.Empty;
+        var remote = sudo
+            ? (string.IsNullOrEmpty(sudoPassword)
+                ? "export LC_ALL=C LANG=C; sudo -n bash -s"
+                : "export LC_ALL=C LANG=C; sudo -S -p '' bash -s")
+            : "export LC_ALL=C LANG=C; bash -s";
+        var stdin = string.IsNullOrEmpty(sudoPassword) ? script : sudoPassword + "\n" + script;
+        var result = Exec(actionId, remote, stdin, timeoutSeconds);
+        var hint = FriendlySudo(result.StdErr, result.StdOut);
+        if (hint is not null && host is not null && hint.Contains("пароль", StringComparison.OrdinalIgnoreCase))
+            SudoMemory.Forget(host);
+        return hint is null ? result : WithHint(result, hint);
+    }
+
+    /// <summary>Значения только в stdin (base64), не в argv.</summary>
+    public static string EncodeEnv(IReadOnlyDictionary<string, string> env)
+    {
+        var sb = new StringBuilder();
+        foreach (var (key, value) in env)
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(key, @"^[A-Z][A-Z0-9_]{0,40}$"))
+                throw new ArgumentException($"Имя переменной недопустимо: {key}");
+            var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(value ?? string.Empty));
+            sb.Append(key).Append("=$(printf '%s' '").Append(b64).Append("' | base64 -d)\nexport ").Append(key).Append('\n');
+        }
+
+        return sb.ToString();
+    }
+
+    public static bool NeedsSudo(HostConfig host, ActionDefinition action)
+    {
+        var priv = action.Privilege ?? string.Empty;
+        var wants = priv.Contains("sudo", StringComparison.OrdinalIgnoreCase)
+                    || priv.Contains("root", StringComparison.OrdinalIgnoreCase);
+        if (!wants || !host.UseSudo) return false;
+        return !string.Equals(host.Username, "root", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private ActionResult Exec(string actionId, string remoteCommand, string? stdin, int timeoutSeconds)
+    {
+        using var cmd = _client.CreateCommand(remoteCommand);
+        var timeout = TimeSpan.FromSeconds(Math.Max(5, timeoutSeconds));
+        cmd.CommandTimeout = timeout;
+        var task = cmd.ExecuteAsync(CancellationToken.None);
+        var bytes = Encoding.UTF8.GetBytes(stdin ?? string.Empty);
+        using (var input = cmd.CreateInputStream())
+        {
+            if (bytes.Length > 0)
+                input.Write(bytes, 0, bytes.Length);
+        }
+
+        if (!task.Wait(timeout))
+        {
+            return new ActionResult
+            {
+                ActionId = actionId,
+                ExitCode = -1,
+                StdErr = $"Таймаут {timeoutSeconds} с."
+            };
+        }
+
         var code = cmd.ExitStatus ?? -1;
-
-        // dnf check-update: exit 100 = есть обновления — для нас это OK с пометкой
         if (string.Equals(actionId, "check-updates", StringComparison.OrdinalIgnoreCase) && code == 100)
             code = 0;
 
@@ -55,9 +133,67 @@ public sealed class SshRunner : IDisposable
         {
             ActionId = actionId,
             ExitCode = code,
-            StdOut = stdout.TrimEnd(),
-            StdErr = stderr.TrimEnd()
+            StdOut = (cmd.Result ?? string.Empty).TrimEnd(),
+            StdErr = (cmd.Error ?? string.Empty).TrimEnd()
         };
+    }
+
+    private static ActionResult WithHint(ActionResult result, string hint) => new()
+    {
+        ActionId = result.ActionId,
+        ExitCode = result.ExitCode,
+        StdOut = result.StdOut,
+        StdErr = hint + "\n" + result.StdErr
+    };
+
+    private static string? FriendlySudo(string stderr, string stdout)
+    {
+        var blob = stderr + "\n" + stdout;
+        if (blob.Contains("not in the sudoers", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("not in sudoers", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("not allowed to run sudo", StringComparison.OrdinalIgnoreCase))
+            return "Пользователь не в sudoers — sudo отклонён.";
+        if (blob.Contains("Sorry, try again", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("incorrect password", StringComparison.OrdinalIgnoreCase))
+            return "Неверный пароль sudo.";
+        if (blob.Contains("a password is required", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("a terminal is required", StringComparison.OrdinalIgnoreCase))
+            return "sudo просит пароль.";
+        return null;
+    }
+
+    private static class SudoMemory
+    {
+        private static readonly Dictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+        public static string? Get(HostConfig host)
+            => Cache.TryGetValue(Key(host), out var value) ? value : null;
+
+        public static void Forget(HostConfig host) => Cache.Remove(Key(host));
+
+        public static string? Ask(HostConfig host)
+        {
+            var cached = Get(host);
+            if (!string.IsNullOrEmpty(cached)) return cached;
+
+            string? entered = null;
+            var app = System.Windows.Application.Current;
+            if (app is null) return null;
+            void Show()
+            {
+                var dlg = new SudoPasswordWindow(host) { Owner = app.MainWindow };
+                if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.Password))
+                    entered = dlg.Password;
+            }
+
+            if (app.Dispatcher.CheckAccess()) Show();
+            else app.Dispatcher.Invoke(Show);
+            if (!string.IsNullOrEmpty(entered))
+                Cache[Key(host)] = entered;
+            return entered;
+        }
+
+        private static string Key(HostConfig host) => $"{host.Username}@{host.Host}:{host.Port}";
     }
 
     public DistroInfo DetectDistro()

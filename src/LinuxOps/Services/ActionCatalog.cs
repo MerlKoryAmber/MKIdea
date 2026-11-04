@@ -73,15 +73,55 @@ public static class ActionCatalog
         if (action.Distros.Any(d => d.Equals("any", StringComparison.OrdinalIgnoreCase)))
             return true;
 
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            NormDistro(distro.Id),
+            NormDistro(distro.Family)
+        };
+        foreach (var word in distro.Like.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            tags.Add(NormDistro(word));
+
         foreach (var d in action.Distros)
         {
-            if (d.Equals(distro.Id, StringComparison.OrdinalIgnoreCase) ||
-                d.Equals(distro.Family, StringComparison.OrdinalIgnoreCase) ||
-                distro.Like.Contains(d, StringComparison.OrdinalIgnoreCase))
+            if (tags.Contains(NormDistro(d)))
                 return true;
         }
 
         return false;
+    }
+
+    /// <summary>almalinux→alma и соседние id к одному ярлыку каталога.</summary>
+    public static string NormDistro(string? raw)
+    {
+        var s = (raw ?? string.Empty).Trim().Trim('"').ToLowerInvariant();
+        return s switch
+        {
+            "almalinux" => "alma",
+            "rockylinux" => "rocky",
+            "ol" or "oracle" or "oraclelinux" => "ol",
+            "opensuse" or "opensuse-leap" or "opensuse-tumbleweed" or "sles" => "suse",
+            "redhat" => "rhel",
+            _ => s
+        };
+    }
+
+    public static bool IdExists(string id)
+    {
+        if (BuiltinActions.All.Any(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            return true;
+        var path = Path.Combine(ActionsDirectory, SanitizeFileName(id) + ".json");
+        return File.Exists(path);
+    }
+
+    public static string UniqueId(string baseId)
+    {
+        var id = string.IsNullOrWhiteSpace(baseId) ? "custom-action" : baseId.Trim();
+        if (!IdExists(id)) return id;
+        for (var n = 2; ; n++)
+        {
+            var candidate = id + "-" + n;
+            if (!IdExists(candidate)) return candidate;
+        }
     }
 
     public static string ResolveScript(ActionDefinition action, DistroInfo distro)

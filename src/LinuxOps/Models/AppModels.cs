@@ -20,6 +20,8 @@ public sealed class HostConfig : INotifyPropertyChanged
     public string Auth { get; set; } = "PrivateKey";
     public string PrivateKeyPath { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    /// <summary>Выполнять действия с привилегией sudo/root через sudo. Для root не используется.</summary>
+    public bool UseSudo { get; set; } = true;
 
     public string DistroHint
     {
