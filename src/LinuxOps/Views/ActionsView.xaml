@@ -106,81 +106,90 @@
             <TextBlock Text="Каталог действий" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
           </Border>
           <Border DockPanel.Dock="Top" Padding="16,10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource ToolbarWellBrush}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <Button Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Margin="0,0,6,0" Command="{Binding AddCommand}"/>
-              <Button Content="Изменить" Style="{StaticResource Btn}" Height="28" MinWidth="84" Padding="10,0" Margin="0,0,6,0" Command="{Binding EditCommand}"/>
-              <Button Content="Клон" Style="{StaticResource Btn}" Height="28" MinWidth="64" Padding="10,0" Margin="0,0,6,0" Command="{Binding CloneCommand}"/>
-              <Button Content="Удалить" Style="{StaticResource Btn}" Height="28" MinWidth="78" Padding="10,0" Command="{Binding RemoveCommand}"/>
-            </StackPanel>
+            <DockPanel>
+              <Button Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Command="{Binding AddCommand}"/>
+              <TextBlock Text="Щелчок — в план, двойной — изменить, правая кнопка — меню"
+                         Foreground="{DynamicResource MutedBrush}" FontSize="11.5" Margin="12,0,0,0"
+                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
           </Border>
-          <ListBox x:Name="ActionsList" ItemsSource="{Binding Actions}" BorderThickness="0" Margin="16,12,16,14" SelectionMode="Single"
-                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                   SelectionChanged="ActionsList_SelectionChanged"
-                   MouseDoubleClick="ActionsList_DoubleClick">
-            <ListBox.ItemContainerStyle>
-              <Style TargetType="ListBoxItem">
-                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="Margin" Value="0,0,0,8"/>
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Template">
-                  <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                      <Border x:Name="CardChrome" Background="Transparent" BorderBrush="Transparent"
-                              BorderThickness="2" CornerRadius="10" Padding="2" SnapsToDevicePixels="True">
-                        <ContentPresenter/>
-                      </Border>
-                      <ControlTemplate.Triggers>
-                        <Trigger Property="IsSelected" Value="True">
-                          <Setter TargetName="CardChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-                          <Setter TargetName="CardChrome" Property="Background" Value="{DynamicResource HoverBrush}"/>
-                        </Trigger>
-                        <Trigger Property="IsMouseOver" Value="True">
-                          <Setter TargetName="CardChrome" Property="Background" Value="{DynamicResource HoverSoftBrush}"/>
-                        </Trigger>
-                      </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                  </Setter.Value>
-                </Setter>
-              </Style>
-            </ListBox.ItemContainerStyle>
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
-                        CornerRadius="8" Padding="14,12" HorizontalAlignment="Stretch">
-                  <DockPanel LastChildFill="True">
-                    <CheckBox DockPanel.Dock="Left" Content="В плане" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                              VerticalAlignment="Top" Margin="0,2,10,0"
-                              Checked="PlanCheck_Changed" Unchecked="PlanCheck_Changed"/>
-                    <Border DockPanel.Dock="Right" Background="{DynamicResource BadgeBgBrush}" CornerRadius="4" Padding="7,2"
-                            VerticalAlignment="Top" Margin="10,0,0,0">
-                      <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{DynamicResource AccentDeepBrush}"/>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl x:Name="ActionsList" ItemsSource="{Binding Actions}" Margin="16,12,16,14" Focusable="False">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <!-- Рамка и фон — только «в плане». Выделения карточек нет. -->
+                  <Border x:Name="CardChrome" Background="Transparent" BorderBrush="Transparent" BorderThickness="2"
+                          CornerRadius="10" Padding="2" Margin="0,0,0,8" SnapsToDevicePixels="True" Cursor="Hand"
+                          MouseLeftButtonDown="Card_MouseLeftButtonDown">
+                    <Border.ContextMenu>
+                      <ContextMenu Opened="CardMenu_Opened">
+                        <MenuItem Header="Изменить" FontWeight="SemiBold" Click="CardEdit_Click"/>
+                        <MenuItem Header="Клонировать" Click="CardClone_Click"/>
+                        <Separator/>
+                        <MenuItem Header="Удалить" Click="CardRemove_Click"/>
+                      </ContextMenu>
+                    </Border.ContextMenu>
+                    <Border x:Name="Card" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                            CornerRadius="8" Padding="14,12" HorizontalAlignment="Stretch">
+                      <DockPanel LastChildFill="True">
+                        <CheckBox DockPanel.Dock="Left" Content="В плане" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                  VerticalAlignment="Top" Margin="0,2,10,0"
+                                  Checked="PlanCheck_Changed" Unchecked="PlanCheck_Changed"/>
+                        <StackPanel DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0">
+                          <Border Background="{DynamicResource BadgeBgBrush}" CornerRadius="4" Padding="7,2" HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{DynamicResource AccentDeepBrush}"/>
+                          </Border>
+                          <StackPanel x:Name="Tools" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0" Opacity="0.35">
+                            <Button Style="{StaticResource BtnIcon}" Width="28" Height="26" MinWidth="0" Margin="0,0,4,0"
+                                    Content="&#xE70F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" FontWeight="Normal"
+                                    ToolTip="Изменить (двойной щелчок)" Click="CardEdit_Click"/>
+                            <Button Style="{StaticResource BtnIcon}" Width="28" Height="26" MinWidth="0" Margin="0,0,4,0"
+                                    Content="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" FontWeight="Normal"
+                                    ToolTip="Клонировать — копия, которую можно править" Click="CardClone_Click"/>
+                            <Button x:Name="RemoveBtn" Style="{StaticResource BtnIcon}" Width="28" Height="26" MinWidth="0" Margin="0"
+                                    Content="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" FontWeight="Normal"
+                                    ToolTip="Удалить своё действие" Click="CardRemove_Click"/>
+                          </StackPanel>
+                        </StackPanel>
+                        <StackPanel>
+                          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding Description}" Foreground="{DynamicResource MutedBrush}"
+                                     FontSize="12" Margin="0,3,0,6" TextWrapping="Wrap"/>
+                          <ItemsControl ItemsSource="{Binding DistroTags}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <WrapPanel/>
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <Border Background="{DynamicResource ChipBgBrush}" CornerRadius="4" Padding="7,2" Margin="0,0,6,4">
+                                  <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource ChipTextBrush}"/>
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </DockPanel>
                     </Border>
-                    <StackPanel>
-                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap"/>
-                      <TextBlock Text="{Binding Description}" Foreground="{DynamicResource MutedBrush}"
-                                 FontSize="12" Margin="0,3,0,6" TextWrapping="Wrap"/>
-                      <ItemsControl ItemsSource="{Binding DistroTags}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate>
-                            <WrapPanel/>
-                          </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate>
-                            <Border Background="{DynamicResource ChipBgBrush}" CornerRadius="4" Padding="7,2" Margin="0,0,6,4">
-                              <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource ChipTextBrush}"/>
-                            </Border>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-                    </StackPanel>
-                  </DockPanel>
-                </Border>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+                  </Border>
+                  <DataTemplate.Triggers>
+                    <Trigger SourceName="CardChrome" Property="IsMouseOver" Value="True">
+                      <Setter TargetName="CardChrome" Property="Background" Value="{DynamicResource HoverSoftBrush}"/>
+                      <Setter TargetName="Tools" Property="Opacity" Value="1"/>
+                    </Trigger>
+                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                      <Setter TargetName="CardChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                      <Setter TargetName="CardChrome" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Definition.BuiltIn}" Value="True">
+                      <Setter TargetName="RemoveBtn" Property="Visibility" Value="Collapsed"/>
+                    </DataTrigger>
+                  </DataTemplate.Triggers>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
         </DockPanel>
       </Border>
 

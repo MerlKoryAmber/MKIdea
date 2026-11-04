@@ -38,7 +38,6 @@ public partial class ActionsViewModel : ObservableObject
 
     public Func<Window?>? Owner { get; set; }
     public Func<IReadOnlyList<ActionDefinition>>? ReadActions { get; set; }
-    public Func<ActionItemView?>? CurrentAction { get; set; }
     public event Action? ActionsReloaded;
 
     [ObservableProperty] private string hostsSelectedText = "ничего не выбрано";
@@ -47,8 +46,6 @@ public partial class ActionsViewModel : ObservableObject
     [ObservableProperty] private string detail = "Выберите строку плана.";
     [ObservableProperty] private ResultRow? selectedResult;
     [ObservableProperty] private bool isRunning;
-    [ObservableProperty] private bool canEditOne;
-    [ObservableProperty] private bool canRemove;
 
     public bool SuspendSelection { get; private set; }
 
@@ -71,12 +68,6 @@ public partial class ActionsViewModel : ObservableObject
         }
 
         ActionsReloaded?.Invoke();
-    }
-
-    public void NoteCursor(ActionItemView? item)
-    {
-        CanEditOne = item is not null;
-        CanRemove = item is not null;
     }
 
     public void PersistPlan()
@@ -155,14 +146,6 @@ public partial class ActionsViewModel : ObservableObject
         CancelCommand.NotifyCanExecuteChanged();
     }
 
-    partial void OnCanEditOneChanged(bool value)
-    {
-        EditCommand.NotifyCanExecuteChanged();
-        CloneCommand.NotifyCanExecuteChanged();
-    }
-
-    partial void OnCanRemoveChanged(bool value) => RemoveCommand.NotifyCanExecuteChanged();
-
     public void SetAllHosts(bool all)
     {
         _bulkHosts = true;
@@ -181,18 +164,15 @@ public partial class ActionsViewModel : ObservableObject
         Load();
     }
 
-    [RelayCommand(CanExecute = nameof(EditCan))]
-    private void Edit() => EditCore(CurrentAction?.Invoke(), clone: false);
-
-    [RelayCommand(CanExecute = nameof(EditCan))]
-    private void Clone() => EditCore(CurrentAction?.Invoke(), clone: true);
-
+    // Правка, клон и удаление — с самой карточки (значки и контекстное меню). Выделения карточек больше нет:
+    // рамка означает только «в плане».
     public void EditFromCard(ActionItemView? item) => EditCore(item, clone: false);
 
-    [RelayCommand(CanExecute = nameof(RemoveCan))]
-    private void Remove()
+    public void CloneFromCard(ActionItemView? item) => EditCore(item, clone: true);
+
+    public void RemoveFromCard(ActionItemView? item)
     {
-        if (CurrentAction?.Invoke() is not ActionItemView item)
+        if (item is null)
             return;
         if (item.Definition.BuiltIn)
         {
@@ -409,8 +389,6 @@ public partial class ActionsViewModel : ObservableObject
 
     private bool CanStart() => !IsRunning;
     private bool CanCancel() => IsRunning;
-    private bool EditCan() => CanEditOne;
-    private bool RemoveCan() => CanRemove;
 
     private async Task RunAsync(bool apply)
     {
@@ -509,11 +487,7 @@ public partial class ActionsViewModel : ObservableObject
 
     private void EditCore(ActionItemView? item, bool clone)
     {
-        if (item is null)
-        {
-            AppDialog.Info(OwnerWin(), "Кликните карточку действия (появится зелёная рамка), затем Изменить / Клон.");
-            return;
-        }
+        if (item is null) return;
 
         var dlg = new ActionEditWindow(item.Definition, clone) { Owner = OwnerWin() };
         if (dlg.ShowDialog() != true) return;
