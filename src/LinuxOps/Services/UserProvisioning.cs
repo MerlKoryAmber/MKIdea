@@ -58,6 +58,120 @@ public static class UserProvisioning
         return null;
     }
 
+    public static IReadOnlyList<string> KeyFingerprints(string? keys)
+    {
+        var prints = new List<string>();
+        var raw = keys ?? "";
+        if (raw.Contains("-----BEGIN", StringComparison.Ordinal)) return prints;
+        foreach (var line in raw.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var m = KeyRx.Match(line);
+            if (!m.Success) continue;
+            try
+            {
+                var hash = SHA256.HashData(Convert.FromBase64String(m.Groups[2].Value));
+                prints.Add("SHA256:" + Convert.ToBase64String(hash).TrimEnd('='));
+            }
+            catch (FormatException)
+            {
+                // строка не ключ
+            }
+        }
+
+        return prints;
+    }
+
+    public sealed class HostUserCandidate
+    {
+        public required string Login { get; init; }
+        public required bool Sudo { get; init; }
+        public required string Keys { get; init; }
+        public required string Comment { get; init; }
+        public string Fingerprints => string.Join(", ", KeyFingerprints(Keys));
+    }
+
+    /// <summary>Чтение учёток с ключом или sudo. Пароли не читаются. Создание — тем же <see cref="Script"/>.</summary>
+    public static IReadOnlyList<HostUserCandidate> ReadFromHost(HostConfig host)
+    {
+        using var ssh = SshRunner.Connect(host);
+        var action = new ActionDefinition { Id = "read-users", Privilege = "sudo/root", TimeoutSeconds = 60 };
+        var result = ssh.Run("read-users", ReadScript, 60, SshRunner.NeedsSudo(host, action), host);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException(First(result.StdErr) ?? First(result.StdOut) ?? $"exit {result.ExitCode}");
+        return ParseCandidates(result.StdOut);
+    }
+
+    private static IReadOnlyList<HostUserCandidate> ParseCandidates(string text)
+    {
+        var list = new List<HostUserCandidate>();
+        string? login = null;
+        var sudo = false;
+        var comment = "";
+        var keys = new List<string>();
+        var inKeys = false;
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.TrimEnd();
+            if (line.StartsWith("USER ", StringComparison.Ordinal))
+            {
+                Flush();
+                login = line[5..].Trim();
+                sudo = false;
+                comment = "";
+                keys.Clear();
+                inKeys = false;
+            }
+            else if (line.StartsWith("SUDO ", StringComparison.Ordinal))
+                sudo = line.EndsWith("yes", StringComparison.Ordinal);
+            else if (line.StartsWith("COMMENT ", StringComparison.Ordinal))
+                comment = line[8..].Trim();
+            else if (line == "KEYS_BEGIN")
+                inKeys = true;
+            else if (line == "KEYS_END")
+                inKeys = false;
+            else if (inKeys && line.Trim().Length > 0)
+                keys.Add(line.Trim());
+        }
+
+        Flush();
+        return list;
+
+        void Flush()
+        {
+            if (string.IsNullOrWhiteSpace(login)) return;
+            list.Add(new HostUserCandidate
+            {
+                Login = login,
+                Sudo = sudo,
+                Keys = string.Join("\n", keys),
+                Comment = comment
+            });
+            login = null;
+        }
+    }
+
+    private const string ReadScript = """
+        getent passwd | while IFS=: read -r login _ uid _ gecos home _; do
+          case "$uid" in ''|*[!0-9]*) continue ;; esac
+          if [ "$uid" -ne 0 ] && [ "$uid" -lt 1000 ]; then continue; fi
+          if [ "$uid" -ge 65534 ]; then continue; fi
+          keys=""
+          if [ -r "$home/.ssh/authorized_keys" ]; then
+            keys=$(grep -E '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-)' "$home/.ssh/authorized_keys" || true)
+          fi
+          sudo_yes=no
+          if id -nG "$login" 2>/dev/null | tr ' ' '\n' | grep -Eq '^(wheel|sudo)$'; then sudo_yes=yes; fi
+          if grep -RqsE "^${login}[[:space:]]" /etc/sudoers.d 2>/dev/null; then sudo_yes=yes; fi
+          if [ -z "$keys" ] && [ "$sudo_yes" = no ]; then continue; fi
+          printf 'USER %s\n' "$login"
+          printf 'SUDO %s\n' "$sudo_yes"
+          printf 'COMMENT %s\n' "$gecos"
+          echo KEYS_BEGIN
+          printf '%s\n' "$keys"
+          echo KEYS_END
+        done
+        """;
+
     public static string HumanLine(string host, string stdout)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -89,7 +203,8 @@ public static class UserProvisioning
         IReadOnlyList<HostConfig> hosts,
         AddUserRequest request,
         IProgress<PlanProgress> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool pairTitle = false)
     {
         var gate = new SemaphoreSlim(4);
         var tasks = new List<Task>();
@@ -102,7 +217,7 @@ public static class UserProvisioning
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    ApplyOne(host, request, progress, cancellationToken);
+                    ApplyOne(host, request, progress, cancellationToken, pairTitle);
                 }
                 finally
                 {
@@ -124,7 +239,7 @@ public static class UserProvisioning
         }
     }
 
-    private static void ApplyOne(HostConfig host, AddUserRequest request, IProgress<PlanProgress> progress, CancellationToken cancellationToken)
+    private static void ApplyOne(HostConfig host, AddUserRequest request, IProgress<PlanProgress> progress, CancellationToken cancellationToken, bool pairTitle)
     {
         try
         {
@@ -142,13 +257,14 @@ public static class UserProvisioning
                 ["LINUXOPS_PASSWORD"] = request.Password
             };
             var result = ssh.Run("add-user", Script, 120, SshRunner.NeedsSudo(host, action), host, env, cancellationToken);
+            var title = pairTitle ? $"{host.Title} · {request.Login}" : host.Title;
             var line = result.ExitCode == 0
-                ? HumanLine(host.Title, result.StdOut)
+                ? HumanLine(title, result.StdOut)
                 : First(result.StdErr) ?? First(result.StdOut) ?? $"exit {result.ExitCode}";
             var detail = (result.StdOut + "\n" + result.StdErr).Trim();
             progress.Report(new PlanProgress
             {
-                Row = PlanRunner.MakeRow(result.ExitCode == 0 ? "OK" : "FAIL", host.Title, line, detail, result.ExitCode == 0)
+                Row = PlanRunner.MakeRow(result.ExitCode == 0 ? "OK" : "FAIL", title, line, detail, result.ExitCode == 0)
             });
         }
         catch (OperationCanceledException)
@@ -192,12 +308,13 @@ public static class UserProvisioning
         sudo_state=skip
         if [ "$want_sudo" = "yes" ]; then
           if [ "$mode" = "file" ]; then
+            defaults="Defaults:$login !targetpw"
             rule="$login ALL=(ALL) ALL"
             file="/etc/sudoers.d/linuxops-$login"
-            if [ -f "$file" ] && grep -qxF -- "$rule" "$file"; then
+            if [ -f "$file" ] && grep -qxF -- "$defaults" "$file" && grep -qxF -- "$rule" "$file"; then
               sudo_state=already
             else
-              printf '%s\n' "$rule" > "$file" || die "не записан $file"
+              printf '%s\n%s\n' "$defaults" "$rule" > "$file" || die "не записан $file"
               chmod 440 "$file" || die "chmod $file"
               if command -v visudo >/dev/null 2>&1; then
                 if ! visudo -c >/dev/null 2>&1; then

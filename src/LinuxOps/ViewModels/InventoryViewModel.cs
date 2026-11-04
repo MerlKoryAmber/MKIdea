@@ -34,6 +34,19 @@ public partial class InventoryViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void Duplicate()
+    {
+        if (SelectedHost is null)
+        {
+            AppDialog.Info(OwnerWin(), "Нет хоста для дублирования.");
+            return;
+        }
+
+        if (!HostDialogs.TryDuplicate(OwnerWin(), _session, SelectedHost)) return;
+        SelectedHost = Hosts.Count > 0 ? Hosts[^1] : null;
+    }
+
+    [RelayCommand]
     private void Remove()
     {
         if (SelectedHost is null) return;

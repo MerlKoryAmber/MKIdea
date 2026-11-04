@@ -7,9 +7,10 @@
           <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
             <DockPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="Добавить" Style="{StaticResource Btn}" Width="100" Margin="0,0,6,0" Command="{Binding AddCommand}"/>
-                <Button Content="Изменить" Style="{StaticResource Btn}" Width="100" Margin="0,0,6,0" Command="{Binding EditCommand}"/>
-                <Button Content="Удалить" Style="{StaticResource Btn}" Width="100" Command="{Binding RemoveCommand}"/>
+                <Button Content="Добавить" Style="{StaticResource Btn}" MinWidth="96" Margin="0,0,6,0" Padding="10,0" Command="{Binding AddCommand}"/>
+                <Button Content="Изменить" Style="{StaticResource Btn}" MinWidth="96" Margin="0,0,6,0" Padding="10,0" Command="{Binding EditCommand}"/>
+                <Button Content="Дублировать" Style="{StaticResource Btn}" MinWidth="120" Margin="0,0,6,0" Padding="10,0" Command="{Binding DuplicateCommand}"/>
+                <Button Content="Удалить" Style="{StaticResource Btn}" MinWidth="96" Padding="10,0" Command="{Binding RemoveCommand}"/>
               </StackPanel>
               <StackPanel>
                 <TextBlock Text="Inventory · хосты" Style="{StaticResource SectionTitle}"/>

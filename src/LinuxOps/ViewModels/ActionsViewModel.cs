@@ -24,7 +24,13 @@ public partial class ActionsViewModel : ObservableObject
         foreach (var h in Hosts)
             h.PropertyChanged += HostChanged;
         UpdateHostSelection();
+        RefreshBaseUsers();
     }
+
+    [ObservableProperty] private string baseUsersText = "Базовые пользователи: 0";
+
+    public void RefreshBaseUsers()
+        => BaseUsersText = "Базовые пользователи: " + UserListStore.Load().Count;
 
     public ObservableCollection<HostConfig> Hosts => _session.Hosts;
     public ObservableCollection<ActionItemView> Actions { get; } = new();
@@ -145,6 +151,7 @@ public partial class ActionsViewModel : ObservableObject
         DryRunCommand.NotifyCanExecuteChanged();
         ApplyCommand.NotifyCanExecuteChanged();
         AddUserCommand.NotifyCanExecuteChanged();
+        OpenBaseUsersCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
     }
 
@@ -308,6 +315,63 @@ public partial class ActionsViewModel : ObservableObject
                 HistoryStore.Append(history);
             var failN = PlanRunner.Count(Results, "FAIL");
             RunStatus = failN == 0 ? "пользователь готов" : $"{failN} FAIL";
+        }
+        catch (OperationCanceledException)
+        {
+            RunStatus = "отменено";
+        }
+        catch (Exception ex)
+        {
+            Warn(ex.Message);
+        }
+        finally
+        {
+            IsRunning = false;
+            _runCts.Dispose();
+            _runCts = null;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStart))]
+    private async Task OpenBaseUsers()
+    {
+        var dlg = new UserListWindow(Hosts.ToList()) { Owner = OwnerWin() };
+        var apply = dlg.ShowDialog() == true ? dlg.ToApply : null;
+        RefreshBaseUsers();
+        if (apply is not { Count: > 0 }) return;
+
+        Results.Clear();
+        SelectedResult = null;
+        RunStatus = "базовые пользователи…";
+        IsRunning = true;
+        _runCts = new CancellationTokenSource();
+        var progress = new Progress<PlanProgress>(ApplyProgress);
+        var history = new List<HistoryEntry>();
+        try
+        {
+            var hosts = Hosts.Where(h => h.IsSelected).ToList();
+            foreach (var request in apply)
+                await UserProvisioning.ApplyAsync(hosts, request, progress, _runCts.Token, pairTitle: true);
+
+            foreach (var row in Results)
+            {
+                var login = row.Title.Contains('·') ? row.Title.Split('·').Last().Trim() : row.Title;
+                history.Add(new HistoryEntry
+                {
+                    AtUtc = DateTime.UtcNow,
+                    Mode = "add-user",
+                    Host = row.Title,
+                    Action = login,
+                    Status = row.Status,
+                    Preview = row.Preview,
+                    Detail = row.Detail
+                });
+            }
+
+            if (history.Count > 0)
+                HistoryStore.Append(history);
+            var failN = PlanRunner.Count(Results, "FAIL");
+            RunStatus = failN == 0 ? "базовые пользователи готовы" : $"{failN} FAIL";
         }
         catch (OperationCanceledException)
         {

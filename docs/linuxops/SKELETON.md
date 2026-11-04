@@ -14,6 +14,7 @@
 - `SshRunner` / `SshAuth` / `SftpBrowser`
 - `PlanRunner` — план параллельно (до 4 хостов), отмена и прогресс
 - `UserProvisioning` + `AddUserWindow` — учётка на отмеченных хостах
+- `UserListStore` + `UserListWindow` — базовый список пользователей
 - `AppSession` + ViewModels вкладок (`CommunityToolkit.Mvvm`)
 - `ActionCatalog` + `BuiltinActions` + `ActionEditWindow`
 - `DistroLabel` + цветные монограмм-иконки в списке хостов

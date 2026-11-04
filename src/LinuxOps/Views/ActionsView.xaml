@@ -29,6 +29,9 @@
               </Grid>
               <Button Content="Добавить пользователя" Style="{StaticResource Btn}" Height="28" Margin="0,8,0,0"
                       HorizontalAlignment="Left" Padding="10,0" Command="{Binding AddUserCommand}"/>
+              <Button Content="Базовые пользователи" Style="{StaticResource Btn}" Height="28" Margin="0,8,0,0"
+                      HorizontalAlignment="Left" Padding="10,0" Command="{Binding OpenBaseUsersCommand}"/>
+              <TextBlock Text="{Binding BaseUsersText}" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
             </StackPanel>
           </Border>
           <Border DockPanel.Dock="Bottom" Padding="16,10" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
