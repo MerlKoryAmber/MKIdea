@@ -108,7 +108,7 @@
           <Border DockPanel.Dock="Top" Padding="16,10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource ToolbarWellBrush}">
             <DockPanel>
               <Button Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Command="{Binding AddCommand}"/>
-              <TextBlock Text="Щелчок — в план, двойной — изменить, правая кнопка — меню"
+              <TextBlock Text="Щелчок — одно действие, Ctrl или Shift — несколько, двойной — изменить, правая кнопка — меню"
                          Foreground="{DynamicResource MutedBrush}" FontSize="11.5" Margin="12,0,0,0"
                          VerticalAlignment="Center" TextWrapping="Wrap"/>
             </DockPanel>
@@ -120,7 +120,7 @@
                   <!-- Рамка и фон — только «в плане». Выделения карточек нет. -->
                   <Border x:Name="CardChrome" Background="Transparent" BorderBrush="Transparent" BorderThickness="2"
                           CornerRadius="10" Padding="2" Margin="0,0,0,8" SnapsToDevicePixels="True" Cursor="Hand"
-                          MouseLeftButtonDown="Card_MouseLeftButtonDown">
+                          PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown">
                     <Border.ContextMenu>
                       <ContextMenu Opened="CardMenu_Opened">
                         <MenuItem Header="Изменить" FontWeight="SemiBold" Click="CardEdit_Click"/>
@@ -206,9 +206,23 @@
           <Border Grid.Row="0" Background="#152536" Padding="12,10" BorderBrush="#1E3348" BorderThickness="0,0,0,1">
             <DockPanel>
               <TextBlock Text="Запуск плана" Foreground="#D5E4EF" FontWeight="SemiBold"/>
-              <TextBlock DockPanel.Dock="Right" Foreground="#7EB8AE" FontSize="12" Text="{Binding RunStatus}"/>
+              <TextBlock DockPanel.Dock="Right" Foreground="#7EB8AE" FontSize="12" Text="{Binding RunStatus}" TextTrimming="CharacterEllipsis" Margin="12,0,0,0"/>
             </DockPanel>
           </Border>
+          <!-- Идёт запуск: бегущая полоса под заголовком -->
+          <ProgressBar Grid.Row="0" VerticalAlignment="Bottom" Height="3" IsIndeterminate="True" BorderThickness="0"
+                       Background="Transparent" Foreground="{DynamicResource AccentBrush}">
+            <ProgressBar.Style>
+              <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </ProgressBar.Style>
+          </ProgressBar>
           <ListBox x:Name="ResultsList" Grid.Row="1" BorderThickness="0" Background="Transparent"
                    Foreground="#D5E4EF" Margin="4" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedResult, Mode=TwoWay}">
             <ListBox.ItemTemplate>
@@ -240,6 +254,9 @@
                   <DataTrigger Binding="{Binding Status}" Value="INFO">
                     <Setter TargetName="Badge" Property="Background" Value="#3D6B9B"/>
                   </DataTrigger>
+                  <DataTrigger Binding="{Binding Status}" Value="RUN">
+                    <Setter TargetName="Badge" Property="Background" Value="#1A9B8E"/>
+                  </DataTrigger>
                 </DataTemplate.Triggers>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -251,7 +268,7 @@
                       Command="{Binding CopyDetailCommand}"/>
               <TextBlock Text="Детали" Foreground="#7EB8AE" FontSize="11" VerticalAlignment="Center"/>
             </DockPanel>
-            <TextBox Style="{StaticResource LogBox}" BorderThickness="0"
+            <TextBox x:Name="DetailBox" Style="{StaticResource LogBox}" BorderThickness="0"
                      IsReadOnly="True" Text="{Binding Detail, Mode=OneWay}"/>
           </DockPanel>
         </Grid>

@@ -127,11 +127,27 @@ public sealed class ActionResult
     public string Summary => DryRun ? "DRY-RUN" : Skipped ? "SKIP" : Ok ? "OK" : $"FAIL exit={ExitCode}";
 }
 
-public sealed class ResultRow
+public sealed class ResultRow : INotifyPropertyChanged
 {
+    private string _preview = "";
+
     public string Status { get; init; } = "";
     public string Title { get; init; } = "";
-    public string Preview { get; init; } = "";
+
+    /// <summary>У строки RUN меняется по ходу: последняя строка вывода и время.</summary>
+    public string Preview
+    {
+        get => _preview;
+        set
+        {
+            if (_preview == value) return;
+            _preview = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Preview)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     public string Detail { get; init; } = "";
     public bool IsOk { get; init; }
 }

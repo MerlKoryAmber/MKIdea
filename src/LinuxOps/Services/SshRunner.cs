@@ -25,7 +25,7 @@ public sealed class SshRunner : IDisposable
     /// </summary>
     public ActionResult Run(string actionId, string command, int timeoutSeconds = 180,
         bool sudo = false, HostConfig? host = null, IReadOnlyDictionary<string, string>? env = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Action<string>? onOutput = null)
     {
         var script = env is { Count: > 0 } ? EncodeEnv(env) + NormalizeLf(command) : NormalizeLf(command);
         if (!script.EndsWith('\n'))
@@ -67,7 +67,7 @@ public sealed class SshRunner : IDisposable
                 : "export LC_ALL=C LANG=C; sudo -S -p '' bash -s")
             : "export LC_ALL=C LANG=C; bash -s";
         var stdin = string.IsNullOrEmpty(sudoPassword) ? script : sudoPassword + "\n" + script;
-        var result = Exec(actionId, remote, stdin, timeoutSeconds, cancellationToken);
+        var result = Exec(actionId, remote, stdin, timeoutSeconds, cancellationToken, onOutput);
         var hint = FriendlySudo(result.StdErr, result.StdOut);
         if (hint is not null && host is not null && hint.Contains("пароль", StringComparison.OrdinalIgnoreCase))
             SudoMemory.Forget(host);
@@ -98,12 +98,22 @@ public sealed class SshRunner : IDisposable
         return !string.Equals(host.Username, "root", StringComparison.OrdinalIgnoreCase);
     }
 
-    private ActionResult Exec(string actionId, string remoteCommand, string? stdin, int timeoutSeconds, CancellationToken cancellationToken)
+    private ActionResult Exec(string actionId, string remoteCommand, string? stdin, int timeoutSeconds, CancellationToken cancellationToken,
+        Action<string>? onOutput = null)
     {
         using var cmd = _client.CreateCommand(remoteCommand);
         var timeout = TimeSpan.FromSeconds(Math.Max(5, timeoutSeconds));
         cmd.CommandTimeout = timeout;
         var task = cmd.ExecuteAsync(cancellationToken);
+        // Живой вывод: stdout читаем сами по мере прихода (долгие dnf upgrade / apt — видно, что идёт работа).
+        StringBuilder? live = null;
+        Task? reader = null;
+        if (onOutput is not null)
+        {
+            live = new StringBuilder();
+            var output = cmd.OutputStream;
+            reader = Task.Run(() => ReadLive(output, live, onOutput));
+        }
         var bytes = Encoding.UTF8.GetBytes(stdin ?? string.Empty);
         using (var input = cmd.CreateInputStream())
         {
@@ -120,6 +130,7 @@ public sealed class SshRunner : IDisposable
                 {
                     ActionId = actionId,
                     ExitCode = -1,
+                    StdOut = live is not null ? Snapshot(live).TrimEnd() : string.Empty,
                     StdErr = $"Таймаут {timeoutSeconds} с."
                 };
             }
@@ -135,6 +146,9 @@ public sealed class SshRunner : IDisposable
             throw;
         }
 
+        if (reader is not null && !reader.Wait(TimeSpan.FromSeconds(5)))
+            onOutput?.Invoke("\n[вывод дочитан не полностью]\n");
+
         var code = cmd.ExitStatus ?? -1;
         if (string.Equals(actionId, "check-updates", StringComparison.OrdinalIgnoreCase) && code == 100)
             code = 0;
@@ -143,9 +157,37 @@ public sealed class SshRunner : IDisposable
         {
             ActionId = actionId,
             ExitCode = code,
-            StdOut = (cmd.Result ?? string.Empty).TrimEnd(),
+            StdOut = (live is not null ? Snapshot(live) : cmd.Result ?? string.Empty).TrimEnd(),
             StdErr = (cmd.Error ?? string.Empty).TrimEnd()
         };
+    }
+
+    private static void ReadLive(Stream output, StringBuilder live, Action<string> onOutput)
+    {
+        var decoder = Encoding.UTF8.GetDecoder();
+        var bytes = new byte[8192];
+        var chars = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
+        try
+        {
+            int n;
+            while ((n = output.Read(bytes, 0, bytes.Length)) > 0)
+            {
+                var count = decoder.GetChars(bytes, 0, n, chars, 0);
+                if (count == 0) continue;
+                var text = new string(chars, 0, count);
+                lock (live) live.Append(text);
+                onOutput(text);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // команда закрыта — дочитали, что успели
+        }
+    }
+
+    private static string Snapshot(StringBuilder live)
+    {
+        lock (live) return live.ToString();
     }
 
     private static void TryCancel(Renci.SshNet.SshCommand cmd)

@@ -54,7 +54,7 @@
           <Button Content="Применить" Style="{StaticResource BtnPrimary}" Width="130"
                   Command="{Binding DataContext.ApplyCommand, ElementName=Actions}"/>
         </StackPanel>
-        <TextBlock x:Name="DefaultsPathText" Foreground="{DynamicResource MutedBrush}" FontSize="11.5"
+        <TextBlock x:Name="DefaultsPathText" Foreground="{DynamicResource TextBrush}" FontSize="12.5" FontWeight="SemiBold"
                    VerticalAlignment="Center" TextWrapping="Wrap"/>
       </DockPanel>
     </Border>

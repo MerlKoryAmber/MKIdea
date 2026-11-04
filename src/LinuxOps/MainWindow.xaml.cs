@@ -38,6 +38,11 @@ public partial class MainWindow : Window
             ShowMode("ssh");
             await Ssh.ConnectTo(host);
         };
+        _actions.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ActionsViewModel.PlanSummary) && Actions.Visibility == Visibility.Visible)
+                DefaultsPathText.Text = _actions.PlanSummary;
+        };
         _actions.Load();
         FooterVersionText.Text = $"v{GetVersion()}";
         ShowMode("actions");
@@ -87,7 +92,7 @@ public partial class MainWindow : Window
         var actions = mode == "actions";
         FooterBar.Visibility = actions ? Visibility.Visible : Visibility.Collapsed;
         ActionsFooter.Visibility = actions ? Visibility.Visible : Visibility.Collapsed;
-        DefaultsPathText.Text = actions ? "Actions · отметьте хосты и действия, затем Dry-run" : "";
+        DefaultsPathText.Text = actions ? _actions.PlanSummary : "";
 
         if (mode == "ssh" && !_sshDocsOnce)
         {

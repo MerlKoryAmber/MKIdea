@@ -9,6 +9,9 @@ public sealed class PlanProgress
     public HostConfig? Host { get; init; }
     public string? HostStatus { get; init; }
     public string? DistroHint { get; init; }
+    /// <summary>Кусок живого вывода для строки RUN с этим заголовком.</summary>
+    public string? Live { get; init; }
+    public string? LiveKey { get; init; }
 }
 
 public sealed class PlanRunResult
@@ -150,7 +153,9 @@ public sealed class PlanRunner
                     if (BuiltinActions.TrySimulate(action.Id, distro, out var simulated))
                     {
                         var simTimeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
-                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, cancellationToken: cancellationToken);
+                        var simKey = Started(progress, host.Name, action.Name, "симуляция");
+                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, cancellationToken: cancellationToken,
+                            onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = simKey }));
                         sim.HostName = host.Name;
                         sim.ActionName = action.Name;
                         var simRow = FromActionResult(host.Name, action.Name, sim);
@@ -172,7 +177,9 @@ public sealed class PlanRunner
 
                 var timeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
                 var sudo = SshRunner.NeedsSudo(host, action);
-                var result = ssh.Run(action.Id, script, timeout, sudo, host, cancellationToken: cancellationToken);
+                var key = Started(progress, host.Name, action.Name, apply && action.Destructive ? "применяется" : "выполняется");
+                var result = ssh.Run(action.Id, script, timeout, sudo, host, cancellationToken: cancellationToken,
+                    onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = key }));
                 result.HostName = host.Name;
                 result.ActionName = action.Name;
                 var row = FromActionResult(host.Name, action.Name, result);
@@ -197,6 +204,14 @@ public sealed class PlanRunner
         }
     }
 
+    /// <summary>Строка RUN: действие запущено. Итоговая строка с тем же заголовком её заменит.</summary>
+    private static string Started(IProgress<PlanProgress> progress, string host, string action, string what)
+    {
+        var title = $"{host} · {action}";
+        progress.Report(new PlanProgress { Row = MakeRow("RUN", title, what + "…", "", ok: true), Status = title });
+        return title;
+    }
+
     private static void Remember(List<HistoryEntry> history, HistoryEntry entry)
     {
         lock (history) history.Add(entry);
@@ -216,7 +231,7 @@ public sealed class PlanRunner
             Title = title,
             Preview = preview,
             Detail = detail,
-            IsOk = ok || status is "SKIP" or "DRY-RUN" or "INFO" or "WARN"
+            IsOk = ok || status is "SKIP" or "DRY-RUN" or "INFO" or "WARN" or "RUN"
         };
 
     private static HistoryEntry ToHistory(string mode, string host, string action, ResultRow row) => new()
@@ -234,7 +249,9 @@ public sealed class PlanRunner
     {
         var preview = string.Equals(r.ActionId, "check-updates", StringComparison.OrdinalIgnoreCase)
             ? SummarizeUpdates(r.StdOut + "\n" + r.StdErr)
-            : FirstNonEmptyLine(r.StdOut) ?? FirstNonEmptyLine(r.StdErr) ?? r.Summary;
+            : string.Equals(r.ActionId, "install-updates", StringComparison.OrdinalIgnoreCase) && SummarizeInstall(r.StdOut + "\n" + r.StdErr) is { } installed
+                ? installed
+                : LastNonEmptyLine(r.StdOut) ?? FirstNonEmptyLine(r.StdErr) ?? r.Summary;
         if (preview.Length > 120) preview = preview[..117] + "…";
 
         var detail = new System.Text.StringBuilder();
@@ -258,6 +275,13 @@ public sealed class PlanRunner
         return MakeRow(r.Ok ? "OK" : "FAIL", $"{host} · {actionName}", preview, detail.ToString().TrimEnd(), r.Ok);
     }
 
+    /// <summary>Последняя непустая строка stdout — обычно итог скрипта.</summary>
+    private static string? LastNonEmptyLine(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        return SshRunner.NormalizeLf(text).Split((char)10).Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
+    }
+
     private static string? FirstNonEmptyLine(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -267,6 +291,33 @@ public sealed class PlanRunner
             if (t.Length > 0) return t;
         }
 
+        return null;
+    }
+
+    /// <summary>Итог «Установить обновления» (dnf / apt / zypper): сколько пакетов, или «нечего обновлять». null — не распознано.</summary>
+    public static string? SummarizeInstall(string text)
+    {
+        var t = SshRunner.NormalizeLf(text);
+        var parts = new List<string>();
+        foreach (var (word, ru) in new[] { ("Upgrade", "обновление"), ("Install", "установка"), ("Remove", "удаление"), ("Downgrade", "откат") })
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(t, @"^\s*" + word + @"\s+(\d+)\s+Packages?", System.Text.RegularExpressions.RegexOptions.Multiline);
+            if (m.Success) parts.Add($"{ru}: {m.Groups[1].Value}");
+        }
+
+        var apt = System.Text.RegularExpressions.Regex.Match(t, @"(\d+) upgraded, (\d+) newly installed, (\d+) to remove");
+        if (apt.Success)
+            parts.Add($"обновление: {apt.Groups[1].Value}, установка: {apt.Groups[2].Value}, удаление: {apt.Groups[3].Value}");
+        var zyp = System.Text.RegularExpressions.Regex.Match(t, @"(\d+) packages? to upgrade");
+        if (zyp.Success) parts.Add($"обновление: {zyp.Groups[1].Value}");
+        if (parts.Count > 0)
+        {
+            var done = t.Contains("Complete!", StringComparison.Ordinal) ? " · готово" : "";
+            return "пакеты — " + string.Join(", ", parts) + done;
+        }
+
+        if (t.Contains("Nothing to do", StringComparison.OrdinalIgnoreCase) || System.Text.RegularExpressions.Regex.IsMatch(t, @"\b0 upgraded, 0 newly installed"))
+            return "нечего обновлять";
         return null;
     }
 

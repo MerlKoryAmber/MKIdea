@@ -1,3 +1,5 @@
+using System.Text;
+using System.Windows.Threading;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -46,6 +48,8 @@ public partial class ActionsViewModel : ObservableObject
     [ObservableProperty] private string detail = "Выберите строку плана.";
     [ObservableProperty] private ResultRow? selectedResult;
     [ObservableProperty] private bool isRunning;
+    /// <summary>Что запустят Dry-run и «Применить» — строка внизу окна.</summary>
+    [ObservableProperty] private string planSummary = "";
 
     public bool SuspendSelection { get; private set; }
 
@@ -75,6 +79,7 @@ public partial class ActionsViewModel : ObservableObject
 
     public void RefreshPreview()
     {
+        UpdatePlanSummary();
         if (IsRunning) return;
         Results.Clear();
         SelectedResult = null;
@@ -115,6 +120,20 @@ public partial class ActionsViewModel : ObservableObject
         SelectedResult = Results.FirstOrDefault();
     }
 
+    private void UpdatePlanSummary()
+    {
+        var planned = Actions.Where(a => a.IsSelected).Select(a => a.Definition.Name).ToList();
+        var hosts = Hosts.Count(h => h.IsSelected);
+        PlanSummary = planned.Count == 0
+            ? "План пуст: щёлкните действие в каталоге"
+            : hosts == 0
+                ? "План: " + string.Join(", ", planned) + " — отметьте хосты"
+                : "План: " + string.Join(", ", planned) + " → " + hosts + " " + Plural(hosts, "хост", "хоста", "хостов");
+    }
+
+    private static string Plural(int n, string one, string few, string many)
+        => (n % 10 == 1 && n % 100 != 11) ? one : (n % 10 is >= 2 and <= 4 && n % 100 is < 12 or > 14) ? few : many;
+
     private static DistroInfo GuessDistro(string? hint)
     {
         var id = string.IsNullOrWhiteSpace(hint) ? "unknown" : hint.Trim();
@@ -132,12 +151,128 @@ public partial class ActionsViewModel : ObservableObject
 
     partial void OnSelectedResultChanged(ResultRow? value)
     {
+        // Пользователь сам выбрал строку во время запуска — не перескакиваем на новые RUN.
+        if (!_programmatic && IsRunning) _autoFollow = false;
+        if (value is { Status: "RUN" } && _running.TryGetValue(value.Title, out var run))
+        {
+            Detail = LiveTail(run) ?? "Ждём вывод с сервера…";
+            return;
+        }
+
         Detail = value is null
             ? "Выберите строку плана."
             : string.IsNullOrWhiteSpace(value.Detail) ? value.Preview : value.Detail;
     }
 
+    // ---------- Ход запуска: строки RUN, живой вывод, время ----------
+
+    private sealed class RunningRow
+    {
+        public required ResultRow Row { get; init; }
+        public required string What { get; init; }
+        public DateTime Started { get; } = DateTime.Now;
+        public StringBuilder Output { get; } = new();
+    }
+
+    private readonly Dictionary<string, RunningRow> _running = new();
+    private readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private DateTime _runStarted;
+    private string _statusBase = "";
+    private bool _liveDirty;
+    private bool _autoFollow;
+    private bool _programmatic;
+
     partial void OnIsRunningChanged(bool value)
+    {
+        NotifyRunCommands();
+        if (value)
+        {
+            _runStarted = DateTime.Now;
+            _running.Clear();
+            _autoFollow = true;
+            _statusBase = RunStatus;
+            _tick.Tick -= OnTick;
+            _tick.Tick += OnTick;
+            _tick.Start();
+            return;
+        }
+
+        _tick.Stop();
+        // Отмена или обрыв: незавершённые RUN не должны висеть «выполняется».
+        foreach (var run in _running.Values.ToList())
+        {
+            var i = Results.IndexOf(run.Row);
+            var stopped = PlanRunner.MakeRow("WARN", run.Row.Title, "прервано через " + Elapsed(run.Started),
+                LiveTail(run) ?? "", ok: true);
+            var wasSelected = ReferenceEquals(SelectedResult, run.Row);
+            _programmatic = true;
+            try
+            {
+                if (i >= 0) Results[i] = stopped;
+            }
+            finally
+            {
+                _programmatic = false;
+            }
+
+            if (wasSelected) Select(stopped);
+        }
+
+        _running.Clear();
+        if (!string.IsNullOrEmpty(RunStatus)) RunStatus += " · за " + Elapsed(_runStarted);
+    }
+
+    private void OnTick(object? sender, EventArgs e)
+    {
+        RunStatus = string.IsNullOrEmpty(_statusBase) ? Elapsed(_runStarted) : $"{_statusBase} · {Elapsed(_runStarted)}";
+        foreach (var run in _running.Values)
+        {
+            var last = LastLine(run);
+            run.Row.Preview = $"{run.What}… {Elapsed(run.Started)}" + (last is null ? "" : " · " + last);
+        }
+
+        if (_liveDirty && SelectedResult is { Status: "RUN" } sel && _running.TryGetValue(sel.Title, out var shown))
+            Detail = LiveTail(shown) ?? "Ждём вывод с сервера…";
+        _liveDirty = false;
+    }
+
+    private void Select(ResultRow? row)
+    {
+        _programmatic = true;
+        try { SelectedResult = row; }
+        finally { _programmatic = false; }
+    }
+
+    private static string Elapsed(DateTime from)
+    {
+        var t = DateTime.Now - from;
+        return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+    }
+
+    private static string Clean(StringBuilder sb)
+    {
+        string text;
+        lock (sb) text = sb.ToString();
+        return text.Replace("\r\n", "\n").Replace('\r', '\n');
+    }
+
+    private static string? LiveTail(RunningRow run, int maxLines = 300)
+    {
+        var lines = Clean(run.Output).Split('\n');
+        if (lines.All(l => l.Trim().Length == 0)) return null;
+        var tail = lines.Length > maxLines ? lines[^maxLines..] : lines;
+        var head = lines.Length > maxLines ? $"… выше ещё {lines.Length - maxLines} строк\n" : "";
+        return $"{run.Row.Title}\n{run.What}, идёт {Elapsed(run.Started)}\n\n" + head + string.Join('\n', tail).TrimEnd();
+    }
+
+    private static string? LastLine(RunningRow run)
+    {
+        var line = Clean(run.Output).Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
+        if (line is null) return null;
+        return line.Length > 90 ? line[..87] + "…" : line;
+    }
+
+    private void NotifyRunCommands()
     {
         DryRunCommand.NotifyCanExecuteChanged();
         ApplyCommand.NotifyCanExecuteChanged();
@@ -422,7 +557,7 @@ public partial class ActionsViewModel : ObservableObject
 
         Results.Clear();
         SelectedResult = null;
-        RunStatus = apply ? "apply…" : "dry-run…";
+        RunStatus = apply ? "применение…" : "dry-run…";
         IsRunning = true;
         _runCts = new CancellationTokenSource();
         var progress = new Progress<PlanProgress>(ApplyProgress);
@@ -467,14 +602,54 @@ public partial class ActionsViewModel : ObservableObject
                 p.Host.DistroHint = p.DistroHint;
         }
 
-        if (p.Row is not null)
+        if (p.Live is not null && p.LiveKey is not null && _running.TryGetValue(p.LiveKey, out var live))
+        {
+            lock (live.Output)
+            {
+                live.Output.Append(p.Live);
+                // Держим хвост: полный вывод всё равно придёт в итоговой строке.
+                if (live.Output.Length > 400_000) live.Output.Remove(0, live.Output.Length - 300_000);
+            }
+
+            _liveDirty = true;
+        }
+
+        if (p.Row is { Status: "RUN" } started)
+        {
+            _running[started.Title] = new RunningRow { Row = started, What = started.Preview.TrimEnd('…') };
+            Results.Add(started);
+            if (_autoFollow || SelectedResult is null) Select(started);
+        }
+        else if (p.Row is not null && _running.Remove(p.Row.Title, out var done))
+        {
+            // Итог заменяет строку RUN на том же месте.
+            // Список сбрасывает выбор, когда меняют выбранный элемент, — запоминаем до замены.
+            var wasSelected = ReferenceEquals(SelectedResult, done.Row);
+            var i = Results.IndexOf(done.Row);
+            _programmatic = true;
+            try
+            {
+                if (i >= 0) Results[i] = p.Row;
+                else Results.Add(p.Row);
+            }
+            finally
+            {
+                _programmatic = false;
+            }
+
+            if (wasSelected) Select(p.Row);
+        }
+        else if (p.Row is not null)
         {
             Results.Add(p.Row);
-            SelectedResult ??= p.Row;
+            if (SelectedResult is null) Select(p.Row);
         }
 
         if (p.Status is not null)
-            RunStatus = p.Status;
+        {
+            _statusBase = p.Status;
+            RunStatus = IsRunning ? $"{p.Status} · {Elapsed(_runStarted)}" : p.Status;
+        }
     }
 
     private void Warn(string text)
