@@ -30,8 +30,7 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
     private bool _atPasswordPrompt;
     private bool _sudoPromptHandled;
     private bool _sentSudo;
-    private string _pending = "";
-    private int _cursor;
+    private long _shown = -1;
     private int _cols = 120;
     private int _rows = 40;
     private uint _pxWidth;
@@ -46,11 +45,12 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
     public event Action? OutputChanged;
 
     [ObservableProperty] private HostConfig? selectedHost;
-    [ObservableProperty] private string output = "";
     [ObservableProperty] private bool connected;
     [ObservableProperty] private string status = "Не подключено";
 
-    public int CursorIndex => _cursor;
+    /// <summary>Последний снимок экрана для отрисовки.</summary>
+    public TerminalFrame Frame { get; private set; } = TerminalFrame.Empty;
+    public bool HasOutput => Frame.HasText;
     public bool AppCursorKeys { get { lock (_gate) return _screen.AppCursorKeys; } }
     public HostConfig? ConnectedHost => Connected ? _shellHost : null;
 
@@ -94,6 +94,13 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
             shell.DataReceived += OnData;
             shell.ErrorOccurred += OnError;
             shell.Closed += OnClosed;
+            // Окно могло получить свой размер, пока шло подключение (новая вкладка) — сообщить PTY настоящий.
+            if (cols != _cols || rows != _rows)
+            {
+                try { shell.ChangeWindowSize((uint)_cols, (uint)_rows, _pxWidth, _pxHeight); }
+                catch { /* канал закрыт */ }
+            }
+
             Connected = true;
             host.Status = "Online";
             Status = host.Display;
@@ -114,7 +121,7 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
         SshAuth.AttachHostKey(client, host);
         client.Connect();
         var modes = new Dictionary<TerminalModes, uint> { [TerminalModes.VERASE] = 127 };
-        var shell = client.CreateShellStream("xterm", cols, rows, 0, 0, 65536, modes);
+        var shell = client.CreateShellStream("xterm-256color", cols, rows, 0, 0, 65536, modes);
         return (client, shell);
     }
 
@@ -153,11 +160,10 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
         lock (_gate)
         {
             _screen.Clear();
-            _pending = "";
-            _cursor = 0;
+            Frame = _screen.Snapshot();
+            _shown = Frame.Version;
         }
 
-        Output = "";
         OutputChanged?.Invoke();
     }
 
@@ -172,6 +178,7 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
         _pxWidth = (uint)Math.Max(0, pxWidth);
         _pxHeight = (uint)Math.Max(0, pxHeight);
         lock (_gate) _screen.Resize(cols, rows);
+        Flush();
         var shell = _shell;
         if (shell is null) return;
         try { shell.ChangeWindowSize((uint)cols, (uint)rows, _pxWidth, _pxHeight); }
@@ -261,13 +268,10 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
             if (!Connected) return;
             lock (_gate)
             {
-                _screen.Feed("\r\n[сессия закрыта]\r\n".AsSpan());
-                _pending = _screen.Text;
-                _cursor = _screen.CursorIndex;
+                _screen.Feed("\u001b[0m\r\n[сессия закрыта]\r\n".AsSpan());
             }
 
-            Output = _pending;
-            OutputChanged?.Invoke();
+            Flush();
             Disconnect();
             Status = "Сессия закрыта. Дважды щёлкните хост, чтобы подключиться снова.";
         });
@@ -287,8 +291,6 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
             var chars = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
             var n = _utf8.GetChars(bytes, 0, bytes.Length, chars, 0);
             _screen.Feed(chars.AsSpan(0, n));
-            _pending = _screen.Text;
-            _cursor = _screen.CursorIndex;
             var line = _screen.CurrentLine;
             _atPasswordPrompt = AnyPasswordPrompt.IsMatch(line);
             if (_sentSudo && WrongSudo.IsMatch(new string(chars, 0, n)))
@@ -340,10 +342,13 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
 
     private void Flush()
     {
-        string snap;
-        lock (_gate) snap = _pending;
-        if (snap == Output) return;
-        Output = snap;
+        lock (_gate)
+        {
+            if (_screen.Version == _shown) return;
+            Frame = _screen.Snapshot();
+            _shown = Frame.Version;
+        }
+
         OutputChanged?.Invoke();
     }
 

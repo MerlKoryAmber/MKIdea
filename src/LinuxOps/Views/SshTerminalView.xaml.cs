@@ -19,6 +19,7 @@ public partial class SshTerminalView : UserControl
     {
         InitializeComponent();
         System.Windows.Automation.AutomationProperties.SetAutomationId(Out, "TermOut");
+        Out.ScrollBar = OutBar;
         Out.AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(Out_PreviewKeyDown), handledEventsToo: true);
         Out.AddHandler(TextCompositionManager.PreviewTextInputEvent, new TextCompositionEventHandler(Out_PreviewTextInput), handledEventsToo: true);
         _resize = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -77,7 +78,7 @@ public partial class SshTerminalView : UserControl
 
     private void UpdatePlaceholder()
     {
-        Placeholder.Visibility = _vm is { Connected: false } && string.IsNullOrEmpty(_vm.Output)
+        Placeholder.Visibility = _vm is { Connected: false } && !_vm.HasOutput
             ? Visibility.Visible
             : Visibility.Collapsed;
         ReconnectBtn.IsEnabled = _vm is { Connected: false };
@@ -86,9 +87,7 @@ public partial class SshTerminalView : UserControl
     private void OnOutput()
     {
         if (_vm is null) return;
-        Out.Text = _vm.Output;
-        Out.CaretIndex = Math.Min(_vm.CursorIndex, Out.Text.Length);
-        Out.ScrollToEnd();
+        Out.SetFrame(_vm.Frame);
         UpdatePlaceholder();
     }
 
@@ -101,17 +100,12 @@ public partial class SshTerminalView : UserControl
     private void PushSize()
     {
         if (_vm is null || Out.ActualWidth < 50 || Out.ActualHeight < 50) return;
-        var typeface = new Typeface(Out.FontFamily, Out.FontStyle, Out.FontWeight, Out.FontStretch);
-        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var probe = new FormattedText(new string('M', 10), CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            typeface, Out.FontSize, Brushes.White, dpi);
-        var charWidth = probe.WidthIncludingTrailingWhitespace / 10;
-        var lineHeight = Out.FontFamily.LineSpacing * Out.FontSize;
-        // Поля TextBox, рамка и место под вертикальную прокрутку.
-        var width = Out.ActualWidth - Out.Padding.Left - Out.Padding.Right - 4 - SystemParameters.VerticalScrollBarWidth;
-        var height = Out.ActualHeight - Out.Padding.Top - Out.Padding.Bottom - 4;
-        var cols = (int)Math.Floor(width / charWidth);
-        var rows = (int)Math.Floor(height / lineHeight);
+        // Полоса прокрутки появляется только с историей — место под неё держим всегда, чтобы ширина не прыгала.
+        var width = Out.ActualWidth - Out.Padding.Left - Out.Padding.Right -
+                    (OutBar.Visibility == Visibility.Visible ? 0 : SystemParameters.VerticalScrollBarWidth);
+        var height = Out.ActualHeight - Out.Padding.Top - Out.Padding.Bottom;
+        var cols = (int)Math.Floor(width / Out.CharWidth);
+        var rows = (int)Math.Floor(height / Out.LineHeight);
         _vm.Resize(cols, rows, width, height);
     }
 
@@ -141,7 +135,7 @@ public partial class SshTerminalView : UserControl
 
     private void Copy_Click(object sender, RoutedEventArgs e)
     {
-        if (Out.SelectionLength > 0) Clipboard.SetText(Out.SelectedText);
+        if (Out.HasSelection) Clipboard.SetText(Out.SelectedText);
     }
 
     private void Paste_Click(object sender, RoutedEventArgs e) => Paste();
@@ -150,15 +144,23 @@ public partial class SshTerminalView : UserControl
     {
         if (_vm is null || !_vm.Connected || !Clipboard.ContainsText()) return;
         var text = Clipboard.GetText().Replace("\r\n", "\r").Replace('\n', '\r');
-        _vm.Type(text);
+        TypeToShell(text);
     }
 
     private void Out_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
         if (_vm is null || !_vm.Connected || string.IsNullOrEmpty(e.Text)) return;
         if (e.Text.Any(char.IsControl)) return;
-        _vm.Type(e.Text);
+        TypeToShell(e.Text);
         e.Handled = true;
+    }
+
+    /// <summary>Ввод возвращает к низу экрана и снимает выделение — как в обычных терминалах.</summary>
+    private void TypeToShell(string data)
+    {
+        Out.ClearSelection();
+        Out.ScrollToBottom();
+        _vm?.Type(data);
     }
 
     private void Out_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -174,12 +176,25 @@ public partial class SshTerminalView : UserControl
         // Копирование и вставка в стиле терминалов Windows.
         if (ctrl && shift && key == Key.C) { Copy_Click(sender, e); e.Handled = true; return; }
         if (ctrl && shift && key == Key.V) { Paste(); e.Handled = true; return; }
-        if (ctrl && !shift && key == Key.C && Out.SelectionLength > 0) return; // обычное копирование выделенного
+        // Ctrl+C при выделении — копировать (как в Windows Terminal), без выделения — прервать.
+        if (ctrl && !shift && key == Key.C && Out.HasSelection) { Copy_Click(sender, e); Out.ClearSelection(); e.Handled = true; return; }
         if (ctrl && !shift && key == Key.V) { Paste(); e.Handled = true; return; }
         if (ctrl && key == Key.Insert) { Copy_Click(sender, e); e.Handled = true; return; }
         if (shift && key == Key.Insert) { Paste(); e.Handled = true; return; }
-        // Shift+PageUp/PageDown — прокрутка истории на экране, в оболочку не уходит.
-        if (shift && key is Key.PageUp or Key.PageDown) return;
+        // Shift+PageUp/PageDown, Shift+Home/End — прокрутка истории на экране, в оболочку не уходит.
+        if (shift && key is Key.PageUp or Key.PageDown)
+        {
+            Out.ScrollPage(key == Key.PageUp ? -1 : 1);
+            e.Handled = true;
+            return;
+        }
+
+        if (shift && ctrl && key is Key.Up or Key.Down)
+        {
+            Out.ScrollLines(key == Key.Up ? -1 : 1);
+            e.Handled = true;
+            return;
+        }
 
         var app = _vm.AppCursorKeys;
         string? data = key switch
@@ -239,7 +254,7 @@ public partial class SshTerminalView : UserControl
         }
 
         if (data is null) return;
-        _vm.Type(data);
+        TypeToShell(data);
         e.Handled = true;
     }
 }
