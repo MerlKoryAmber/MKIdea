@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
@@ -19,19 +21,24 @@ public sealed class RemoteSaveResult
 }
 
 /// <summary>Одна открытая правка удалённого файла. Следит за локальной копией и просит загрузить её назад.</summary>
-public sealed class RemoteEditSession : IDisposable
+public sealed class RemoteEditSession : IDisposable, INotifyPropertyChanged
 {
+    /// <summary>Редактор, который вышел быстрее, передал файл уже открытому окну (Notepad++, VS Code, Блокнот Win11).</summary>
+    private static readonly TimeSpan HandOffWindow = TimeSpan.FromSeconds(5);
+
     private readonly Func<RemoteEditSession, EditSaveChoice> _askSave;
-    private readonly Func<RemoteEditSession, bool> _askConflict;
     private readonly Func<RemoteEditSession, RemoteSaveResult> _save;
+    private readonly DateTime _started = DateTime.UtcNow;
     private FileSystemWatcher? _watch;
     private Process? _process;
     private long _token;
     private int _busy;
     private bool _closed;
+    private bool _dirty;
+    private string _state = "открыт";
 
     public RemoteEditSession(
-        string hostLabel,
+        HostConfig host,
         string remotePath,
         string localPath,
         long remoteSize,
@@ -39,16 +46,15 @@ public sealed class RemoteEditSession : IDisposable
         string editor,
         bool launchEditor,
         Func<RemoteEditSession, EditSaveChoice> askSave,
-        Func<RemoteEditSession, bool> askConflict,
         Func<RemoteEditSession, RemoteSaveResult> save)
     {
-        HostLabel = hostLabel;
+        Host = host;
+        HostLabel = host.Display;
         RemotePath = remotePath;
         LocalPath = localPath;
         RemoteSize = remoteSize;
         RemoteMtime = remoteMtime;
         _askSave = askSave;
-        _askConflict = askConflict;
         _save = save;
         Hash = FileHash(localPath);
         var dir = Path.GetDirectoryName(localPath)!;
@@ -61,38 +67,41 @@ public sealed class RemoteEditSession : IDisposable
         _watch.Created += OnFs;
         _watch.Renamed += OnFs;
         if (!launchEditor) return;
-        var psi = new ProcessStartInfo
+        _process = Process.Start(new ProcessStartInfo
         {
             FileName = editor,
             Arguments = "\"" + localPath + "\"",
-            UseShellExecute = false
-        };
-        _process = Process.Start(psi);
+            UseShellExecute = true
+        });
         if (_process is null) return;
         _process.EnableRaisingEvents = true;
-        _process.Exited += (_, _) =>
-        {
-            var app = Application.Current;
-            if (app is null) return;
-            app.Dispatcher.BeginInvoke(async () =>
-            {
-                if (Dirty) await Commit(fromClose: true);
-                Dispose();
-            });
-        };
+        _process.Exited += (_, _) => Application.Current?.Dispatcher.BeginInvoke(OnEditorExited);
     }
 
+    public HostConfig Host { get; }
     public string HostLabel { get; }
     public string RemotePath { get; }
     public string LocalPath { get; }
-    public string Title => RemotePath;
+    public string Title => $"{RemotePath}  ·  {Host.Title}";
     public long RemoteSize { get; private set; }
     public DateTime RemoteMtime { get; private set; }
     public string Hash { get; private set; }
-    public bool Dirty { get; private set; }
     public bool AlwaysSave { get; set; }
 
+    public bool Dirty
+    {
+        get => _dirty;
+        private set { _dirty = value; OnPropertyChanged(); }
+    }
+
+    public string State
+    {
+        get => _state;
+        private set { _state = value; OnPropertyChanged(); }
+    }
+
     public event Action<RemoteEditSession>? Closed;
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public void NoteRemote(long size, DateTime mtime, string hash)
     {
@@ -100,24 +109,33 @@ public sealed class RemoteEditSession : IDisposable
         RemoteMtime = mtime;
         Hash = hash;
         Dirty = false;
+        State = "сохранён " + DateTime.Now.ToString("HH:mm:ss");
     }
 
-    public async Task Commit(bool fromClose)
+    /// <summary>Загрузить правку. ask=false — без вопроса (кнопка «Сохранить»). Возвращает true, если сохранено.</summary>
+    public async Task<bool> Commit(bool ask = true)
     {
-        if (_closed) return;
-        if (!Dirty && fromClose) return;
-        var choice = AlwaysSave ? EditSaveChoice.Always : _askSave(this);
-        if (choice == EditSaveChoice.Later) return;
-        if (choice == EditSaveChoice.Always) AlwaysSave = true;
-        if (Interlocked.Exchange(ref _busy, 1) == 1) return;
+        if (_closed) return false;
+        if (ask && !AlwaysSave)
+        {
+            var choice = _askSave(this);
+            if (choice == EditSaveChoice.Later)
+            {
+                State = "изменён — не сохранён";
+                return false;
+            }
+
+            if (choice == EditSaveChoice.Always) AlwaysSave = true;
+        }
+
+        if (Interlocked.Exchange(ref _busy, 1) == 1) return false;
         try
         {
+            State = "сохранение…";
             var result = await Task.Run(() => _save(this));
-            if (result.Saved)
-            {
-                Dirty = false;
-                try { Hash = FileHash(LocalPath); } catch { /* файл уже закрыт */ }
-            }
+            if (!result.Saved)
+                State = result.Conflict ? "не сохранён: файл на сервере изменился" : "не сохранён: " + Short(result.Detail);
+            return result.Saved;
         }
         finally
         {
@@ -148,6 +166,21 @@ public sealed class RemoteEditSession : IDisposable
         Closed?.Invoke(this);
     }
 
+    private async void OnEditorExited()
+    {
+        if (_closed) return;
+        // Процесс вышел сразу — файл ушёл в уже открытое окно редактора. Правку не закрываем:
+        // её закроет кнопка «Закрыть правку».
+        if (DateTime.UtcNow - _started < HandOffWindow)
+        {
+            State = "открыт в редакторе";
+            return;
+        }
+
+        if (Dirty && !await Commit()) return; // «Не сейчас» или ошибка — копия остаётся, правка в списке
+        Dispose();
+    }
+
     private void OnFs(object sender, FileSystemEventArgs e)
     {
         var token = Interlocked.Increment(ref _token);
@@ -160,15 +193,14 @@ public sealed class RemoteEditSession : IDisposable
             try { hash = FileHash(LocalPath); }
             catch { return; }
             if (string.Equals(hash, Hash, StringComparison.Ordinal)) return;
-            Dirty = true;
             var app = Application.Current;
-            if (app is null)
+            if (app is null) return;
+            await app.Dispatcher.InvokeAsync(async () =>
             {
-                await Commit(fromClose: false);
-                return;
-            }
-
-            await app.Dispatcher.InvokeAsync(async () => await Commit(fromClose: false));
+                Dirty = true;
+                State = "изменён";
+                await Commit();
+            });
         });
     }
 
@@ -179,7 +211,7 @@ public sealed class RemoteEditSession : IDisposable
             try
             {
                 using var fs = new FileStream(LocalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (fs.Length >= 0) return true;
+                return true;
             }
             catch (IOException)
             {
@@ -202,13 +234,16 @@ public sealed class RemoteEditSession : IDisposable
 
     public static string LocalCopyPath(string host, string remotePath)
     {
-        var root = Path.Combine(Path.GetTempPath(), "LinuxOpsEdit", Safe(host), ShortHash(remotePath));
+        var root = Path.Combine(Path.GetTempPath(), "LinuxOpsEdit", Safe(host), ShortHash(host + "|" + remotePath));
         Directory.CreateDirectory(root);
         return Path.Combine(root, Path.GetFileName(remotePath));
     }
 
     public static bool RemoteChanged(long openedSize, DateTime openedMtime, long nowSize, DateTime nowMtime)
         => openedSize != nowSize || Math.Abs((openedMtime - nowMtime).TotalSeconds) >= 2;
+
+    public static bool IsSudoers(string remotePath)
+        => remotePath == "/etc/sudoers" || remotePath.StartsWith("/etc/sudoers.d/", StringComparison.Ordinal);
 
     public static RemoteSaveResult SaveBack(
         SftpBrowser sftp,
@@ -225,41 +260,68 @@ public sealed class RemoteEditSession : IDisposable
         if (RemoteChanged(openedSize, openedMtime, now.Size, now.Mtime) && !confirmConflict())
             return new RemoteSaveResult { Conflict = true, Detail = "отменено: файл на сервере изменился", Size = size };
 
-        string detail;
-        if (sudo || !sftp.CanCreateIn(Parent(remotePath)))
+        // sudoers всегда через visudo -cf, даже под root без sudo.
+        if (sudo || IsSudoers(remotePath))
         {
             var staged = sftp.Stage(localPath);
-            detail = ApplyElevated(host, staged, remotePath);
-        }
-        else
-        {
-            sftp.UploadReplace(localPath, remotePath);
-            detail = "загружено";
+            var detail = ApplyElevated(host, staged, remotePath);
+            return new RemoteSaveResult { Saved = detail.StartsWith("загружено", StringComparison.Ordinal), Detail = detail, Size = size };
         }
 
-        var ok = detail == "загружено";
-        return new RemoteSaveResult { Saved = ok, Detail = detail, Size = size, Conflict = false };
+        try
+        {
+            var note = sftp.WriteInPlace(localPath, remotePath);
+            return new RemoteSaveResult { Saved = true, Detail = "загружено, " + note, Size = size };
+        }
+        catch (Renci.SshNet.Common.SftpPermissionDeniedException)
+        {
+            return new RemoteSaveResult
+            {
+                Detail = "Нет прав на запись. Выберите «Права: sudo» и нажмите «Сохранить» у этой правки.",
+                Size = size
+            };
+        }
     }
 
+    /// <summary>Чтение файла, который пользователь SFTP не может открыть. Копия в /tmp: владелец — пользователь SSH, права 600.</summary>
     public static void DownloadElevated(SftpBrowser sftp, HostConfig host, string remote, string local)
     {
         var staged = "/tmp/linuxops-read-" + Guid.NewGuid().ToString("N");
         using var ssh = SshRunner.Connect(host);
-        var result = ssh.Run("f4-read", """
+        var result = ssh.RunAsRoot("f4-read", """
             set -euo pipefail
-            cp -a -- "$LINUXOPS_DST" "$LINUXOPS_SRC"
-            chmod 644 -- "$LINUXOPS_SRC"
-            """, 30, sudo: true, host, new Dictionary<string, string>
+            umask 077
+            cp -- "$LINUXOPS_DST" "$LINUXOPS_SRC"
+            chown -- "$LINUXOPS_USER" "$LINUXOPS_SRC"
+            chmod 600 -- "$LINUXOPS_SRC"
+            """, 30, host, new Dictionary<string, string>
         {
             ["LINUXOPS_SRC"] = staged,
-            ["LINUXOPS_DST"] = remote
+            ["LINUXOPS_DST"] = remote,
+            ["LINUXOPS_USER"] = host.Username
         });
         if (result.ExitCode != 0)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.StdErr) ? "Не удалось прочитать файл" : result.StdErr.Trim());
-        try { sftp.Download(staged, local); }
-        finally { try { sftp.Delete(staged); } catch { /* временный файл уже снят */ } }
+        try
+        {
+            sftp.Download(staged, local);
+        }
+        finally
+        {
+            try { sftp.Delete(staged); }
+            catch
+            {
+                // Последняя попытка — через sudo, чтобы копия не осталась в /tmp.
+                ssh.RunAsRoot("f4-clean", "rm -f -- \"$LINUXOPS_SRC\"", 15, host,
+                    new Dictionary<string, string> { ["LINUXOPS_SRC"] = staged });
+            }
+        }
     }
 
+    /// <summary>
+    /// Записать временный файл на место через root: прежняя версия — в /root/.linuxops-bak,
+    /// затем cat поверх (inode, права, владелец, метки SELinux сохраняются).
+    /// </summary>
     public static string ApplyElevated(HostConfig host, string staged, string dest)
     {
         const string script = """
@@ -270,16 +332,20 @@ public sealed class RemoteEditSession : IDisposable
                 visudo -cf "$LINUXOPS_SRC"
                 ;;
             esac
-            cp --preserve=mode,ownership -- "$LINUXOPS_DST" "$LINUXOPS_DST.linuxops.bak"
+            b="$(getent passwd root | cut -d: -f6)/.linuxops-bak"
+            install -d -m 700 -- "$b"
+            cp --preserve=mode,ownership -- "$LINUXOPS_DST" "$b/$LINUXOPS_BAK"
             cat -- "$LINUXOPS_SRC" > "$LINUXOPS_DST"
+            echo "$b/$LINUXOPS_BAK"
             """;
         using var ssh = SshRunner.Connect(host);
-        var result = ssh.Run("f4-save", script, 60, sudo: true, host, new Dictionary<string, string>
+        var result = ssh.RunAsRoot("f4-save", script, 60, host, new Dictionary<string, string>
         {
             ["LINUXOPS_SRC"] = staged,
-            ["LINUXOPS_DST"] = dest
+            ["LINUXOPS_DST"] = dest,
+            ["LINUXOPS_BAK"] = SftpBrowser.BackupName(dest)
         });
-        if (result.ExitCode == 0) return "загружено";
+        if (result.ExitCode == 0) return "загружено, копия " + result.StdOut.Trim().Split('\n').Last();
         var text = (result.StdErr + "\n" + result.StdOut).Trim();
         return string.IsNullOrWhiteSpace(text) ? "ошибка загрузки, exit " + result.ExitCode : text;
     }
@@ -289,7 +355,7 @@ public sealed class RemoteEditSession : IDisposable
         var choice = EditSaveChoice.Later;
         var window = new Window
         {
-            Title = "Сохранить",
+            Title = "Сохранить на сервер",
             Width = 560,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -304,9 +370,9 @@ public sealed class RemoteEditSession : IDisposable
             Margin = new Thickness(0, 0, 0, 16)
         });
         var row = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
-        void Add(string caption, EditSaveChoice value)
+        void Add(string caption, EditSaveChoice value, bool isDefault = false)
         {
-            var button = new Button { Content = caption, Margin = new Thickness(8, 0, 0, 0), MinWidth = 90, Padding = new Thickness(10, 4, 10, 4) };
+            var button = new Button { Content = caption, Margin = new Thickness(8, 0, 0, 0), MinWidth = 90, Padding = new Thickness(10, 4, 10, 4), IsDefault = isDefault };
             button.Click += (_, _) =>
             {
                 choice = value;
@@ -315,9 +381,9 @@ public sealed class RemoteEditSession : IDisposable
             row.Children.Add(button);
         }
 
-        Add("Сохранить", EditSaveChoice.Save);
+        Add("Сохранить", EditSaveChoice.Save, isDefault: true);
         Add("Не сейчас", EditSaveChoice.Later);
-        Add("Сохранять без вопроса для этого файла", EditSaveChoice.Always);
+        Add("Сохранять без вопроса", EditSaveChoice.Always);
         panel.Children.Add(row);
         window.Content = panel;
         window.ShowDialog();
@@ -325,42 +391,12 @@ public sealed class RemoteEditSession : IDisposable
     }
 
     public static bool AskConflict(Window owner)
-    {
-        var overwrite = false;
-        var window = new Window
-        {
-            Title = "Конфликт",
-            Width = 480,
-            SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = owner,
-            ResizeMode = ResizeMode.NoResize
-        };
-        var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Файл на сервере изменился после открытия",
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 16)
-        });
-        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var yes = new Button { Content = "Перезаписать", MinWidth = 110, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
-        var no = new Button { Content = "Отменить", MinWidth = 90, Padding = new Thickness(10, 4, 10, 4), IsCancel = true };
-        yes.Click += (_, _) => { overwrite = true; window.DialogResult = true; };
-        no.Click += (_, _) => { window.DialogResult = false; };
-        row.Children.Add(yes);
-        row.Children.Add(no);
-        panel.Children.Add(row);
-        window.Content = panel;
-        window.ShowDialog();
-        return overwrite;
-    }
+        => AppDialog.Confirm(owner, "Файл на сервере изменился после открытия.\nПерезаписать его вашей версией?", "Конфликт");
 
-    private static string Parent(string remote)
+    private static string Short(string text)
     {
-        var cut = remote.TrimEnd('/');
-        var idx = cut.LastIndexOf('/');
-        return idx <= 0 ? "/" : cut[..idx];
+        var line = text.Replace("\r", "").Split('\n')[0];
+        return line.Length > 120 ? line[..120] + "…" : line;
     }
 
     private static string Safe(string name)
@@ -373,4 +409,7 @@ public sealed class RemoteEditSession : IDisposable
 
     private static string ShortHash(string text)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..12];
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

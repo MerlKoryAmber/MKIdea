@@ -180,6 +180,18 @@ public sealed class SshRunner : IDisposable
 
     public static string? AskSudo(HostConfig host) => SudoMemory.Ask(host);
 
+    /// <summary>Пароль sudo, который уже вводили в этой сессии (или null).</summary>
+    public static string? CachedSudo(HostConfig host) => SudoMemory.Get(host);
+
+    public static void ForgetSudo(HostConfig host) => SudoMemory.Forget(host);
+
+    public static bool IsRoot(HostConfig host) => string.Equals(host.Username, "root", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Команда с правами root: под root — напрямую, иначе через sudo.</summary>
+    public ActionResult RunAsRoot(string actionId, string command, int timeoutSeconds, HostConfig host,
+        IReadOnlyDictionary<string, string>? env = null)
+        => Run(actionId, command, timeoutSeconds, sudo: !IsRoot(host), host, env);
+
     private static class SudoMemory
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);

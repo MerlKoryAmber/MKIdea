@@ -31,10 +31,22 @@ public partial class MainWindow : Window
         Ssh.DataContext = _ssh;
         Terminal.DataContext = _terminal;
         History.DataContext = _history;
-        _ssh.OpenTerminalRequested += host =>
+        _ssh.OpenTerminalRequested += async (host, path) =>
         {
-            if (host is not null) _terminal.UseHost(host);
             ShowMode("terminal");
+            await _terminal.UseHost(host, path);
+            Terminal.FocusTerminal();
+        };
+        Ssh.OpenTerminalRequested += async host =>
+        {
+            ShowMode("terminal");
+            await _terminal.UseHost(host);
+            Terminal.FocusTerminal();
+        };
+        Terminal.OpenFilesRequested += async host =>
+        {
+            ShowMode("ssh");
+            await Ssh.ConnectTo(host);
         };
         _actions.Load();
         _ssh.Init();
