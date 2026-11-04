@@ -10,20 +10,20 @@
     </Grid.RowDefinitions>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
       <StackPanel>
-        <TextBlock Text="Логин" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+        <TextBlock Text="Логин" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
         <TextBox x:Name="LoginBox" Height="28" Margin="0,4,0,10"/>
         <CheckBox x:Name="SudoBox" Content="sudo (группа wheel или sudo)" Margin="0,0,0,10"/>
         <DockPanel Margin="0,0,0,4">
           <Button DockPanel.Dock="Right" Content="Файл…" Style="{StaticResource Btn}" Height="28" MinWidth="80" Margin="8,0,0,0" Click="PickKey_Click"/>
-          <TextBlock Text="Открытый ключ SSH" Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center"/>
+          <TextBlock Text="Открытый ключ SSH" Foreground="{DynamicResource MutedBrush}" FontSize="12" VerticalAlignment="Center"/>
         </DockPanel>
         <TextBox x:Name="KeysBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" LostFocus="KeysBox_LostFocus"/>
-        <TextBlock x:Name="FpText" Margin="0,4,0,10" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
-        <TextBlock Text="Пароль (пусто — только ключ)" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+        <TextBlock x:Name="FpText" Margin="0,4,0,10" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
+        <TextBlock Text="Пароль (пусто — только ключ)" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
         <PasswordBox x:Name="PassBox" Height="28" Margin="0,4,0,10"/>
-        <TextBlock Text="Хосты" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+        <TextBlock Text="Хосты" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
         <TextBlock x:Name="HostsText" TextWrapping="Wrap" Margin="0,4,0,10"/>
-        <TextBlock x:Name="ErrorText" TextWrapping="Wrap" Foreground="#C45C5C"/>
+        <TextBlock x:Name="ErrorText" TextWrapping="Wrap" Foreground="{DynamicResource ErrorBrush}"/>
       </StackPanel>
     </ScrollViewer>
     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">

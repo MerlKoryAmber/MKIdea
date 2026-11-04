@@ -27,18 +27,6 @@ public partial class SshTerminalView : UserControl
             _resize.Stop();
             PushSize();
         };
-        HostsPanel.OtherHeader = "Открыть в SSH Files";
-        HostsPanel.HostSelected += host =>
-        {
-            if (_vm is not null && host is not null) _vm.SelectedHost = host;
-        };
-        HostsPanel.HostActivated += async host =>
-        {
-            if (_vm is null) return;
-            await _vm.Connect(host);
-            if (_vm.Connected) FocusTerminal();
-        };
-        HostsPanel.OtherRequested += host => OpenFilesRequested?.Invoke(host);
         DataContextChanged += (_, e) =>
         {
             if (e.OldValue is SshTerminalViewModel old)
@@ -52,10 +40,6 @@ public partial class SshTerminalView : UserControl
             vm.Owner = () => Window.GetWindow(this);
             vm.OutputChanged += OnOutput;
             vm.PropertyChanged += OnVmChanged;
-            HostsPanel.Bind(vm.Hosts);
-            if (vm.SelectedHost is null && vm.Hosts.Count > 0)
-                vm.SelectedHost = vm.Hosts.FirstOrDefault(h => h.IsSelected) ?? vm.Hosts[0];
-            HostsPanel.Select(vm.SelectedHost);
             UpdatePlaceholder();
         };
         IsVisibleChanged += (_, _) =>
@@ -64,12 +48,11 @@ public partial class SshTerminalView : UserControl
             Dispatcher.BeginInvoke(() =>
             {
                 if (_vm?.Connected == true) FocusTerminal();
-                else HostsPanel.FocusSearch();
             }, DispatcherPriority.Input);
         };
     }
 
-    /// <summary>«Открыть в SSH Files» из меню списка хостов.</summary>
+    /// <summary>Кнопка «SSH Files»: этот хост в файловом менеджере.</summary>
     public event Action<HostConfig>? OpenFilesRequested;
 
     public void FocusTerminal()
@@ -78,10 +61,16 @@ public partial class SshTerminalView : UserControl
         Keyboard.Focus(Out);
     }
 
+    /// <summary>Сочетания вкладок (Ctrl+Tab, Ctrl+Shift+T/W) — не в оболочку, их ловит TerminalTabsView.</summary>
+    public static bool IsTabShortcut(Key key, ModifierKeys mods)
+    {
+        if (!mods.HasFlag(ModifierKeys.Control)) return false;
+        if (key == Key.Tab) return true;
+        return mods.HasFlag(ModifierKeys.Shift) && key is Key.T or Key.W;
+    }
+
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(SshTerminalViewModel.SelectedHost))
-            HostsPanel.Select(_vm?.SelectedHost);
         if (e.PropertyName is nameof(SshTerminalViewModel.Connected))
             UpdatePlaceholder();
     }
@@ -91,6 +80,7 @@ public partial class SshTerminalView : UserControl
         Placeholder.Visibility = _vm is { Connected: false } && string.IsNullOrEmpty(_vm.Output)
             ? Visibility.Visible
             : Visibility.Collapsed;
+        ReconnectBtn.IsEnabled = _vm is { Connected: false };
     }
 
     private void OnOutput()
@@ -128,11 +118,16 @@ public partial class SshTerminalView : UserControl
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
         if (_vm is null) return;
-        await _vm.Connect(HostsPanel.SelectedHost ?? _vm.SelectedHost);
+        await _vm.Connect(_vm.SelectedHost, confirmSwitch: false);
         if (_vm.Connected) FocusTerminal();
     }
 
     private void Disconnect_Click(object sender, RoutedEventArgs e) => _vm?.Disconnect();
+
+    private void Files_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm?.SelectedHost is { } host) OpenFilesRequested?.Invoke(host);
+    }
 
     private void Clear_Click(object sender, RoutedEventArgs e)
     {
@@ -168,6 +163,7 @@ public partial class SshTerminalView : UserControl
 
     private void Out_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (IsTabShortcut(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers)) return;
         if (_vm is null || !_vm.Connected) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         var mods = Keyboard.Modifiers;

@@ -87,6 +87,8 @@ public sealed class AppDefaults
     public List<string> SelectedActionIds { get; set; } = new();
     /// <summary>Программа для F4. По умолчанию notepad.exe.</summary>
     public string F4Editor { get; set; } = "notepad.exe";
+    /// <summary>Тема: light, dark или system (как в Windows).</summary>
+    public string Theme { get; set; } = "system";
 }
 
 public sealed class ActionDefinition

@@ -23,7 +23,8 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     private readonly SemaphoreSlim _io = new(1, 1);
     private readonly List<string> _back = new();
     private readonly List<string> _fwd = new();
-    private readonly Dictionary<string, string> _lastPath = new(StringComparer.OrdinalIgnoreCase);
+    // Общая для всех вкладок: новая вкладка того же хоста открывается там, где была последняя.
+    private static readonly Dictionary<string, string> _lastPath = new(StringComparer.OrdinalIgnoreCase);
     private SftpBrowser? _sftp;
     private HostConfig? _host;
     private string _home = "/";
@@ -216,6 +217,20 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         _back.Clear();
         _fwd.Clear();
         LastOperation = "отключено";
+    }
+
+    /// <summary>Закрытие вкладки: несохранённые правки — загрузить или явно бросить. false — вкладка остаётся.</summary>
+    public bool Close()
+    {
+        if (Transferring)
+        {
+            if (!AppDialog.Confirm(OwnerWin(), "Идёт передача файлов. Прервать и закрыть вкладку?", "SSH Files")) return false;
+            CancelTransfer();
+        }
+
+        if (!FlushEdits()) return false;
+        CloseSftp();
+        return true;
     }
 
     public void Dispose()

@@ -25,7 +25,7 @@
                         Padding="10,0" Margin="8,0,10,0" ToolTip="SSH: определить дистрибутив и статус"
                         Command="{Binding ProbeCommand}"/>
                 <TextBlock Grid.Column="2" VerticalAlignment="Center"
-                           Foreground="{StaticResource MutedBrush}" FontSize="12" Text="{Binding HostsSelectedText}"/>
+                           Foreground="{DynamicResource MutedBrush}" FontSize="12" Text="{Binding HostsSelectedText}"/>
               </Grid>
               <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                 <Button Content="Добавить пользователя" Style="{StaticResource Btn}" Height="28" Padding="10,0"
@@ -35,7 +35,7 @@
               </StackPanel>
             </StackPanel>
           </Border>
-          <Border DockPanel.Dock="Bottom" Padding="16,10" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+          <Border DockPanel.Dock="Bottom" Padding="16,10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
             <CheckBox x:Name="SelectAllHosts" Content="Выбрать все / снять все"
                       IsChecked="{Binding SelectAllChecked, Mode=OneWay}" Click="SelectAllHosts_Click"/>
           </Border>
@@ -55,7 +55,7 @@
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <!-- Макет: [✓] [лого] имя/IP …… ● Online [тег] -->
-                <Border Padding="12,11" BorderBrush="{StaticResource CardLineBrush}" BorderThickness="0,0,0,1" Background="Transparent">
+                <Border Padding="12,11" BorderBrush="{DynamicResource CardLineBrush}" BorderThickness="0,0,0,1" Background="Transparent">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="Auto"/>
@@ -74,22 +74,22 @@
                     </Grid>
                     <StackPanel Grid.Column="2" MinWidth="120" VerticalAlignment="Center">
                       <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap"/>
-                      <TextBlock Text="{Binding Host}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding Host}" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Ellipse Grid.Column="3" x:Name="StatusDot" Width="8" Height="8"
-                             Fill="{StaticResource UnknownBrush}" VerticalAlignment="Center"
+                             Fill="{DynamicResource UnknownBrush}" VerticalAlignment="Center"
                              ToolTip="{Binding Status}" Margin="10,0,0,0"/>
                   </Grid>
                 </Border>
                 <DataTemplate.Triggers>
                   <DataTrigger Binding="{Binding Status}" Value="Online">
-                    <Setter TargetName="StatusDot" Property="Fill" Value="{StaticResource OnlineBrush}"/>
+                    <Setter TargetName="StatusDot" Property="Fill" Value="{DynamicResource OnlineBrush}"/>
                   </DataTrigger>
                   <DataTrigger Binding="{Binding Status}" Value="Warning">
-                    <Setter TargetName="StatusDot" Property="Fill" Value="{StaticResource WarnBrush}"/>
+                    <Setter TargetName="StatusDot" Property="Fill" Value="{DynamicResource WarnBrush}"/>
                   </DataTrigger>
                   <DataTrigger Binding="{Binding Status}" Value="Offline">
-                    <Setter TargetName="StatusDot" Property="Fill" Value="{StaticResource OfflineBrush}"/>
+                    <Setter TargetName="StatusDot" Property="Fill" Value="{DynamicResource OfflineBrush}"/>
                   </DataTrigger>
                 </DataTemplate.Triggers>
               </DataTemplate>
@@ -105,7 +105,7 @@
           <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
             <TextBlock Text="Каталог действий" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
           </Border>
-          <Border DockPanel.Dock="Top" Padding="16,10" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Background="{StaticResource ToolbarWellBrush}">
+          <Border DockPanel.Dock="Top" Padding="16,10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource ToolbarWellBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <Button Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Margin="0,0,6,0" Command="{Binding AddCommand}"/>
               <Button Content="Изменить" Style="{StaticResource Btn}" Height="28" MinWidth="84" Padding="10,0" Margin="0,0,6,0" Command="{Binding EditCommand}"/>
@@ -133,11 +133,11 @@
                       </Border>
                       <ControlTemplate.Triggers>
                         <Trigger Property="IsSelected" Value="True">
-                          <Setter TargetName="CardChrome" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
-                          <Setter TargetName="CardChrome" Property="Background" Value="#E8F7F4"/>
+                          <Setter TargetName="CardChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                          <Setter TargetName="CardChrome" Property="Background" Value="{DynamicResource HoverBrush}"/>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                          <Setter TargetName="CardChrome" Property="Background" Value="#F3F9F7"/>
+                          <Setter TargetName="CardChrome" Property="Background" Value="{DynamicResource HoverSoftBrush}"/>
                         </Trigger>
                       </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -147,19 +147,19 @@
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <Border Background="#FFFFFF" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="14,12" HorizontalAlignment="Stretch">
                   <DockPanel LastChildFill="True">
                     <CheckBox DockPanel.Dock="Left" Content="В плане" IsChecked="{Binding IsSelected, Mode=TwoWay}"
                               VerticalAlignment="Top" Margin="0,2,10,0"
                               Checked="PlanCheck_Changed" Unchecked="PlanCheck_Changed"/>
-                    <Border DockPanel.Dock="Right" Background="#E8F4F2" CornerRadius="4" Padding="7,2"
+                    <Border DockPanel.Dock="Right" Background="{DynamicResource BadgeBgBrush}" CornerRadius="4" Padding="7,2"
                             VerticalAlignment="Top" Margin="10,0,0,0">
-                      <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{StaticResource AccentDeepBrush}"/>
+                      <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{DynamicResource AccentDeepBrush}"/>
                     </Border>
                     <StackPanel>
                       <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap"/>
-                      <TextBlock Text="{Binding Description}" Foreground="{StaticResource MutedBrush}"
+                      <TextBlock Text="{Binding Description}" Foreground="{DynamicResource MutedBrush}"
                                  FontSize="12" Margin="0,3,0,6" TextWrapping="Wrap"/>
                       <ItemsControl ItemsSource="{Binding DistroTags}">
                         <ItemsControl.ItemsPanel>
@@ -169,8 +169,8 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>
-                            <Border Background="{StaticResource ChipBgBrush}" CornerRadius="4" Padding="7,2" Margin="0,0,6,4">
-                              <TextBlock Text="{Binding}" FontSize="11" Foreground="{StaticResource ChipTextBrush}"/>
+                            <Border Background="{DynamicResource ChipBgBrush}" CornerRadius="4" Padding="7,2" Margin="0,0,6,4">
+                              <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource ChipTextBrush}"/>
                             </Border>
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>

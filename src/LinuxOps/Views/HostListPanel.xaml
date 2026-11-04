@@ -6,7 +6,7 @@
       <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}" Padding="10,8">
         <StackPanel>
           <DockPanel Margin="0,0,0,6">
-            <TextBlock x:Name="CountText" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}" FontSize="11.5"
+            <TextBlock x:Name="CountText" DockPanel.Dock="Right" Foreground="{DynamicResource MutedBrush}" FontSize="11.5"
                        VerticalAlignment="Center"/>
             <TextBlock Text="Хосты" Style="{StaticResource SectionTitle}"/>
           </DockPanel>
@@ -14,20 +14,21 @@
             <TextBox x:Name="Search" Height="28" Padding="6,2" VerticalContentAlignment="Center"
                      TextChanged="Search_TextChanged" PreviewKeyDown="Search_PreviewKeyDown"/>
             <TextBlock x:Name="SearchHint" Text="Поиск: имя, адрес, пользователь" Margin="9,0,0,0" VerticalAlignment="Center"
-                       Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False"/>
+                       Foreground="{DynamicResource MutedBrush}" IsHitTestVisible="False"/>
           </Grid>
         </StackPanel>
       </Border>
       <TextBlock DockPanel.Dock="Bottom" Margin="10,6" FontSize="11" TextWrapping="Wrap"
-                 Foreground="{StaticResource MutedBrush}" Text="Двойной щелчок или Enter — подключиться"/>
+                 Foreground="{DynamicResource MutedBrush}" Text="Двойной щелчок или Enter — открыть. Уже открытый хост — перейти на его вкладку."/>
       <Grid>
-        <ListBox x:Name="List" BorderThickness="0" Background="White"
+        <ListBox x:Name="List" BorderThickness="0" Background="{DynamicResource SurfaceBrush}"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  SelectionChanged="List_SelectionChanged"
                  MouseDoubleClick="List_MouseDoubleClick" PreviewKeyDown="List_PreviewKeyDown">
           <ListBox.ContextMenu>
             <ContextMenu>
               <MenuItem x:Name="MenuConnect" Header="Подключить" Click="MenuConnect_Click" FontWeight="SemiBold"/>
+              <MenuItem x:Name="MenuNew" Header="Новая вкладка с этим хостом" Click="MenuNew_Click"/>
               <MenuItem x:Name="MenuOther" Header="Открыть" Click="MenuOther_Click"/>
             </ContextMenu>
           </ListBox.ContextMenu>
@@ -46,7 +47,7 @@
                 </Grid>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                   <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{StaticResource MutedBrush}"
+                  <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
                              TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
                 <Ellipse Grid.Column="2" Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
@@ -56,7 +57,7 @@
           </ListBox.ItemTemplate>
         </ListBox>
         <TextBlock x:Name="EmptyText" Visibility="Collapsed" Margin="12" TextWrapping="Wrap" TextAlignment="Center"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
       </Grid>
     </DockPanel>
   </Border>

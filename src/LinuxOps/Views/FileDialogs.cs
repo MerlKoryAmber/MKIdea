@@ -65,7 +65,7 @@ public static class FileDialogs
         var boxes = new CheckBox[9];
         for (var c = 0; c < 3; c++)
         {
-            var h = new TextBlock { Text = heads[c], Margin = new Thickness(0, 0, 0, 6), Foreground = System.Windows.Media.Brushes.DimGray };
+            var h = new TextBlock { Text = heads[c], Margin = new Thickness(0, 0, 0, 6), Foreground = (System.Windows.Media.Brush)Application.Current.FindResource("MutedBrush") };
             Grid.SetColumn(h, c + 1);
             grid.Children.Add(h);
         }
@@ -117,7 +117,7 @@ public static class FileDialogs
             {
                 Text = "Сменить владельца обычно может только root. Для чужих файлов выберите «Права: sudo».",
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = System.Windows.Media.Brushes.DimGray,
+                Foreground = (System.Windows.Media.Brush)Application.Current.FindResource("MutedBrush"),
                 FontSize = 11.5,
                 Margin = new Thickness(0, 0, 0, 10)
             });

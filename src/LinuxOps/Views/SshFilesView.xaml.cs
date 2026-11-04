@@ -22,20 +22,6 @@ public partial class SshFilesView : UserControl
     public SshFilesView()
     {
         InitializeComponent();
-        HostsPanel.OtherHeader = "Открыть в терминале";
-        HostsPanel.HostSelected += host =>
-        {
-            if (_vm is not null && host is not null) _vm.SelectedHost = host;
-        };
-        HostsPanel.HostActivated += async host =>
-        {
-            if (_vm is null) return;
-            PushSudo();
-            await _vm.Connect(host);
-            if (_vm.Connected) FocusList(RemoteFilesList);
-        };
-        HostsPanel.OtherRequested += host => OpenTerminalRequested?.Invoke(host);
-
         DataContextChanged += (_, e) =>
         {
             if (e.OldValue is SshFilesViewModel old)
@@ -52,21 +38,34 @@ public partial class SshFilesView : UserControl
             vm.PropertyChanged += OnVmChanged;
             vm.SelectRequested += OnSelectRequested;
             vm.Sudo = IsSudo();
-            HostsPanel.Bind(vm.Hosts);
-            HostsPanel.Select(vm.SelectedHost);
+            // Счётчик «папок N, файлов M» — после каждой смены списка, одним проходом.
+            vm.LocalFiles.CollectionChanged += (_, _) => QueueInfo();
+            vm.RemoteFiles.CollectionChanged += (_, _) => QueueInfo();
             RefreshKeys();
             UpdateHeaders();
         };
     }
 
-    /// <summary>«Открыть в терминале» из меню списка хостов.</summary>
-    public event Action<HostConfig>? OpenTerminalRequested;
+    private bool _infoQueued;
 
-    /// <summary>Подключиться к хосту снаружи (из меню терминала).</summary>
+    private void QueueInfo()
+    {
+        if (_infoQueued) return;
+        _infoQueued = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _infoQueued = false;
+            UpdateInfo();
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>Кнопка «Подключить»: решает вкладочный контейнер (какой хост и в какой вкладке).</summary>
+    public event Action? ConnectRequested;
+
+    /// <summary>Подключить эту вкладку к хосту.</summary>
     public async Task ConnectTo(HostConfig host)
     {
         if (_vm is null) return;
-        HostsPanel.Select(host);
         PushSudo();
         await _vm.Connect(host);
         if (_vm.Connected) FocusList(RemoteFilesList);
@@ -81,7 +80,6 @@ public partial class SshFilesView : UserControl
                 Dispatcher.BeginInvoke(RefreshKeys);
                 break;
             case nameof(SshFilesViewModel.SelectedHost):
-                HostsPanel.Select(_vm?.SelectedHost);
                 Dispatcher.BeginInvoke(RefreshKeys);
                 break;
             case nameof(SshFilesViewModel.LocalSort):
@@ -121,10 +119,8 @@ public partial class SshFilesView : UserControl
         KeyF10.IsEnabled = on;
         KeyF5.Content = local ? "F5 На сервер →" : "F5 ← На компьютер";
         RemotePlaceholder.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-        var accent = (System.Windows.Media.Brush)FindResource("AccentBrush");
-        var line = (System.Windows.Media.Brush)FindResource("LineBrush");
-        LocalBorder.BorderBrush = local ? accent : line;
-        RemoteBorder.BorderBrush = local ? line : accent;
+        LocalBorder.SetResourceReference(Border.BorderBrushProperty, local ? "AccentBrush" : "LineBrush");
+        RemoteBorder.SetResourceReference(Border.BorderBrushProperty, local ? "LineBrush" : "AccentBrush");
         UpdateInfo();
     }
 
@@ -233,12 +229,9 @@ public partial class SshFilesView : UserControl
 
     // ---------- Кнопки панели инструментов ----------
 
-    private async void Connect_Click(object sender, RoutedEventArgs e)
+    private void Connect_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm is null) return;
-        PushSudo();
-        await _vm.Connect(HostsPanel.SelectedHost ?? _vm.SelectedHost);
-        if (_vm.Connected) FocusList(RemoteFilesList);
+        ConnectRequested?.Invoke();
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)

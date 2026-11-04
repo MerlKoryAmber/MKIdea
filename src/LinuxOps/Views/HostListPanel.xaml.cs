@@ -27,6 +27,9 @@ public partial class HostListPanel : UserControl
     /// <summary>Двойной щелчок, Enter или «Подключить».</summary>
     public event Action<HostConfig>? HostActivated;
 
+    /// <summary>«Новая вкладка с этим хостом» — ещё одна сессия, даже если хост уже открыт.</summary>
+    public event Action<HostConfig>? NewRequested;
+
     /// <summary>Второй пункт меню (например «Открыть в терминале»).</summary>
     public event Action<HostConfig>? OtherRequested;
 
@@ -183,6 +186,11 @@ public partial class HostListPanel : UserControl
     private void MenuConnect_Click(object sender, RoutedEventArgs e)
     {
         if (List.SelectedItem is HostConfig host) HostActivated?.Invoke(host);
+    }
+
+    private void MenuNew_Click(object sender, RoutedEventArgs e)
+    {
+        if (List.SelectedItem is HostConfig host) NewRequested?.Invoke(host);
     }
 
     private void MenuOther_Click(object sender, RoutedEventArgs e)

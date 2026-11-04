@@ -63,6 +63,17 @@ public static class DefaultsStore
         }
     }
 
+    public static string Theme
+    {
+        get => Load().Theme is { Length: > 0 } t ? t : "system";
+        set
+        {
+            var defaults = Load();
+            defaults.Theme = value;
+            Write(defaults);
+        }
+    }
+
     public static void SaveSelectedActions(IEnumerable<string> actionIds)
     {
         var defaults = Load();

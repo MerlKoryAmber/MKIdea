@@ -10,13 +10,13 @@
         <RowDefinition Height="*"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{StaticResource MutedBrush}"
+      <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource MutedBrush}"
                  Text="Применение только добавляет. Пользователей, ключи и sudo, которых нет в списке, на хостах не трогает."/>
       <Grid Grid.Row="1">
       <ListBox x:Name="Cards" BorderThickness="0">
           <ListBox.ItemTemplate>
             <DataTemplate>
-              <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="4,8">
+              <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="4,8">
                 <Grid>
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -26,9 +26,9 @@
                   <StackPanel Grid.Column="1">
                     <TextBlock FontWeight="SemiBold">
                       <Run Text="{Binding Login, Mode=OneWay}"/>
-                      <Run Text="{Binding SudoText, Mode=OneWay}" Foreground="{StaticResource MutedBrush}"/>
+                      <Run Text="{Binding SudoText, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}"/>
                     </TextBlock>
-                    <TextBlock Text="{Binding KeysText, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
+                    <TextBlock Text="{Binding KeysText, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
                     <TextBlock Text="{Binding Comment, Mode=OneWay}" TextWrapping="Wrap"/>
                   </StackPanel>
                 </Grid>
@@ -38,7 +38,7 @@
       </ListBox>
       <TextBlock x:Name="EmptyText" Text="Список пуст — нажмите «Добавить» или «Взять с хоста»."
                  HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
-                 TextWrapping="Wrap" Margin="24" Foreground="{StaticResource MutedBrush}"
+                 TextWrapping="Wrap" Margin="24" Foreground="{DynamicResource MutedBrush}"
                  Visibility="Collapsed"/>
       </Grid>
       <WrapPanel Grid.Row="2" Margin="0,12,0,0">
@@ -57,22 +57,22 @@
       </Grid.RowDefinitions>
       <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel>
-          <TextBlock Text="Логин" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+          <TextBlock Text="Логин" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
           <TextBox x:Name="LoginBox" Height="28" Margin="0,4,0,8"/>
           <CheckBox x:Name="SudoBox" Content="sudo" Margin="0,0,0,8"/>
           <CheckBox x:Name="EnabledBox" Content="Включён" Margin="0,0,0,8" IsChecked="True"/>
           <DockPanel Margin="0,0,0,4">
             <Button DockPanel.Dock="Right" Content="Файл…" Style="{StaticResource Btn}" Height="28" MinWidth="80" Margin="8,0,0,0" Click="PickKey_Click"/>
-            <TextBlock Text="Открытый ключ SSH" Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Text="Открытый ключ SSH" Foreground="{DynamicResource MutedBrush}" FontSize="12" VerticalAlignment="Center"/>
           </DockPanel>
           <TextBox x:Name="KeysBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" LostFocus="Keys_LostFocus"/>
-          <TextBlock x:Name="FpText" Margin="0,4,0,8" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
-          <TextBlock Text="Пароль (пусто — не менять при правке)" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+          <TextBlock x:Name="FpText" Margin="0,4,0,8" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
+          <TextBlock Text="Пароль (пусто — не менять при правке)" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
           <PasswordBox x:Name="PassBox" Height="28" Margin="0,4,0,8"/>
           <CheckBox x:Name="ClearPassBox" Content="Убрать пароль" Margin="0,0,0,8"/>
-          <TextBlock Text="Комментарий" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+          <TextBlock Text="Комментарий" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
           <TextBox x:Name="CommentBox" Height="28" Margin="0,4,0,8"/>
-          <TextBlock x:Name="EditError" TextWrapping="Wrap" Foreground="#C45C5C"/>
+          <TextBlock x:Name="EditError" TextWrapping="Wrap" Foreground="{DynamicResource ErrorBrush}"/>
         </StackPanel>
       </ScrollViewer>
       <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -92,21 +92,21 @@
         <Button DockPanel.Dock="Right" Content="Прочитать" Style="{StaticResource Btn}" Height="28" Width="110" Click="ReadHost_Click"/>
         <ComboBox x:Name="HostBox" Height="28" DisplayMemberPath="Title" Margin="0,0,8,0"/>
       </DockPanel>
-      <TextBlock x:Name="ImportNote" Grid.Row="1" Margin="0,0,0,6" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+      <TextBlock x:Name="ImportNote" Grid.Row="1" Margin="0,0,0,6" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
       <ListBox x:Name="ImportList" Grid.Row="2" BorderThickness="0">
         <ListBox.ItemTemplate>
           <DataTemplate>
             <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" Margin="0,4">
               <StackPanel>
                 <TextBlock FontWeight="SemiBold" Text="{Binding Login}"/>
-                <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
+                <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
               </StackPanel>
             </CheckBox>
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
       <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-        <TextBlock x:Name="ImportError" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="#C45C5C"/>
+        <TextBlock x:Name="ImportError" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource ErrorBrush}"/>
         <Button Content="Назад" Style="{StaticResource Btn}" Width="100" Margin="0,0,8,0" Click="ImportBack_Click"/>
         <Button Content="Добавить отмеченных" Style="{StaticResource BtnPrimary}" Width="180" Click="ImportAdd_Click"/>
       </StackPanel>

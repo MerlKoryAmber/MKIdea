@@ -10,8 +10,6 @@ namespace LinuxOps;
 public partial class MainWindow : Window
 {
     private readonly ActionsViewModel _actions;
-    private readonly SshFilesViewModel _ssh;
-    private readonly SshTerminalViewModel _terminal;
     private readonly HistoryViewModel _history;
     private bool _modeSwitching;
     private bool _sshDocsOnce;
@@ -23,25 +21,17 @@ public partial class MainWindow : Window
         session.Reload();
         _actions = new ActionsViewModel(session);
         var inventory = new InventoryViewModel(session);
-        _ssh = new SshFilesViewModel(session);
-        _terminal = new SshTerminalViewModel(session);
         _history = new HistoryViewModel();
         Actions.DataContext = _actions;
         Inventory.DataContext = inventory;
-        Ssh.DataContext = _ssh;
-        Terminal.DataContext = _terminal;
         History.DataContext = _history;
-        _ssh.OpenTerminalRequested += async (host, path) =>
+        Ssh.Init(session);
+        Terminal.Init(session);
+        // F9 с папкой — новая вкладка терминала в этой папке; без папки — вкладка хоста (своя или новая).
+        Ssh.OpenTerminalRequested += async (host, path) =>
         {
             ShowMode("terminal");
-            await _terminal.UseHost(host, path);
-            Terminal.FocusTerminal();
-        };
-        Ssh.OpenTerminalRequested += async host =>
-        {
-            ShowMode("terminal");
-            await _terminal.UseHost(host);
-            Terminal.FocusTerminal();
+            await Terminal.Open(host, cdPath: path);
         };
         Terminal.OpenFilesRequested += async host =>
         {
@@ -49,7 +39,6 @@ public partial class MainWindow : Window
             await Ssh.ConnectTo(host);
         };
         _actions.Load();
-        _ssh.Init();
         FooterVersionText.Text = $"v{GetVersion()}";
         ShowMode("actions");
     }
@@ -57,14 +46,10 @@ public partial class MainWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        var hwnd = new WindowInteropHelper(this).Handle;
-        var dark = 1;
-        if (DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int)) != 0)
-            DwmSetWindowAttribute(hwnd, 19, ref dark, sizeof(int));
+        Services.ThemeManager.SetTitleBar(this);
     }
 
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+    private void Settings_Click(object sender, RoutedEventArgs e) => Views.SettingsWindow.Show(this);
 
     private void ModeChip_Checked(object sender, RoutedEventArgs e)
     {
@@ -106,7 +91,7 @@ public partial class MainWindow : Window
 
         if (mode == "ssh" && !_sshDocsOnce)
         {
-            _ssh.EnterDocuments();
+            Ssh.EnterDocuments();
             _sshDocsOnce = true;
         }
 
@@ -116,8 +101,8 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _ssh.Dispose();
-        _terminal.Dispose();
+        Ssh.DisposeAll();
+        Terminal.DisposeAll();
         base.OnClosed(e);
     }
 

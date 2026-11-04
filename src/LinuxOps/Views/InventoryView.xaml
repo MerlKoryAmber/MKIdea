@@ -15,7 +15,7 @@
               <StackPanel>
                 <TextBlock Text="Inventory · хосты" Style="{StaticResource SectionTitle}"/>
                 <TextBlock Text="Добавление и правка SSH-целей. Сохраняется в LinuxOps.defaults.json."
-                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
+                           Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
               </StackPanel>
             </DockPanel>
           </Border>
@@ -24,7 +24,7 @@
                     MouseDoubleClick="HostsGrid_DoubleClick"
                     Background="Transparent" BorderThickness="0"
                     RowHeaderWidth="0" GridLinesVisibility="Horizontal"
-                    AlternatingRowBackground="#F7FAFC">
+                    AlternatingRowBackground="{DynamicResource RowAltBrush}">
             <DataGrid.Columns>
               <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="*"/>
               <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>

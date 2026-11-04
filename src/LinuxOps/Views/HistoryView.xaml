@@ -13,7 +13,7 @@
               <StackPanel>
                 <TextBlock Text="History" Style="{StaticResource SectionTitle}"/>
                 <TextBlock Text="Последние dry-run / apply по хостам и действиям."
-                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
+                           Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
               </StackPanel>
             </DockPanel>
           </Border>
@@ -27,7 +27,7 @@
                       HeadersVisibility="Column" CanUserAddRows="False" SelectionMode="Single"
                       
                       Background="Transparent" BorderThickness="0" RowHeaderWidth="0"
-                      GridLinesVisibility="Horizontal" AlternatingRowBackground="#F7FAFC">
+                      GridLinesVisibility="Horizontal" AlternatingRowBackground="{DynamicResource RowAltBrush}">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Когда" Binding="{Binding AtLocalText}" Width="140"/>
                 <DataGridTextColumn Header="Режим" Binding="{Binding Mode}" Width="70"/>
