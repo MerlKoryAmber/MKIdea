@@ -102,7 +102,7 @@ public static class UserProvisioning
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    ApplyOne(host, request, progress);
+                    ApplyOne(host, request, progress, cancellationToken);
                 }
                 finally
                 {
@@ -124,23 +124,24 @@ public static class UserProvisioning
         }
     }
 
-    private static void ApplyOne(HostConfig host, AddUserRequest request, IProgress<PlanProgress> progress)
+    private static void ApplyOne(HostConfig host, AddUserRequest request, IProgress<PlanProgress> progress, CancellationToken cancellationToken)
     {
         try
         {
             using var ssh = SshRunner.Connect(host);
             var distro = ssh.DetectDistro();
-            var group = distro.Family == "debian" ? "sudo" : "wheel";
+            var suse = distro.Family == "suse";
             var action = new ActionDefinition { Id = "add-user", Privilege = "sudo/root", TimeoutSeconds = 120 };
             var env = new Dictionary<string, string>
             {
                 ["LINUXOPS_USER"] = request.Login,
-                ["LINUXOPS_GROUP"] = group,
+                ["LINUXOPS_GROUP"] = suse ? "" : distro.Family == "debian" ? "sudo" : "wheel",
+                ["LINUXOPS_SUDO_MODE"] = suse ? "file" : "group",
                 ["LINUXOPS_SUDO"] = request.Sudo ? "yes" : "no",
                 ["LINUXOPS_KEYS"] = request.Keys.Replace("\r\n", "\n").Trim(),
                 ["LINUXOPS_PASSWORD"] = request.Password
             };
-            var result = ssh.Run("add-user", Script, 120, SshRunner.NeedsSudo(host, action), host, env);
+            var result = ssh.Run("add-user", Script, 120, SshRunner.NeedsSudo(host, action), host, env, cancellationToken);
             var line = result.ExitCode == 0
                 ? HumanLine(host.Title, result.StdOut)
                 : First(result.StdErr) ?? First(result.StdOut) ?? $"exit {result.ExitCode}";
@@ -149,6 +150,10 @@ public static class UserProvisioning
             {
                 Row = PlanRunner.MakeRow(result.ExitCode == 0 ? "OK" : "FAIL", host.Title, line, detail, result.ExitCode == 0)
             });
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -171,52 +176,75 @@ public static class UserProvisioning
     }
 
     private const string Script = """
-        set -u
+        set -euo pipefail
         login="$LINUXOPS_USER"
-        group="$LINUXOPS_GROUP"
+        group="${LINUXOPS_GROUP:-}"
+        mode="${LINUXOPS_SUDO_MODE:-group}"
         want_sudo="${LINUXOPS_SUDO:-no}"
+        die() { echo "$1" >&2; exit 1; }
         created=no
         if ! id "$login" >/dev/null 2>&1; then
-          useradd -m -s /bin/bash "$login"
+          useradd -m -s /bin/bash "$login" || die "useradd: не удалось создать $login"
+          id "$login" >/dev/null 2>&1 || die "пользователь $login не появился после useradd"
           created=yes
         fi
+        pg=$(id -gn "$login") || die "не прочитана основная группа $login"
         sudo_state=skip
         if [ "$want_sudo" = "yes" ]; then
-          if ! getent group "$group" >/dev/null 2>&1; then
-            echo "нет группы $group" >&2
-            exit 4
-          fi
-          if id -nG "$login" | tr ' ' '\n' | grep -qx "$group"; then
-            sudo_state=already
+          if [ "$mode" = "file" ]; then
+            rule="$login ALL=(ALL) ALL"
+            file="/etc/sudoers.d/linuxops-$login"
+            if [ -f "$file" ] && grep -qxF -- "$rule" "$file"; then
+              sudo_state=already
+            else
+              printf '%s\n' "$rule" > "$file" || die "не записан $file"
+              chmod 440 "$file" || die "chmod $file"
+              if command -v visudo >/dev/null 2>&1; then
+                if ! visudo -c >/dev/null 2>&1; then
+                  rm -f "$file"
+                  die "sudoers отклонён проверкой visudo"
+                fi
+              fi
+              sudo_state=added
+            fi
           else
-            usermod -aG "$group" "$login"
-            sudo_state=added
+            if ! getent group "$group" >/dev/null 2>&1; then
+              die "нет группы $group"
+            fi
+            if id -nG "$login" | tr ' ' '\n' | grep -qx "$group"; then
+              sudo_state=already
+            else
+              usermod -aG "$group" "$login" || die "usermod: не добавлен в $group"
+              id -nG "$login" | tr ' ' '\n' | grep -qx "$group" || die "группа $group не применилась"
+              sudo_state=added
+            fi
           fi
         fi
         key_state=skip
         if [ -n "${LINUXOPS_KEYS:-}" ]; then
           home=$(getent passwd "$login" | awk -F: '{print $6}')
-          install -d -m 700 -o "$login" -g "$login" "$home/.ssh"
+          [ -n "$home" ] || die "нет домашнего каталога у $login"
+          install -d -m 700 -o "$login" -g "$pg" "$home/.ssh" || die "не создан $home/.ssh"
           ak="$home/.ssh/authorized_keys"
-          touch "$ak"
-          chown "$login:$login" "$ak"
-          chmod 600 "$ak"
+          touch "$ak" || die "не создан authorized_keys"
+          chown "$login:$pg" "$ak" || die "chown authorized_keys"
+          chmod 600 "$ak" || die "chmod authorized_keys"
           key_state=already
           while IFS= read -r line || [ -n "$line" ]; do
             [ -z "$line" ] && continue
             if grep -qxF -- "$line" "$ak"; then
               continue
             fi
-            printf '%s\n' "$line" >> "$ak"
+            printf '%s\n' "$line" >> "$ak" || die "не записан ключ"
             key_state=added
           done < <(printf '%s\n' "$LINUXOPS_KEYS")
           if command -v restorecon >/dev/null 2>&1; then
-            restorecon -R "$home/.ssh" || true
+            restorecon -R "$home/.ssh" || die "restorecon .ssh"
           fi
         fi
         pass_state=skip
         if [ -n "${LINUXOPS_PASSWORD:-}" ]; then
-          printf '%s:%s\n' "$login" "$LINUXOPS_PASSWORD" | chpasswd
+          printf '%s:%s\n' "$login" "$LINUXOPS_PASSWORD" | chpasswd || die "не задан пароль"
           pass_state=set
         fi
         echo "created=$created"

@@ -145,7 +145,18 @@
                   <TextBox x:Name="RemotePathBox" Height="28" Padding="8,2" Text="{Binding RemotePath, Mode=OneWay}"
                            KeyDown="RemotePathBox_KeyDown" ToolTip="Путь. Enter — перейти"/>
                 </DockPanel>
-                <TextBlock Text="{Binding TransferStatus}" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0"/>
+                <TextBlock Text="{Binding TransferStatus}" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0">
+                  <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="Visibility" Value="Visible"/>
+                      <Style.Triggers>
+                        <Trigger Property="Text" Value="">
+                          <Setter Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                      </Style.Triggers>
+                    </Style>
+                  </TextBlock.Style>
+                </TextBlock>
               </StackPanel>
             </Border>
             <ListView x:Name="RemoteFilesList" ItemsSource="{Binding RemoteFiles}" Style="{StaticResource FileList}" Margin="4,0,4,4"

@@ -36,7 +36,7 @@
     <views:SshFilesView x:Name="Ssh" Grid.Row="1" Visibility="Collapsed"/>
     <views:HistoryView x:Name="History" Grid.Row="1" Visibility="Collapsed"/>
 
-    <Border Grid.Row="2" Background="#E8EEF4" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="28,14">
+    <Border x:Name="FooterBar" Grid.Row="2" Background="#E8EEF4" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="28,14">
       <DockPanel>
         <StackPanel x:Name="ActionsFooter" DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
           <Button Content="Очистить план" Style="{StaticResource Btn}" Margin="0,0,8,0"

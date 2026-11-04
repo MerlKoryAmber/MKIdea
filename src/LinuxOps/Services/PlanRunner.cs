@@ -150,7 +150,7 @@ public sealed class PlanRunner
                     if (BuiltinActions.TrySimulate(action.Id, distro, out var simulated))
                     {
                         var simTimeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
-                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host);
+                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, cancellationToken: cancellationToken);
                         sim.HostName = host.Name;
                         sim.ActionName = action.Name;
                         var simRow = FromActionResult(host.Name, action.Name, sim);
@@ -172,7 +172,7 @@ public sealed class PlanRunner
 
                 var timeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
                 var sudo = SshRunner.NeedsSudo(host, action);
-                var result = ssh.Run(action.Id, script, timeout, sudo, host);
+                var result = ssh.Run(action.Id, script, timeout, sudo, host, cancellationToken: cancellationToken);
                 result.HostName = host.Name;
                 result.ActionName = action.Name;
                 var row = FromActionResult(host.Name, action.Name, result);

@@ -24,7 +24,8 @@ public sealed class SshRunner : IDisposable
     /// Скрипт уходит в stdin <c>bash -s</c>. Пароль sudo — первой строкой stdin, не в argv.
     /// </summary>
     public ActionResult Run(string actionId, string command, int timeoutSeconds = 180,
-        bool sudo = false, HostConfig? host = null, IReadOnlyDictionary<string, string>? env = null)
+        bool sudo = false, HostConfig? host = null, IReadOnlyDictionary<string, string>? env = null,
+        CancellationToken cancellationToken = default)
     {
         var script = env is { Count: > 0 } ? EncodeEnv(env) + NormalizeLf(command) : NormalizeLf(command);
         if (!script.EndsWith('\n'))
@@ -33,36 +34,31 @@ public sealed class SshRunner : IDisposable
         string? sudoPassword = null;
         if (sudo)
         {
-            if (host is not null && string.Equals(host.Auth, "Password", StringComparison.OrdinalIgnoreCase))
-                sudoPassword = host.Password;
-            else
+            var probe = Exec(actionId, "export LC_ALL=C LANG=C; sudo -n true", null, Math.Min(30, timeoutSeconds), cancellationToken);
+            var probeHint = FriendlySudo(probe.StdErr, probe.StdOut);
+            if (probe.ExitCode == 0)
+                sudoPassword = null;
+            else if (probeHint is not null && probeHint.Contains("sudoers", StringComparison.Ordinal))
+                return WithHint(probe, probeHint);
+            else if (probeHint is not null && probeHint.Contains("пароль", StringComparison.OrdinalIgnoreCase))
             {
-                sudoPassword = host is null ? null : SudoMemory.Get(host);
+                if (host is not null && string.Equals(host.Auth, "Password", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrEmpty(host.Password))
+                    sudoPassword = host.Password;
+                else
+                    sudoPassword = host is null ? null : SudoMemory.Get(host) ?? SudoMemory.Ask(host);
                 if (string.IsNullOrEmpty(sudoPassword))
                 {
-                    var probe = Exec(actionId, "export LC_ALL=C LANG=C; sudo -n true", null, Math.Min(30, timeoutSeconds));
-                    var probeHint = FriendlySudo(probe.StdErr, probe.StdOut);
-                    if (probe.ExitCode == 0)
-                        sudoPassword = null;
-                    else if (probeHint is not null && probeHint.Contains("sudoers", StringComparison.Ordinal))
-                        return WithHint(probe, probeHint);
-                    else if (probeHint is not null && probeHint.Contains("пароль", StringComparison.OrdinalIgnoreCase))
+                    return new ActionResult
                     {
-                        sudoPassword = host is null ? null : SudoMemory.Ask(host);
-                        if (string.IsNullOrEmpty(sudoPassword))
-                        {
-                            return new ActionResult
-                            {
-                                ActionId = actionId,
-                                ExitCode = 1,
-                                StdErr = "Нужен пароль sudo. Окно закрыли без ввода."
-                            };
-                        }
-                    }
-                    else
-                        return probeHint is null ? probe : WithHint(probe, probeHint);
+                        ActionId = actionId,
+                        ExitCode = 1,
+                        StdErr = "Нужен пароль sudo. Окно закрыли без ввода."
+                    };
                 }
             }
+            else
+                return probeHint is null ? probe : WithHint(probe, probeHint);
         }
 
         var remote = sudo
@@ -71,7 +67,7 @@ public sealed class SshRunner : IDisposable
                 : "export LC_ALL=C LANG=C; sudo -S -p '' bash -s")
             : "export LC_ALL=C LANG=C; bash -s";
         var stdin = string.IsNullOrEmpty(sudoPassword) ? script : sudoPassword + "\n" + script;
-        var result = Exec(actionId, remote, stdin, timeoutSeconds);
+        var result = Exec(actionId, remote, stdin, timeoutSeconds, cancellationToken);
         var hint = FriendlySudo(result.StdErr, result.StdOut);
         if (hint is not null && host is not null && hint.Contains("пароль", StringComparison.OrdinalIgnoreCase))
             SudoMemory.Forget(host);
@@ -102,12 +98,12 @@ public sealed class SshRunner : IDisposable
         return !string.Equals(host.Username, "root", StringComparison.OrdinalIgnoreCase);
     }
 
-    private ActionResult Exec(string actionId, string remoteCommand, string? stdin, int timeoutSeconds)
+    private ActionResult Exec(string actionId, string remoteCommand, string? stdin, int timeoutSeconds, CancellationToken cancellationToken)
     {
         using var cmd = _client.CreateCommand(remoteCommand);
         var timeout = TimeSpan.FromSeconds(Math.Max(5, timeoutSeconds));
         cmd.CommandTimeout = timeout;
-        var task = cmd.ExecuteAsync(CancellationToken.None);
+        var task = cmd.ExecuteAsync(cancellationToken);
         var bytes = Encoding.UTF8.GetBytes(stdin ?? string.Empty);
         using (var input = cmd.CreateInputStream())
         {
@@ -115,14 +111,28 @@ public sealed class SshRunner : IDisposable
                 input.Write(bytes, 0, bytes.Length);
         }
 
-        if (!task.Wait(timeout))
+        try
         {
-            return new ActionResult
+            if (!task.Wait(timeout, cancellationToken))
             {
-                ActionId = actionId,
-                ExitCode = -1,
-                StdErr = $"Таймаут {timeoutSeconds} с."
-            };
+                TryCancel(cmd);
+                return new ActionResult
+                {
+                    ActionId = actionId,
+                    ExitCode = -1,
+                    StdErr = $"Таймаут {timeoutSeconds} с."
+                };
+            }
+        }
+        catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is OperationCanceledException))
+        {
+            TryCancel(cmd);
+            throw new OperationCanceledException(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            TryCancel(cmd);
+            throw;
         }
 
         var code = cmd.ExitStatus ?? -1;
@@ -136,6 +146,12 @@ public sealed class SshRunner : IDisposable
             StdOut = (cmd.Result ?? string.Empty).TrimEnd(),
             StdErr = (cmd.Error ?? string.Empty).TrimEnd()
         };
+    }
+
+    private static void TryCancel(Renci.SshNet.SshCommand cmd)
+    {
+        try { cmd.CancelAsync(true, 2000); }
+        catch { /* команда уже завершилась */ }
     }
 
     private static ActionResult WithHint(ActionResult result, string hint) => new()
@@ -164,33 +180,40 @@ public sealed class SshRunner : IDisposable
 
     private static class SudoMemory
     {
-        private static readonly Dictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly object AskGate = new();
 
         public static string? Get(HostConfig host)
             => Cache.TryGetValue(Key(host), out var value) ? value : null;
 
-        public static void Forget(HostConfig host) => Cache.Remove(Key(host));
+        public static void Forget(HostConfig host) => Cache.TryRemove(Key(host), out _);
 
         public static string? Ask(HostConfig host)
         {
             var cached = Get(host);
             if (!string.IsNullOrEmpty(cached)) return cached;
 
-            string? entered = null;
-            var app = System.Windows.Application.Current;
-            if (app is null) return null;
-            void Show()
+            lock (AskGate)
             {
-                var dlg = new SudoPasswordWindow(host) { Owner = app.MainWindow };
-                if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.Password))
-                    entered = dlg.Password;
-            }
+                cached = Get(host);
+                if (!string.IsNullOrEmpty(cached)) return cached;
 
-            if (app.Dispatcher.CheckAccess()) Show();
-            else app.Dispatcher.Invoke(Show);
-            if (!string.IsNullOrEmpty(entered))
-                Cache[Key(host)] = entered;
-            return entered;
+                string? entered = null;
+                var app = System.Windows.Application.Current;
+                if (app is null) return null;
+                void Show()
+                {
+                    var dlg = new SudoPasswordWindow(host) { Owner = app.MainWindow };
+                    if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.Password))
+                        entered = dlg.Password;
+                }
+
+                if (app.Dispatcher.CheckAccess()) Show();
+                else app.Dispatcher.Invoke(Show);
+                if (!string.IsNullOrEmpty(entered))
+                    Cache[Key(host)] = entered;
+                return entered;
+            }
         }
 
         private static string Key(HostConfig host) => $"{host.Username}@{host.Host}:{host.Port}";

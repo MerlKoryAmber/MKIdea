@@ -77,25 +77,16 @@ public partial class MainWindow : Window
         Actions.Visibility = mode == "actions" ? Visibility.Visible : Visibility.Collapsed;
         Ssh.Visibility = mode == "ssh" ? Visibility.Visible : Visibility.Collapsed;
         History.Visibility = mode == "history" ? Visibility.Visible : Visibility.Collapsed;
-        ActionsFooter.Visibility = mode == "actions" ? Visibility.Visible : Visibility.Collapsed;
+        var actions = mode == "actions";
+        FooterBar.Visibility = actions ? Visibility.Visible : Visibility.Collapsed;
+        ActionsFooter.Visibility = actions ? Visibility.Visible : Visibility.Collapsed;
+        DefaultsPathText.Text = actions ? "Actions · отметьте хосты и действия, затем Dry-run" : "";
 
-        if (mode == "ssh")
+        if (mode == "ssh" && !_sshDocsOnce)
         {
-            DefaultsPathText.Text = "";
-            if (!_sshDocsOnce)
-            {
-                _ssh.EnterDocuments();
-                _sshDocsOnce = true;
-            }
+            _ssh.EnterDocuments();
+            _sshDocsOnce = true;
         }
-        else
-            DefaultsPathText.Text = mode switch
-            {
-                "actions" => "Actions · отметьте хосты и действия, затем Dry-run",
-                "inventory" => "Inventory · правка хостов в defaults рядом с exe",
-                "history" => "History · журнал запусков",
-                _ => ""
-            };
 
         if (mode == "history")
             _history.Reload();
