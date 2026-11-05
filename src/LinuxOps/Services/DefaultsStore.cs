@@ -48,17 +48,36 @@ public static class DefaultsStore
         Write(defaults);
     }
 
+    /// <summary>Notepad++ из комплекта (Tools\Notepad++ рядом с exe), если он есть.</summary>
+    public static string? BundledEditor
+    {
+        get
+        {
+            var path = Path.Combine(GetAppDirectory(), "Tools", "Notepad++", "notepad++.exe");
+            return File.Exists(path) ? path : null;
+        }
+    }
+
+    /// <summary>
+    /// Редактор для F4. Пусто или «notepad.exe» (старое значение по умолчанию) — Notepad++ из комплекта,
+    /// без него — Блокнот. Чтобы всё же Блокнот при наличии Notepad++, укажите C:\Windows\notepad.exe.
+    /// </summary>
     public static string F4Editor
     {
         get
         {
-            var editor = Load().F4Editor;
-            return string.IsNullOrWhiteSpace(editor) ? "notepad.exe" : editor;
+            var editor = Load().F4Editor?.Trim().Trim('"') ?? "";
+            if (editor.Length == 0 || string.Equals(editor, "notepad.exe", StringComparison.OrdinalIgnoreCase))
+                return BundledEditor ?? "notepad.exe";
+            return editor;
         }
         set
         {
             var defaults = Load();
-            defaults.F4Editor = string.IsNullOrWhiteSpace(value) ? "notepad.exe" : value.Trim();
+            var v = (value ?? "").Trim().Trim('"');
+            // Комплектный путь не запоминаем: папку с программой могут перенести.
+            if (BundledEditor is { } bundled && string.Equals(v, bundled, StringComparison.OrdinalIgnoreCase)) v = "";
+            defaults.F4Editor = v;
             Write(defaults);
         }
     }

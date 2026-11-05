@@ -175,7 +175,19 @@
                 </ControlTemplate>
               </ToggleButton.Template>
             </ToggleButton>
-            <ContentPresenter Margin="8,0,26,0" VerticalAlignment="Center" HorizontalAlignment="Left"
+            <!-- Редактируемый список (IsEditable): своё поле ввода поверх кнопки, без рамки. -->
+            <TextBox x:Name="PART_EditableTextBox" Visibility="Collapsed" Margin="4,1,26,1" Padding="2,0"
+                     VerticalContentAlignment="Center" Background="Transparent" BorderThickness="0"
+                     Foreground="{TemplateBinding Foreground}" CaretBrush="{TemplateBinding Foreground}"
+                     IsReadOnly="{TemplateBinding IsReadOnly}">
+              <TextBox.Template>
+                <ControlTemplate TargetType="TextBox">
+                  <ScrollViewer x:Name="PART_ContentHost" Focusable="False" VerticalAlignment="Center"
+                                HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                </ControlTemplate>
+              </TextBox.Template>
+            </TextBox>
+            <ContentPresenter x:Name="SelectedContent" Margin="8,0,26,0" VerticalAlignment="Center" HorizontalAlignment="Left"
                               IsHitTestVisible="False"
                               Content="{TemplateBinding SelectionBoxItem}"
                               ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
@@ -193,6 +205,10 @@
             </Popup>
           </Grid>
           <ControlTemplate.Triggers>
+            <Trigger Property="IsEditable" Value="True">
+              <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+              <Setter TargetName="SelectedContent" Property="Visibility" Value="Collapsed"/>
+            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Opacity" Value="0.45"/>
             </Trigger>

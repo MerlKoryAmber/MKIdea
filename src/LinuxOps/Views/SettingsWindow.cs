@@ -57,7 +57,9 @@ public static class SettingsWindow
         root.Children.Add(editorRow);
         var hint = new TextBlock
         {
-            Text = "Например notepad.exe или C:\\Program Files\\Notepad++\\notepad++.exe",
+            Text = DefaultsStore.BundledEditor is null
+                ? "Например notepad.exe или C:\\Program Files\\Notepad++\\notepad++.exe"
+                : "По умолчанию — Notepad++ из комплекта (Tools\\Notepad++ рядом с программой). Пусто — вернуть его. Блокнот: C:\\Windows\\notepad.exe",
             FontSize = 11.5,
             Margin = new Thickness(0, 0, 0, 18),
             TextWrapping = TextWrapping.Wrap

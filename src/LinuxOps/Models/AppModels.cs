@@ -85,8 +85,8 @@ public sealed class AppDefaults
     public List<HostConfig> Hosts { get; set; } = new();
     /// <summary>Id действий, отмеченных в план в прошлой сессии.</summary>
     public List<string> SelectedActionIds { get; set; } = new();
-    /// <summary>Программа для F4. По умолчанию notepad.exe.</summary>
-    public string F4Editor { get; set; } = "notepad.exe";
+    /// <summary>Программа для F4. Пусто — Notepad++ из комплекта, без него Блокнот.</summary>
+    public string F4Editor { get; set; } = "";
     /// <summary>Тема: light, dark или system (как в Windows).</summary>
     public string Theme { get; set; } = "system";
 }

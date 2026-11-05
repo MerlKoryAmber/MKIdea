@@ -27,12 +27,15 @@
                 <TextBlock Grid.Column="2" VerticalAlignment="Center"
                            Foreground="{DynamicResource MutedBrush}" FontSize="12" Text="{Binding HostsSelectedText}"/>
               </Grid>
-              <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <Button Content="Добавить пользователя" Style="{StaticResource Btn}" Height="28" Padding="10,0"
+              <WrapPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="Добавить пользователя" Style="{StaticResource Btn}" Height="28" Padding="10,0" Margin="0,0,8,6"
                         Command="{Binding AddUserCommand}"/>
-                <Button Content="{Binding BaseUsersText}" Style="{StaticResource Btn}" Height="28" Margin="8,0,0,0" Padding="10,0"
+                <Button Content="Закрыть доступ" Style="{StaticResource Btn}" Height="28" Padding="10,0" Margin="0,0,8,6"
+                        ToolTip="Заблокировать, отозвать ключ или удалить учётную запись на отмеченных хостах. Там же — «Открыть доступ»."
+                        Command="{Binding CloseAccessCommand}"/>
+                <Button Content="{Binding BaseUsersText}" Style="{StaticResource Btn}" Height="28" Padding="10,0" Margin="0,0,8,6"
                         Command="{Binding OpenBaseUsersCommand}"/>
-              </StackPanel>
+              </WrapPanel>
             </StackPanel>
           </Border>
           <Border DockPanel.Dock="Bottom" Padding="16,10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">

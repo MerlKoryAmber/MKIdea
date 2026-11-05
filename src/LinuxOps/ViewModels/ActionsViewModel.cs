@@ -278,6 +278,7 @@ public partial class ActionsViewModel : ObservableObject
         ApplyCommand.NotifyCanExecuteChanged();
         AddUserCommand.NotifyCanExecuteChanged();
         OpenBaseUsersCommand.NotifyCanExecuteChanged();
+        CloseAccessCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
     }
 
@@ -445,6 +446,94 @@ public partial class ActionsViewModel : ObservableObject
             _runCts.Dispose();
             _runCts = null;
         }
+    }
+
+    /// <summary>«Закрыть доступ»: блокировка, отзыв ключа или удаление; в том же окне — «Открыть доступ».</summary>
+    [RelayCommand(CanExecute = nameof(CanStart))]
+    private async Task CloseAccess()
+    {
+        var hosts = Hosts.Where(h => h.IsSelected).ToList();
+        if (hosts.Count == 0)
+        {
+            Warn("Отметьте хост.");
+            return;
+        }
+
+        var baseUsers = UserListStore.Load();
+        var dlg = new AccessWindow(hosts, baseUsers.Select(u => u.Login)) { Owner = OwnerWin() };
+        if (dlg.ShowDialog() != true || dlg.Request is not { } request) return;
+        var targets = dlg.Targets.ToList();
+
+        Results.Clear();
+        SelectedResult = null;
+        RunStatus = UserAccess.ModeTitle(request.Mode).ToLowerInvariant() + "…";
+        IsRunning = true;
+        _runCts = new CancellationTokenSource();
+        var progress = new Progress<PlanProgress>(ApplyProgress);
+        try
+        {
+            await UserAccess.ApplyAsync(targets, request, progress, _runCts.Token);
+            HistoryStore.Append(Results.Select(row => new HistoryEntry
+            {
+                AtUtc = DateTime.UtcNow,
+                Mode = "user-access",
+                Host = row.Title,
+                Action = UserAccess.ModeTitle(request.Mode) + " " + request.Login,
+                Status = row.Status,
+                Preview = row.Preview,
+                Detail = row.Detail
+            }).ToList());
+
+            var failN = PlanRunner.Count(Results, "FAIL");
+            var note = failN < Results.Count ? SyncBaseUser(baseUsers, request) : "";
+            RunStatus = (failN == 0 ? UserAccess.ModeTitle(request.Mode) + ": готово" : $"{failN} FAIL") + note;
+        }
+        catch (OperationCanceledException)
+        {
+            RunStatus = "отменено";
+        }
+        catch (Exception ex)
+        {
+            Warn(ex.Message);
+        }
+        finally
+        {
+            IsRunning = false;
+            _runCts.Dispose();
+            _runCts = null;
+        }
+    }
+
+    /// <summary>
+    /// Чтобы закрытый доступ не вернулся при следующем «Применить» базовых пользователей:
+    /// блокировка и удаление выключают запись, отзыв ключа убирает ключ из неё.
+    /// </summary>
+    private string SyncBaseUser(List<BaseUser> users, AccessRequest request)
+    {
+        var user = users.FirstOrDefault(u => string.Equals(u.Login, request.Login, StringComparison.Ordinal));
+        if (user is null) return "";
+        string note;
+        switch (request.Mode)
+        {
+            case AccessMode.Lock or AccessMode.Delete when user.Enabled:
+                user.Enabled = false;
+                note = " · в базовых пользователях выключен";
+                break;
+            case AccessMode.RevokeKey:
+                var blobs = request.KeyBlobs.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                var lines = user.Keys.Replace("\r\n", "\n").Split('\n');
+                var keep = lines.Where(l => !blobs.Any(b => l.Contains(b, StringComparison.Ordinal))).ToList();
+                if (keep.Count == lines.Length) return "";
+                user.Keys = string.Join("\n", keep).Trim();
+                note = " · ключ убран и из базовых пользователей";
+                break;
+            default:
+                return "";
+        }
+
+        UserListStore.Save(users);
+        RefreshBaseUsers();
+        return note;
     }
 
     [RelayCommand(CanExecute = nameof(CanStart))]

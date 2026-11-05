@@ -7,10 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>0.3.29</Version>
-    <AssemblyVersion>0.3.29.0</AssemblyVersion>
-    <FileVersion>0.3.29.0</FileVersion>
-    <InformationalVersion>0.3.29</InformationalVersion>
+    <Version>0.3.31</Version>
+    <AssemblyVersion>0.3.31.0</AssemblyVersion>
+    <FileVersion>0.3.31.0</FileVersion>
+    <InformationalVersion>0.3.31</InformationalVersion>
     <Company>Merl</Company>
     <Product>LinuxOps</Product>
     <AssemblyTitle>LinuxOps</AssemblyTitle>
@@ -32,5 +32,17 @@
   <ItemGroup>
     <Resource Include="Assets\app.ico" Condition="Exists('Assets\app.ico')" />
   </ItemGroup>
+
+  <!-- Notepad++ portable для F4: распаковать рядом с exe в Tools\Notepad++ (см. third_party/notepad++/README.md). -->
+  <PropertyGroup>
+    <NppZip>$(MSBuildThisFileDirectory)..\..\third_party\notepad++\npp.8.9.8.1.portable.x64.zip</NppZip>
+  </PropertyGroup>
+  <Target Name="BundleNotepadPlusPlusBuild" AfterTargets="Build" Condition="Exists('$(NppZip)') And !Exists('$(OutDir)Tools\Notepad++\notepad++.exe')">
+    <Unzip SourceFiles="$(NppZip)" DestinationFolder="$(OutDir)Tools\Notepad++" OverwriteReadOnlyFiles="true" />
+  </Target>
+  <Target Name="BundleNotepadPlusPlus" AfterTargets="Publish" Condition="Exists('$(NppZip)')">
+    <RemoveDir Directories="$(PublishDir)Tools\Notepad++" />
+    <Unzip SourceFiles="$(NppZip)" DestinationFolder="$(PublishDir)Tools\Notepad++" OverwriteReadOnlyFiles="true" />
+  </Target>
 
 </Project>
