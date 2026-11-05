@@ -1,6 +1,9 @@
 ﻿<UserControl x:Class="LinuxOps.Views.ActionsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolVis"/>
+  </UserControl.Resources>
     <Grid Margin="28,20">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="0.95*" MinWidth="420"/>
@@ -105,15 +108,12 @@
 
       <Border Grid.Column="2" Style="{StaticResource Surface}">
         <DockPanel>
-          <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
-            <TextBlock Text="Каталог действий" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
-          </Border>
-          <Border DockPanel.Dock="Top" Padding="16,10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource ToolbarWellBrush}">
+          <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}" Padding="12,6">
             <DockPanel>
-              <Button Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Command="{Binding AddCommand}"/>
-              <TextBlock Text="Щелчок — одно действие, Ctrl или Shift — несколько, двойной — изменить, правая кнопка — меню"
-                         Foreground="{DynamicResource MutedBrush}" FontSize="11.5" Margin="12,0,0,0"
-                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+              <Button DockPanel.Dock="Right" Content="Новое" Style="{StaticResource Btn}" Height="28" MinWidth="72" Padding="10,0" Command="{Binding AddCommand}"
+                      ToolTip="Новое своё действие"/>
+              <TextBlock Text="Каталог действий" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"
+                         ToolTip="Щелчок — одно действие, Ctrl или Shift — несколько, двойной — изменить, правая кнопка — меню"/>
             </DockPanel>
           </Border>
           <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -135,7 +135,7 @@
                     <Border x:Name="Card" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                             CornerRadius="8" Padding="14,12" HorizontalAlignment="Stretch">
                       <DockPanel LastChildFill="True">
-                        <CheckBox DockPanel.Dock="Left" Content="В плане" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                        <CheckBox DockPanel.Dock="Left" ToolTip="В плане" IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                   VerticalAlignment="Top" Margin="0,2,10,0"
                                   Checked="PlanCheck_Changed" Unchecked="PlanCheck_Changed"/>
                         <StackPanel DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0">
@@ -228,6 +228,11 @@
           </ProgressBar>
           <ListBox x:Name="ResultsList" Grid.Row="1" BorderThickness="0" Background="Transparent"
                    Foreground="#D5E4EF" Margin="4" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedResult, Mode=TwoWay}">
+            <!-- Панель запуска всегда тёмная: выделение и наведение — тёмные в любой теме, иначе белый текст не читается в светлой. -->
+            <ListBox.Resources>
+              <SolidColorBrush x:Key="SelectedBrush" Color="#21504B"/>
+              <SolidColorBrush x:Key="HoverSoftBrush" Color="#18303F"/>
+            </ListBox.Resources>
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <DockPanel Margin="4,6">
@@ -269,10 +274,88 @@
             <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
               <Button DockPanel.Dock="Right" Content="Копировать" Style="{StaticResource Btn}" Height="26" MinWidth="110"
                       Command="{Binding CopyDetailCommand}"/>
+              <Button DockPanel.Dock="Right" Content="{Binding DetailViewText}" Style="{StaticResource Btn}" Height="26" MinWidth="80" Margin="0,0,6,0"
+                      Command="{Binding ToggleDetailViewCommand}" ToolTip="Таблица или исходный текст"
+                      Visibility="{Binding HasDetailAudit, Converter={StaticResource BoolVis}}"/>
               <TextBlock Text="Детали" Foreground="#7EB8AE" FontSize="11" VerticalAlignment="Center"/>
             </DockPanel>
-            <TextBox x:Name="DetailBox" Style="{StaticResource LogBox}" BorderThickness="0"
-                     IsReadOnly="True" Text="{Binding Detail, Mode=OneWay}"/>
+            <Grid>
+              <TextBox x:Name="DetailBox" Style="{StaticResource LogBox}" BorderThickness="0"
+                       IsReadOnly="True" Text="{Binding Detail, Mode=OneWay}"/>
+              <!-- Аудит пользователей: карточки учёток вместо текста -->
+              <ScrollViewer Background="#0F1C2B" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                            Visibility="{Binding ShowAuditTable, Converter={StaticResource BoolVis}}">
+                <StackPanel Margin="10,8,10,10">
+                  <TextBlock Text="{Binding DetailAudit.Summary}" Foreground="#8EB8B0" FontSize="12" Margin="2,0,0,8"/>
+                  <ItemsControl ItemsSource="{Binding DetailAudit.Users}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Background="#152536" BorderBrush="#1E3348" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
+                          <StackPanel>
+                            <DockPanel>
+                              <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                                <Border x:Name="SudoBadge" Background="#1A6B62" CornerRadius="3" Padding="6,1" Margin="6,0,0,0" Visibility="Collapsed">
+                                  <TextBlock Text="{Binding SudoText}" Foreground="White" FontSize="11"/>
+                                </Border>
+                                <Border x:Name="LockBadge" Background="#8C3A3A" CornerRadius="3" Padding="6,1" Margin="6,0,0,0" Visibility="Collapsed">
+                                  <TextBlock Text="{Binding LockText}" Foreground="White" FontSize="11"/>
+                                </Border>
+                              </WrapPanel>
+                              <TextBlock Text="{Binding Login}" FontWeight="SemiBold" FontSize="13" Foreground="#E8F1F7" TextTrimming="CharacterEllipsis"/>
+                            </DockPanel>
+                            <TextBlock Text="{Binding Info}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding Info}"/>
+                            <TextBlock x:Name="GroupsLine" Foreground="#8EB8B0" FontSize="11.5" Margin="0,1,0,0" TextWrapping="Wrap">
+                              <Run Text="группы:"/> <Run Text="{Binding Groups, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding PasswordText}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,1,0,0"/>
+                            <TextBlock Text="{Binding KeysTitle}" Foreground="#7EB8AE" FontSize="11" Margin="0,6,0,2"/>
+                            <ItemsControl ItemsSource="{Binding Keys}" Visibility="{Binding HasReadableKeys, Converter={StaticResource BoolVis}}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <Border Background="#0F1C2B" CornerRadius="4" Padding="8,4" Margin="0,0,0,3"
+                                          ToolTip="{Binding File}">
+                                    <DockPanel>
+                                      <TextBlock x:Name="KeyType" DockPanel.Dock="Left" Text="{Binding Type}" Foreground="#E2B039" FontSize="11"
+                                                 FontWeight="SemiBold" Width="64" VerticalAlignment="Center"/>
+                                      <StackPanel>
+                                        <TextBlock Text="{Binding Fingerprint}" Foreground="#D5E4EF" FontFamily="{StaticResource MonoFont}" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Fingerprint}"/>
+                                        <TextBlock x:Name="KeyComment" Text="{Binding Comment}" Foreground="#8EB8B0" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                      </StackPanel>
+                                    </DockPanel>
+                                  </Border>
+                                  <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Comment}" Value="">
+                                      <Setter TargetName="KeyComment" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Unreadable}" Value="True">
+                                      <Setter TargetName="KeyType" Property="Text" Value="?"/>
+                                    </DataTrigger>
+                                  </DataTemplate.Triggers>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </StackPanel>
+                        </Border>
+                        <DataTemplate.Triggers>
+                          <DataTrigger Binding="{Binding HasSudo}" Value="True">
+                            <Setter TargetName="SudoBadge" Property="Visibility" Value="Visible"/>
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding IsLocked}" Value="True">
+                            <Setter TargetName="LockBadge" Property="Visibility" Value="Visible"/>
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding Groups}" Value="">
+                            <Setter TargetName="GroupsLine" Property="Visibility" Value="Collapsed"/>
+                          </DataTrigger>
+                        </DataTemplate.Triggers>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="{Binding DetailAudit.SudoersText}" Foreground="#8EB8B0" FontSize="11.5" Margin="2,4,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
           </DockPanel>
         </Grid>
       </Border>

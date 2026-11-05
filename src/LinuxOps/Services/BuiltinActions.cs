@@ -29,7 +29,7 @@ public static class BuiltinActions
         {
             Id = "list-users",
             Name = "Аудит пользователей / sudo",
-            Description = "Учётки, shell, wheel/sudo, sudoers.d",
+            Description = "Учётки, sudo, блокировки, ключи SSH",
             BuiltIn = true,
             Distros = new List<string> { "any" }
         },
@@ -127,20 +127,5 @@ public static class BuiltinActions
         _ => "echo unsupported >&2; exit 3"
     };
 
-    private static string ListUsers(DistroInfo d) => """
-        echo "## login shells (не nologin/false)"
-        getent passwd | awk -F: '$7 !~ /(nologin|false)$/ {print $1":"$3":"$6":"$7}'
-        echo
-        echo "## human-ish UID (0 или >=1000, <65534)"
-        getent passwd | awk -F: '($3==0 || ($3>=1000 && $3<65534)) {print $1":"$3":"$6":"$7}'
-        echo
-        echo "## sudo / wheel"
-        getent group wheel 2>/dev/null || echo "(no wheel)"
-        getent group sudo 2>/dev/null || echo "(no sudo)"
-        echo
-        if command -v sudo >/dev/null 2>&1; then
-          echo "## /etc/sudoers.d"
-          ls -1 /etc/sudoers.d 2>/dev/null || echo "(empty)"
-        fi
-        """;
+    private static string ListUsers(DistroInfo d) => UserAudit.Script;
 }

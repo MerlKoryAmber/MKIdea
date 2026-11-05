@@ -47,6 +47,12 @@ public partial class ActionsViewModel : ObservableObject
     [ObservableProperty] private string runStatus = "";
     [ObservableProperty] private string detail = "Выберите строку плана.";
     [ObservableProperty] private ResultRow? selectedResult;
+    /// <summary>Аудит пользователей: таблица (по умолчанию) или текст.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowAuditTable))] [NotifyPropertyChangedFor(nameof(DetailViewText))] private bool showRawDetail;
+    public LinuxOps.Services.UserAuditReport? DetailAudit => SelectedResult?.Audit;
+    public bool HasDetailAudit => DetailAudit is not null;
+    public bool ShowAuditTable => HasDetailAudit && !ShowRawDetail;
+    public string DetailViewText => ShowRawDetail ? "Таблица" : "Текст";
     [ObservableProperty] private bool isRunning;
     /// <summary>Что запустят Dry-run и «Применить» — строка внизу окна.</summary>
     [ObservableProperty] private string planSummary = "";
@@ -151,6 +157,9 @@ public partial class ActionsViewModel : ObservableObject
 
     partial void OnSelectedResultChanged(ResultRow? value)
     {
+        OnPropertyChanged(nameof(DetailAudit));
+        OnPropertyChanged(nameof(HasDetailAudit));
+        OnPropertyChanged(nameof(ShowAuditTable));
         // Пользователь сам выбрал строку во время запуска — не перескакиваем на новые RUN.
         if (!_programmatic && IsRunning) _autoFollow = false;
         if (value is { Status: "RUN" } && _running.TryGetValue(value.Title, out var run))
@@ -595,6 +604,9 @@ public partial class ActionsViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _runCts?.Cancel();
+
+    [RelayCommand]
+    private void ToggleDetailView() => ShowRawDetail = !ShowRawDetail;
 
     [RelayCommand]
     private void CopyDetail()

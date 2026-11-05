@@ -247,6 +247,20 @@ public sealed class PlanRunner
 
     private static ResultRow FromActionResult(string host, string actionName, ActionResult r)
     {
+        if (r.Ok && string.Equals(r.ActionId, UserAudit.ActionId, StringComparison.OrdinalIgnoreCase)
+            && UserAudit.Parse(r.StdOut) is { } audit)
+        {
+            return new ResultRow
+            {
+                Status = "OK",
+                Title = $"{host} · {actionName}",
+                Preview = audit.Summary,
+                Detail = UserAudit.Format(host, audit),
+                IsOk = true,
+                Audit = audit
+            };
+        }
+
         var preview = string.Equals(r.ActionId, "check-updates", StringComparison.OrdinalIgnoreCase)
             ? SummarizeUpdates(r.StdOut + "\n" + r.StdErr)
             : string.Equals(r.ActionId, "install-updates", StringComparison.OrdinalIgnoreCase) && SummarizeInstall(r.StdOut + "\n" + r.StdErr) is { } installed

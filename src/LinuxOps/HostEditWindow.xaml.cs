@@ -49,18 +49,28 @@ public partial class HostEditWindow : Window
             KeyBox.Text = dlg.FileName;
     }
 
-    private void Test_Click(object sender, RoutedEventArgs e)
+    private async void Test_Click(object sender, RoutedEventArgs e)
     {
         if (!TryRead(out var host)) return;
+        // Подключение — в фоне: запросы ключа хоста и пароля ключа идут через Dispatcher и ждут UI-поток.
+        var button = (Button)sender;
+        button.IsEnabled = false;
         try
         {
-            using var ssh = SshRunner.Connect(host);
-            var d = ssh.DetectDistro();
+            var d = await Task.Run(() =>
+            {
+                using var ssh = SshRunner.Connect(host);
+                return ssh.DetectDistro();
+            });
             AppDialog.Info(this, $"Подключено. {d.PrettyName} ({d.Id})", "Проверка");
         }
         catch (Exception ex)
         {
             AppDialog.Info(this, ex.Message, "Проверка");
+        }
+        finally
+        {
+            button.IsEnabled = true;
         }
     }
 

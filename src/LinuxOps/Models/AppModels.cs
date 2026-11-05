@@ -150,6 +150,8 @@ public sealed class ResultRow : INotifyPropertyChanged
 
     public string Detail { get; init; } = "";
     public bool IsOk { get; init; }
+    /// <summary>Разобранный аудит пользователей (list-users) — для табличного вида.</summary>
+    public LinuxOps.Services.UserAuditReport? Audit { get; init; }
 }
 
 public sealed class ActionItemView : INotifyPropertyChanged
