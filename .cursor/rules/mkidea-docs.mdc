@@ -1,11 +1,17 @@
 ---
-description: Держать docs/SKELETON и CURRENT в актуальном состоянии при работе в MKIdea
+description: Специфика MKIdea — где docs, трекер и handoff, publish в dist; дополняет universal_rules.mdc
 alwaysApply: true
 ---
 
-# MKIdea — docs
+# MKIdea — специфика проекта
+
+Общие правила — в `universal_rules.mdc`; здесь только то, что относится к MKIdea.
 
 - Источник правды: `docs/SKELETON.md` + `docs/<app>/SKELETON.md` + `docs/<app>/CURRENT.md`.
+- Handoff-документ и трекер хвостов — `docs/<app>/CURRENT.md`.
 - После фичи / смены контракта / новой лабы / bump версии — **обновить CURRENT** (и SKELETON, если изменилась структура).
+- Основная ветка — `master`.
 - Site-данные и секреты не вшивать в код; лаба — в defaults/docs, не в коммит DPAPI.
 - Вопрос ≠ команда кодить; после реализации по команде — publish в `dist\` когда работа закончена.
+- UI утилит — на русском.
+- Владелец (Merl): не спрашивать на каждый шаг; вопросы — только при реальной блокировке (push / удаление / необратимое).
