@@ -550,7 +550,7 @@ public partial class ActionsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task OpenBaseUsers()
     {
-        var dlg = new UserListWindow(Hosts.ToList()) { Owner = OwnerWin() };
+        var dlg = new UserListWindow(Hosts.ToList(), _audits.Values.ToList()) { Owner = OwnerWin() };
         var apply = dlg.ShowDialog() == true ? dlg.ToApply : null;
         RefreshBaseUsers();
         if (apply is not { Count: > 0 }) return;

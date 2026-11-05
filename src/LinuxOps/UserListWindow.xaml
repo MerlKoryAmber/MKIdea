@@ -89,6 +89,8 @@
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
       <DockPanel Margin="0,0,0,8">
+        <Button x:Name="FromAuditBtn" DockPanel.Dock="Right" Content="Из аудита" Style="{StaticResource Btn}" Height="28" MinWidth="110" Padding="10,0" Margin="8,0,0,0"
+                Click="FromAudit_Click" ToolTip="Учётки со входом по ключу из «Аудит пользователей / sudo» этой сессии — со всех хостов"/>
         <Button DockPanel.Dock="Right" Content="Прочитать" Style="{StaticResource Btn}" Height="28" Width="110" Click="ReadHost_Click"/>
         <ComboBox x:Name="HostBox" Height="28" DisplayMemberPath="Title" Margin="0,0,8,0"/>
       </DockPanel>

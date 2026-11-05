@@ -16,10 +16,14 @@ public partial class UserListWindow : Window
 
     public IReadOnlyList<AddUserRequest>? ToApply { get; private set; }
 
-    public UserListWindow(IReadOnlyList<HostConfig> hosts)
+    private readonly IReadOnlyList<UserAuditReport> _audits;
+
+    public UserListWindow(IReadOnlyList<HostConfig> hosts, IReadOnlyList<UserAuditReport>? audits = null)
     {
         InitializeComponent();
         _hosts = hosts;
+        _audits = audits ?? Array.Empty<UserAuditReport>();
+        FromAuditBtn.IsEnabled = _audits.Count > 0;
         Cards.ItemsSource = _cards;
         Reload();
     }
@@ -179,6 +183,65 @@ public partial class UserListWindow : Window
         }
     }
 
+    /// <summary>
+    /// Учётки из аудитов этой сессии со входом по ключу. Ключи с опциями (from=, command= …) не берём — в базовых они
+    /// потеряли бы ограничение; заблокированных и с истёкшим сроком пропускаем. Кто уже есть с теми же ключами — без галки.
+    /// </summary>
+    private void FromAudit_Click(object sender, RoutedEventArgs e)
+    {
+        var byLogin = new Dictionary<string, (bool Sudo, List<string> Keys, SortedSet<string> Hosts)>(StringComparer.Ordinal);
+        int optionKeys = 0, locked = 0;
+        foreach (var report in _audits)
+        foreach (var user in report.Users.Where(u => u.Uid >= 1000))
+        {
+            var keys = user.Keys.Where(k => !k.Unreadable && k.Blob.Length > 0).ToList();
+            if (keys.Count == 0) continue;
+            if (user.IsLocked)
+            {
+                locked++;
+                continue;
+            }
+
+            optionKeys += keys.Count(k => k.HasOptions);
+            var usable = keys.Where(k => !k.HasOptions).Select(k => k.Blob + (k.Comment.Length > 0 ? " " + k.Comment : "")).ToList();
+            if (usable.Count == 0) continue;
+            if (!byLogin.TryGetValue(user.Login, out var entry))
+                byLogin[user.Login] = entry = (false, new List<string>(), new SortedSet<string>(StringComparer.OrdinalIgnoreCase));
+            entry.Keys.AddRange(usable);
+            entry.Hosts.Add(report.Host);
+            byLogin[user.Login] = entry with { Sudo = entry.Sudo || user.HasSudo };
+        }
+
+        var rows = byLogin.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p =>
+        {
+            var keys = UserProvisioning.MergeKeys("", string.Join("\n", p.Value.Keys));
+            var row = new ImportRow(new UserProvisioning.HostUserCandidate
+            {
+                Login = p.Key,
+                Sudo = p.Value.Sudo,
+                Keys = keys,
+                Comment = "из аудита: " + string.Join(", ", p.Value.Hosts)
+            });
+            var existing = _cards.FirstOrDefault(c => string.Equals(c.Source.Login, p.Key, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                var have = UserAccess.KeyBlobs(existing.Source.Keys).ToHashSet(StringComparer.Ordinal);
+                row.Selected = !UserAccess.KeyBlobs(keys).All(have.Contains);
+                row.Note = row.Selected ? "уже в базовых — добавятся новые ключи" : "уже в базовых с этими ключами";
+            }
+
+            return row;
+        }).ToList();
+
+        ImportList.ItemsSource = rows;
+        var skipped = new List<string>();
+        if (optionKeys > 0) skipped.Add($"ключей с опциями: {optionKeys}");
+        if (locked > 0) skipped.Add($"заблокированных учёток: {locked}");
+        ImportNote.Text = $"Из аудита ({string.Join(", ", _audits.Select(a => a.Host))}). "
+                          + (skipped.Count > 0 ? "Пропущено — " + string.Join(", ", skipped) + "." : "");
+        ImportError.Text = rows.Count == 0 ? "В аудите нет учёток со входом по ключу." : "";
+    }
+
     private void ImportAdd_Click(object sender, RoutedEventArgs e)
     {
         if (ImportList.ItemsSource is not IEnumerable<ImportRow> rows) return;
@@ -308,7 +371,9 @@ public sealed class ImportRow
     public ImportRow(UserProvisioning.HostUserCandidate candidate) => Candidate = candidate;
     public UserProvisioning.HostUserCandidate Candidate { get; }
     public string Login => Candidate.Login;
-    public string Detail => (Candidate.Sudo ? "sudo · " : "") + (string.IsNullOrEmpty(Candidate.Fingerprints) ? "без ключа" : Candidate.Fingerprints);
+    public string Detail => (Candidate.Sudo ? "sudo · " : "") + (string.IsNullOrEmpty(Candidate.Fingerprints) ? "без ключа" : Candidate.Fingerprints)
+                            + (Note.Length > 0 ? " · " + Note : "");
+    public string Note { get; set; } = "";
     public bool Selected { get; set; } = true;
 }
 

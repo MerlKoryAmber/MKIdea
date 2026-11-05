@@ -12,6 +12,8 @@ public sealed class AuditKey
     public bool Unreadable { get; init; }
     /// <summary>«тип base64» — для отзыва ключа.</summary>
     public string Blob { get; init; } = "";
+    /// <summary>Строка с опциями (from=, command= …) — в базовые пользователи такой ключ не берём.</summary>
+    public bool HasOptions { get; init; }
 
     public string ShortFingerprint => Fingerprint.Length > 24 ? Fingerprint[..24] + "…" : Fingerprint;
 }
@@ -118,7 +120,8 @@ public static class UserAudit
               bits=${info%% *}; fp=${info#* }; fp=${fp%% *}
               type=${info##*(}; type=${type%)}
               comment=${line#*"$blob"}; comment=$(printf '%s' "$comment" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '\t' ' ')
-              printf 'K\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$login" "$f" "$bits" "$fp" "$type" "$comment" "$blob"
+              case "$line" in "$blob"*) opt=0;; *) opt=1;; esac
+              printf 'K\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$login" "$f" "$bits" "$fp" "$type" "$comment" "$blob" "$opt"
             done < "$f"
           done
         done
@@ -175,7 +178,8 @@ public static class UserAudit
             Fingerprint = p[4],
             Type = p.Length > 5 ? p[5] : "",
             Comment = p.Length > 6 ? p[6] : "",
-            Blob = p.Length > 7 ? p[7] : ""
+            Blob = p.Length > 7 ? p[7] : "",
+            HasOptions = p.Length > 8 && p[8] == "1"
         };
     }
 
