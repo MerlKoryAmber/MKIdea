@@ -30,6 +30,7 @@ public partial class ActionsViewModel : ObservableObject
     }
 
     [ObservableProperty] private string baseUsersText = "Базовые пользователи (0)";
+    private readonly Dictionary<string, UserAuditReport> _audits = new(StringComparer.OrdinalIgnoreCase);
 
     public void RefreshBaseUsers()
         => BaseUsersText = "Базовые пользователи (" + UserListStore.Load().Count + ")";
@@ -469,7 +470,8 @@ public partial class ActionsViewModel : ObservableObject
         }
 
         var baseUsers = UserListStore.Load();
-        var dlg = new AccessWindow(hosts, baseUsers.Select(u => u.Login)) { Owner = OwnerWin() };
+        var audits = hosts.Select(h => _audits.GetValueOrDefault(h.Name)).OfType<UserAuditReport>().ToList();
+        var dlg = new AccessWindow(hosts, baseUsers.Select(u => u.Login), audits) { Owner = OwnerWin() };
         if (dlg.ShowDialog() != true || dlg.Request is not { } request) return;
         var targets = dlg.Targets.ToList();
 
@@ -714,6 +716,9 @@ public partial class ActionsViewModel : ObservableObject
 
             _liveDirty = true;
         }
+
+        // Аудит пользователей запоминаем по хосту — «Закрыть доступ» подставит найденные учётки и ключи.
+        if (p.Row?.Audit is { } audit) _audits[audit.Host] = audit;
 
         if (p.Row is { Status: "RUN" } started)
         {

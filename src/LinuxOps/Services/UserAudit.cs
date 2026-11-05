@@ -10,6 +10,8 @@ public sealed class AuditKey
     public string Comment { get; init; } = "";
     public string File { get; init; } = "";
     public bool Unreadable { get; init; }
+    /// <summary>«тип base64» — для отзыва ключа.</summary>
+    public string Blob { get; init; } = "";
 
     public string ShortFingerprint => Fingerprint.Length > 24 ? Fingerprint[..24] + "…" : Fingerprint;
 }
@@ -54,6 +56,7 @@ public sealed class AuditUser
 
 public sealed class UserAuditReport
 {
+    public string Host { get; set; } = "";
     public List<AuditUser> Users { get; } = new();
     public List<string> SudoersFiles { get; } = new();
 
@@ -106,9 +109,17 @@ public static class UserAudit
           for f in "$home/.ssh/authorized_keys" "$home/.ssh/authorized_keys2"; do
             [ -e "$f" ] || continue
             if [ ! -r "$f" ]; then printf 'K\t%s\t%s\t-\t-\t-\t-\n' "$login" "$f"; continue; fi
-            ssh-keygen -lf "$f" 2>/dev/null | while read -r bits fp rest; do
-              printf 'K\t%s\t%s\t%s\t%s\t%s\n' "$login" "$f" "$bits" "$fp" "$rest"
-            done
+            # По строке: сам ключ (для «Отозвать ключ»), отпечаток, тип, комментарий. Опции вроде from="…" пропускаются.
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in ""|"#"*) continue;; esac
+              blob=$(printf '%s\n' "$line" | grep -oE '(ssh-(ed25519|rsa|dss)|ecdsa-sha2-[a-z0-9]+|sk-[A-Za-z0-9@.-]+) [A-Za-z0-9+/=]+' | head -n1)
+              [ -n "$blob" ] || continue
+              info=$(printf '%s\n' "$blob" | ssh-keygen -lf - 2>/dev/null) || continue
+              bits=${info%% *}; fp=${info#* }; fp=${fp%% *}
+              type=${info##*(}; type=${type%)}
+              comment=${line#*"$blob"}; comment=$(printf '%s' "$comment" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '\t' ' ')
+              printf 'K\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$login" "$f" "$bits" "$fp" "$type" "$comment" "$blob"
+            done < "$f"
           done
         done
         for f in /etc/sudoers.d/*; do [ -e "$f" ] && printf 'S\t%s\n' "$(basename "$f")"; done
@@ -156,23 +167,15 @@ public static class UserAudit
         if (p.Length < 6 || p[3] == "-")
             return new AuditKey { File = p[2], Unreadable = true, Fingerprint = "нет доступа к файлу" };
 
-        // ssh-keygen -l: "<bits> <fp> <comment> (<TYPE>)"
-        var rest = p[5].Trim();
-        var type = "";
-        var open = rest.LastIndexOf('(');
-        if (open >= 0 && rest.EndsWith(')'))
-        {
-            type = rest[(open + 1)..^1];
-            rest = rest[..open].Trim();
-        }
-
+        // K login file bits fp type comment blob
         return new AuditKey
         {
             File = p[2],
             Bits = p[3],
             Fingerprint = p[4],
-            Type = type,
-            Comment = rest == "no comment" ? "" : rest
+            Type = p.Length > 5 ? p[5] : "",
+            Comment = p.Length > 6 ? p[6] : "",
+            Blob = p.Length > 7 ? p[7] : ""
         };
     }
 

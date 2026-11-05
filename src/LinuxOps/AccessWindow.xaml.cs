@@ -19,12 +19,18 @@ public partial class AccessWindow : Window
     private AccessRequest? _checked;
     private List<HostConfig> _applicable = new();
 
-    public AccessWindow(IReadOnlyList<HostConfig> hosts, IEnumerable<string> knownLogins, bool unlock = false)
+    private readonly IReadOnlyList<UserAuditReport> _audits;
+    private string? _infoLogin;
+
+    public AccessWindow(IReadOnlyList<HostConfig> hosts, IEnumerable<string> knownLogins, IReadOnlyList<UserAuditReport>? audits = null, bool unlock = false)
     {
         InitializeComponent();
         _hosts = hosts;
+        _audits = audits ?? Array.Empty<UserAuditReport>();
         HostsText.Text = "Хосты: " + string.Join(", ", hosts.Select(h => h.Title));
-        foreach (var login in knownLogins.Distinct().OrderBy(l => l)) LoginBox.Items.Add(login);
+        // Учётки из аудита (без root и служебных) плюс базовые пользователи.
+        var audited = _audits.SelectMany(a => a.Users).Where(u => u.Uid >= 1000).Select(u => u.Login);
+        foreach (var login in knownLogins.Concat(audited).Distinct(StringComparer.Ordinal).OrderBy(l => l, StringComparer.Ordinal)) LoginBox.Items.Add(login);
         LoginBox.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(Input_Changed));
         LoginBox.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(Invalidate);
         SetUnlock(unlock);
@@ -75,6 +81,8 @@ public partial class AccessWindow : Window
         ConfirmPanel.Visibility = Visibility.Collapsed;
         ConfirmBox.Text = "";
         ErrorText.Text = "";
+        if (!string.Equals(_infoLogin, Login, StringComparison.Ordinal))
+            ShowAudit();
         if (KeyPanel.Visibility == Visibility.Visible)
         {
             var prints = UserProvisioning.KeyFingerprints(KeyBox.Text);
@@ -83,6 +91,67 @@ public partial class AccessWindow : Window
         }
 
         UpdateOk();
+    }
+
+    /// <summary>Что известно об учётке из последнего аудита: по хостам и ключи для «Отозвать ключ».</summary>
+    private void ShowAudit()
+    {
+        _infoLogin = Login;
+        var keys = new Dictionary<string, KeyPick>(StringComparer.Ordinal);
+        var lines = new List<string>();
+        if (Login.Length > 0 && _audits.Count > 0)
+        {
+            foreach (var host in _hosts)
+            {
+                var report = _audits.FirstOrDefault(a => string.Equals(a.Host, host.Name, StringComparison.OrdinalIgnoreCase));
+                if (report is null)
+                {
+                    lines.Add($"{host.Title}: аудита не было");
+                    continue;
+                }
+
+                var user = report.Users.FirstOrDefault(u => u.Login == Login);
+                if (user is null)
+                {
+                    lines.Add($"{host.Title}: учётки нет");
+                    continue;
+                }
+
+                var parts = new List<string>();
+                if (user.HasSudo) parts.Add(user.SudoText);
+                if (user.IsLocked) parts.Add(user.LockText);
+                parts.Add(user.KeysTitle);
+                lines.Add($"{host.Title}: " + string.Join(" · ", parts));
+                foreach (var k in user.Keys.Where(k => k.Blob.Length > 0))
+                {
+                    if (!keys.TryGetValue(k.Blob, out var pick))
+                        keys[k.Blob] = pick = new KeyPick(k.Type, k.Fingerprint, k.Comment, k.Blob);
+                    pick.Hosts.Add(host.Title);
+                }
+            }
+        }
+
+        LoginInfo.Text = lines.Count > 0 ? "По аудиту — " + string.Join("; ", lines) : "";
+        LoginInfo.Visibility = lines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AuditKeysList.ItemsSource = keys.Values.ToList();
+        AuditKeysPanel.Visibility = keys.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void AuditKey_Changed(object sender, RoutedEventArgs e)
+    {
+        if (AuditKeysList.ItemsSource is not IEnumerable<KeyPick> picks) return;
+        KeyBox.Text = string.Join("\n", picks.Where(p => p.Picked).Select(p => p.Blob + (p.Comment.Length > 0 ? " " + p.Comment : "")));
+    }
+
+    private sealed class KeyPick(string type, string fingerprint, string comment, string blob)
+    {
+        public string Type { get; } = type;
+        public string Fingerprint { get; } = fingerprint;
+        public string Comment { get; } = comment;
+        public string Blob { get; } = blob;
+        public List<string> Hosts { get; } = new();
+        public bool Picked { get; set; }
+        public string Note => (Comment.Length > 0 ? Comment + " · " : "") + string.Join(", ", Hosts);
     }
 
     private void UpdateOk()

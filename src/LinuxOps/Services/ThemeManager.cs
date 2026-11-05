@@ -103,7 +103,12 @@ public static class ThemeManager
         var dark = w is MainWindow || IsDark ? 1 : 0;
         if (DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int)) != 0)
             DwmSetWindowAttribute(hwnd, 19, ref dark, sizeof(int));
+        // Иначе Windows иногда оставляет старый (белый) заголовок до следующей перерисовки рамки.
+        SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020);
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);

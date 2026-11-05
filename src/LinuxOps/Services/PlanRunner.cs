@@ -250,6 +250,7 @@ public sealed class PlanRunner
         if (r.Ok && string.Equals(r.ActionId, UserAudit.ActionId, StringComparison.OrdinalIgnoreCase)
             && UserAudit.Parse(r.StdOut) is { } audit)
         {
+            audit.Host = host;
             return new ResultRow
             {
                 Status = "OK",

@@ -1,7 +1,7 @@
 <Window x:Class="LinuxOps.AccessWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Закрыть доступ" Height="640" Width="760" MinHeight="520" MinWidth="620"
+        Title="Закрыть доступ" Height="700" Width="760" MinHeight="560" MinWidth="620"
         WindowStartupLocation="CenterOwner">
   <Grid Margin="18">
     <Grid.RowDefinitions>
@@ -12,8 +12,9 @@
 
     <StackPanel>
       <TextBlock Text="Логин" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
-      <ComboBox x:Name="LoginBox" IsEditable="True" Height="28" Margin="0,4,0,12"
-                ToolTip="Можно выбрать из базовых пользователей или ввести вручную"/>
+      <ComboBox x:Name="LoginBox" IsEditable="True" Height="28" Margin="0,4,0,4"
+                ToolTip="Учётки из последнего аудита на отмеченных хостах и базовые пользователи; можно ввести вручную"/>
+      <TextBlock x:Name="LoginInfo" Margin="0,0,0,10" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
 
       <StackPanel x:Name="ModesPanel">
         <RadioButton x:Name="ModeLock" GroupName="Mode" IsChecked="True" Margin="0,0,0,2" Checked="Mode_Checked">
@@ -37,6 +38,22 @@
                  Text="Снять блокировку LinuxOps: пароль, срок учётной записи, ключи, группы sudo и файл sudoers вернутся как были до блокировки."/>
 
       <StackPanel x:Name="KeyPanel" Visibility="Collapsed" Margin="0,0,0,8">
+        <!-- Ключи этой учётки из аудита: отметить — и они уйдут в поле ниже -->
+        <StackPanel x:Name="AuditKeysPanel" Visibility="Collapsed" Margin="0,0,0,8">
+          <TextBlock Text="Ключи по аудиту" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,0,4"/>
+          <ItemsControl x:Name="AuditKeysList">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <CheckBox IsChecked="{Binding Picked, Mode=TwoWay}" Margin="0,0,0,4" Checked="AuditKey_Changed" Unchecked="AuditKey_Changed">
+                  <TextBlock TextWrapping="Wrap">
+                    <Run Text="{Binding Type, Mode=OneWay}" FontWeight="SemiBold"/> <Run Text="{Binding Fingerprint, Mode=OneWay}" FontFamily="{StaticResource MonoFont}"/>
+                    <Run Text="{Binding Note, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}"/>
+                  </TextBlock>
+                </CheckBox>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
         <DockPanel Margin="0,0,0,4">
           <Button DockPanel.Dock="Right" Content="Файл…" Style="{StaticResource Btn}" Height="28" MinWidth="80" Margin="8,0,0,0" Click="PickKey_Click"/>
           <TextBlock Text="Открытый ключ (строка ssh-ed25519 … или .pub)" Foreground="{DynamicResource MutedBrush}" FontSize="12" VerticalAlignment="Center"/>
