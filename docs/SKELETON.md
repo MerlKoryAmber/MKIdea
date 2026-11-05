@@ -8,7 +8,7 @@
 | Продукт | Путь | Статус | Назначение |
 |---------|------|--------|------------|
 | **AdServerGroups** | `src/AdServerGroups` | боевой контур | AD-группы → локальные Administrators (+ SQL sysadmin provider) |
-| **LinuxOps** | `src/LinuxOps` | 0.3.23 | Actions + SSH Files + Terminal + History |
+| **LinuxOps** | `src/LinuxOps` | 0.3.35 | Actions + SSH Files + Terminal + History |
 
 Пакет/инсталлятор «всех утилит» — позже; пока отдельные `dist\<App>-<ver>\`.
 
@@ -25,6 +25,11 @@
 
 - `AdServerGroups.sln` — пока общий solution (имя историческое). Проекты: AdServerGroups*, LinuxOps.
 - Точечный `git add` файлов; push — только по команде.
+
+## Инструменты
+
+- `tools/rehydrate.ps1` — статус репо одним вызовом для агента: git, версии и dist, верхние записи `docs/<app>/CURRENT.md`, хвосты 👀 из последнего отчёта, карта docs. Только чтение; `-Fetch` — сверка с origin.
+- `tools/AdSmoke`, `tools/LinuxOpsSmoke`, `tools/LinuxOpsLabCheck`, `tools/RunAsDomain` — проверочные утилиты.
 
 ## Лабы (не путать)
 

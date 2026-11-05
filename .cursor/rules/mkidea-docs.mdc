@@ -7,6 +7,7 @@ alwaysApply: true
 
 Общие правила — в `universal_rules.mdc`; здесь только то, что относится к MKIdea.
 
+- Старт сессии: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\rehydrate.ps1` (`-Fetch` — сверка с origin по сети). Добавили приложение — `docs/<app>/CURRENT.md` с записями `## <версия>` и csproj с тем же именем, скрипт подхватит сам.
 - Источник правды: `docs/SKELETON.md` + `docs/<app>/SKELETON.md` + `docs/<app>/CURRENT.md`.
 - Handoff-документ и трекер хвостов — `docs/<app>/CURRENT.md`.
 - После фичи / смены контракта / новой лабы / bump версии — **обновить CURRENT** (и SKELETON, если изменилась структура).
