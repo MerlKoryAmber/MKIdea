@@ -16,6 +16,7 @@ public partial class ActionsViewModel : ObservableObject
 {
     private readonly AppSession _session;
     private readonly PlanRunner _runner = new();
+    private readonly PsActionRunner _ps = new();
     private CancellationTokenSource? _runCts;
     private bool _bulkHosts;
 
@@ -90,11 +91,19 @@ public partial class ActionsViewModel : ObservableObject
         if (IsRunning) return;
         Results.Clear();
         SelectedResult = null;
-        var planned = Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
+        var all = Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
+        var planned = all.Where(a => !a.IsPowerShell).ToList();
         var hosts = Hosts.Where(h => h.IsSelected).ToList();
+        foreach (var ps in all.Where(a => a.IsPowerShell))
+            Results.Add(PlanRunner.MakeRow("INFO", $"vCenter · {ps.Name}", "войдёт в запуск — vCenter выбирается при запуске",
+                ps.Description, true));
         if (hosts.Count == 0 || planned.Count == 0)
         {
-            Results.Add(PlanRunner.MakeRow("INFO", "План пуст", "Отметьте хосты и «В плане» у действий.", "", true));
+            if (Results.Count == 0)
+                Results.Add(PlanRunner.MakeRow("INFO", "План пуст", "Отметьте хосты и «В плане» у действий.", "", true));
+            else if (planned.Count > 0)
+                Results.Add(PlanRunner.MakeRow("INFO", "Bash-действия", "отметьте хосты", "", true));
+            SelectedResult = Results.FirstOrDefault();
             return;
         }
 
@@ -131,8 +140,11 @@ public partial class ActionsViewModel : ObservableObject
     {
         var planned = Actions.Where(a => a.IsSelected).Select(a => a.Definition.Name).ToList();
         var hosts = Hosts.Count(h => h.IsSelected);
+        var onlyPs = Actions.Where(a => a.IsSelected).All(a => a.Definition.IsPowerShell);
         PlanSummary = planned.Count == 0
             ? "План пуст: щёлкните действие в каталоге"
+            : onlyPs
+                ? "План: " + string.Join(", ", planned) + " → vCenter (выбор при запуске)"
             : hosts == 0
                 ? "План: " + string.Join(", ", planned) + " — отметьте хосты"
                 : "План: " + string.Join(", ", planned) + " → " + hosts + " " + Plural(hosts, "хост", "хоста", "хостов");
@@ -631,20 +643,37 @@ public partial class ActionsViewModel : ObservableObject
     private async Task RunAsync(bool apply)
     {
         var hosts = Hosts.Where(h => h.IsSelected).ToList();
-        var actions = ReadActions?.Invoke() ?? Array.Empty<ActionDefinition>();
-        if (hosts.Count == 0)
-        {
-            Warn("Отметьте хост.");
-            return;
-        }
-
-        if (actions.Count == 0)
+        var planned = ReadActions?.Invoke() ?? Array.Empty<ActionDefinition>();
+        // Bash — по SSH на отмеченных хостах; PowerShell — против vCenter, хосты им не нужны.
+        var actions = planned.Where(a => !a.IsPowerShell).ToList();
+        var psActions = planned.Where(a => a.IsPowerShell).ToList();
+        if (planned.Count == 0)
         {
             Warn("Отметьте действие.");
             return;
         }
 
-        if (apply)
+        if (actions.Count > 0 && hosts.Count == 0)
+        {
+            Warn("Отметьте хост.");
+            return;
+        }
+
+        VCenterProfile? vc = null;
+        Dictionary<string, string> psArgs = new();
+        if (psActions.Count > 0)
+        {
+            var dlg = new PsRunWindow(psActions) { Owner = OwnerWin() };
+            if (dlg.ShowDialog() != true || dlg.Profile is null) return;
+            vc = dlg.Profile;
+            psArgs = dlg.Args;
+            var psDestructive = psActions.Where(a => a.Destructive).ToList();
+            if (apply && psDestructive.Count > 0 &&
+                !AppDialog.Confirm(OwnerWin(), $"Применить {string.Join(", ", psDestructive.Select(a => a.Name))} на vCenter {vc.Title}? Продолжить?"))
+                return;
+        }
+
+        if (apply && actions.Count > 0)
         {
             var destructive = actions.Where(a => a.Destructive).ToList();
             if (destructive.Count > 0)
@@ -667,14 +696,34 @@ public partial class ActionsViewModel : ObservableObject
 
         try
         {
-            var result = await _runner.RunAsync(hosts, actions, apply, progress, _runCts.Token);
-            if (result.History.Count > 0)
-                HistoryStore.Append(result.History);
+            var canceled = false;
+            if (actions.Count > 0)
+            {
+                var result = await _runner.RunAsync(hosts, actions, apply, progress, _runCts.Token);
+                if (result.History.Count > 0)
+                    HistoryStore.Append(result.History);
+                canceled = result.Canceled;
+            }
+
+            if (psActions.Count > 0 && vc is not null && !canceled)
+            {
+                try
+                {
+                    _ps.Owner = OwnerWin;
+                    var psHistory = await _ps.RunAsync(psActions, vc, psArgs, apply, progress, _runCts.Token);
+                    if (psHistory.Count > 0) HistoryStore.Append(psHistory);
+                }
+                catch (OperationCanceledException)
+                {
+                    canceled = true;
+                }
+            }
+
             _session.Persist();
 
             var failN = PlanRunner.Count(Results, "FAIL");
             var okN = PlanRunner.Count(Results, "OK");
-            RunStatus = result.Canceled
+            RunStatus = canceled
                 ? "отменено"
                 : failN == 0
                     ? (apply ? $"готово · {okN} OK" : $"dry-run · {okN} OK")

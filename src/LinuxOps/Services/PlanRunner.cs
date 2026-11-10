@@ -1,4 +1,4 @@
-using LinuxOps.Models;
+﻿using LinuxOps.Models;
 
 namespace LinuxOps.Services;
 
@@ -234,7 +234,7 @@ public sealed class PlanRunner
             IsOk = ok || status is "SKIP" or "DRY-RUN" or "INFO" or "WARN" or "RUN"
         };
 
-    private static HistoryEntry ToHistory(string mode, string host, string action, ResultRow row) => new()
+    internal static HistoryEntry ToHistory(string mode, string host, string action, ResultRow row) => new()
     {
         AtUtc = DateTime.UtcNow,
         Mode = mode,

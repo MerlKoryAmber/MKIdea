@@ -18,6 +18,7 @@ public static class ActionCatalog
     {
         var list = new List<ActionDefinition>();
         list.AddRange(BuiltinActions.All);
+        list.AddRange(VsphereActions.All);
 
         var dir = ActionsDirectory;
         if (!Directory.Exists(dir))

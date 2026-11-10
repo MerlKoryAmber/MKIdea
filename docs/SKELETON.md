@@ -8,7 +8,7 @@
 | Продукт | Путь | Статус | Назначение |
 |---------|------|--------|------------|
 | **AdServerGroups** | `src/AdServerGroups` | боевой контур | AD-группы → локальные Administrators (+ SQL sysadmin provider) |
-| **LinuxOps** | `src/LinuxOps` | 0.3.35 | Actions + SSH Files + Terminal + History |
+| **LinuxOps** | `src/LinuxOps` (+ `src/LinuxOps.PsHost`) | 0.3.38 | Actions + SSH Files + Terminal + PowerShell + History |
 
 Пакет/инсталлятор «всех утилит» — позже; пока отдельные `dist\<App>-<ver>\`.
 
@@ -23,7 +23,7 @@
 
 ## Solution
 
-- `AdServerGroups.sln` — пока общий solution (имя историческое). Проекты: AdServerGroups*, LinuxOps.
+- `AdServerGroups.sln` — пока общий solution (имя историческое). Проекты: AdServerGroups*, LinuxOps, LinuxOps.PsHost (движок PowerShell).
 - Точечный `git add` файлов; push — только по команде.
 
 ## Инструменты

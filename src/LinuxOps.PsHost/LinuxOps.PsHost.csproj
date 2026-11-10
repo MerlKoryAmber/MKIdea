@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Движок PowerShell для вкладки PowerShell и PS-действий LinuxOps: отдельный процесс, чтобы модули (PowerCLI)
+       не делили сборки с LinuxOps, а зависший вызов можно было снять вместе с процессом. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>1.0.0</Version>
+    <Product>LinuxOps</Product>
+    <SatelliteResourceLanguages>en;ru</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\LinuxOps\Services\PsProtocol.cs" Link="PsProtocol.cs" />
+  </ItemGroup>
+
+  <!-- Встроенные модули (Utility, Management, Security …) SDK кладёт в runtimes\win\lib\net8.0\Modules,
+       а PowerShell ищет их в $PSHOME\Modules — рядом с exe. Переносим; копии для unix не нужны. -->
+  <Target Name="PlaceBuiltinModules" AfterTargets="Build;Publish">
+    <PropertyGroup>
+      <PsDest Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)runtimes')">$(PublishDir)</PsDest>
+      <PsDest Condition="'$(PsDest)' == ''">$(OutDir)</PsDest>
+    </PropertyGroup>
+    <ItemGroup>
+      <PsBuiltin Include="$(PsDest)runtimes\win\lib\net8.0\Modules\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PsBuiltin)" DestinationFolder="$(PsDest)Modules\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <RemoveDir Directories="$(PsDest)runtimes\win\lib\net8.0\Modules;$(PsDest)runtimes\unix" />
+  </Target>
+
+</Project>

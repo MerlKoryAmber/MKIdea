@@ -7,10 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>0.3.36</Version>
-    <AssemblyVersion>0.3.36.0</AssemblyVersion>
-    <FileVersion>0.3.36.0</FileVersion>
-    <InformationalVersion>0.3.36</InformationalVersion>
+    <Version>0.3.38</Version>
+    <AssemblyVersion>0.3.38.0</AssemblyVersion>
+    <FileVersion>0.3.38.0</FileVersion>
+    <InformationalVersion>0.3.38</InformationalVersion>
     <Company>Merl</Company>
     <Product>LinuxOps</Product>
     <AssemblyTitle>LinuxOps</AssemblyTitle>
@@ -19,6 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
@@ -43,6 +44,18 @@
   <Target Name="BundleNotepadPlusPlus" AfterTargets="Publish" Condition="Exists('$(NppZip)')">
     <RemoveDir Directories="$(PublishDir)Tools\Notepad++" />
     <Unzip SourceFiles="$(NppZip)" DestinationFolder="$(PublishDir)Tools\Notepad++" OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <!-- Движок PowerShell (вкладка PowerShell, PS-действия): отдельный процесс в pwsh\ рядом с exe.
+       PsProtocol.cs общий с LinuxOps.PsHost — подключён туда ссылкой. -->
+  <PropertyGroup>
+    <PsHostProj>$(MSBuildThisFileDirectory)..\LinuxOps.PsHost\LinuxOps.PsHost.csproj</PsHostProj>
+  </PropertyGroup>
+  <Target Name="BundlePsHostBuild" AfterTargets="Build" Condition="!Exists('$(OutDir)pwsh\LinuxOps.PsHost.exe')">
+    <Exec Command="dotnet publish &quot;$(PsHostProj)&quot; -c $(Configuration) --self-contained true -o &quot;$(OutDir)pwsh&quot; -v q -nologo" />
+  </Target>
+  <Target Name="BundlePsHost" AfterTargets="Publish">
+    <Exec Command="dotnet publish &quot;$(PsHostProj)&quot; -c $(Configuration) --self-contained true -o &quot;$(PublishDir)pwsh&quot; -v q -nologo" />
   </Target>
 
 </Project>

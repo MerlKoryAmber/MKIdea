@@ -11,6 +11,7 @@ public partial class MainWindow : Window
 {
     private readonly ActionsViewModel _actions;
     private readonly HistoryViewModel _history;
+    private readonly PowerShellViewModel _ps = new();
     private bool _modeSwitching;
     private bool _sshDocsOnce;
 
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
         Actions.DataContext = _actions;
         Inventory.DataContext = inventory;
         History.DataContext = _history;
+        PowerShell.DataContext = _ps;
         Ssh.Init(session);
         Terminal.Init(session);
         // F9 с папкой — новая вкладка терминала в этой папке; без папки — вкладка хоста (своя или новая).
@@ -67,7 +69,8 @@ public partial class MainWindow : Window
     {
         if (_modeSwitching) return;
         if (ChipInventory.IsChecked == true || ChipActions.IsChecked == true ||
-            ChipSsh.IsChecked == true || ChipTerminal.IsChecked == true || ChipHistory.IsChecked == true)
+            ChipSsh.IsChecked == true || ChipTerminal.IsChecked == true || ChipPowerShell.IsChecked == true ||
+            ChipHistory.IsChecked == true)
             return;
         _modeSwitching = true;
         ((ToggleButton)sender).IsChecked = true;
@@ -81,6 +84,7 @@ public partial class MainWindow : Window
         ChipActions.IsChecked = mode == "actions";
         ChipSsh.IsChecked = mode == "ssh";
         ChipTerminal.IsChecked = mode == "terminal";
+        ChipPowerShell.IsChecked = mode == "powershell";
         ChipHistory.IsChecked = mode == "history";
         _modeSwitching = false;
 
@@ -88,6 +92,7 @@ public partial class MainWindow : Window
         Actions.Visibility = mode == "actions" ? Visibility.Visible : Visibility.Collapsed;
         Ssh.Visibility = mode == "ssh" ? Visibility.Visible : Visibility.Collapsed;
         Terminal.Visibility = mode == "terminal" ? Visibility.Visible : Visibility.Collapsed;
+        PowerShell.Visibility = mode == "powershell" ? Visibility.Visible : Visibility.Collapsed;
         History.Visibility = mode == "history" ? Visibility.Visible : Visibility.Collapsed;
         var actions = mode == "actions";
         FooterBar.Visibility = actions ? Visibility.Visible : Visibility.Collapsed;
@@ -104,10 +109,23 @@ public partial class MainWindow : Window
             _history.Reload();
     }
 
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // Несохранённые скрипты PowerShell — спросить; «Отмена» оставляет программу открытой.
+        if (!PowerShell.ConfirmCloseAll())
+        {
+            e.Cancel = true;
+            ShowMode("powershell");
+        }
+
+        base.OnClosing(e);
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         Ssh.DisposeAll();
         Terminal.DisposeAll();
+        _ps.Dispose();
         base.OnClosed(e);
     }
 

@@ -17,7 +17,7 @@ public partial class ActionEditWindow : Window
         InitializeComponent();
         if (existing is null)
         {
-            BannerText.Text = "Создание custom SSH-действия.";
+            BannerText.Text = "Создание своего действия: Bash по SSH или PowerShell для vCenter.";
             return;
         }
 
@@ -32,6 +32,8 @@ public partial class ActionEditWindow : Window
         PrivBox.SelectedIndex = string.Equals(existing.Privilege, "user", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
 
         SetDistros(existing.Distros);
+        KindBox.SelectedIndex = existing.IsPowerShell ? 1 : 0;
+        ParamsBox.Text = FormatParams(existing.Parameters);
         _newId = clone || string.IsNullOrWhiteSpace(existing.Id);
         Result.Id = clone
             ? existing.Id + "-custom"
@@ -40,9 +42,60 @@ public partial class ActionEditWindow : Window
         if (_readOnly)
         {
             SaveBtn.IsEnabled = false;
-            NameBox.IsReadOnly = DescBox.IsReadOnly = ScriptBox.IsReadOnly = TimeoutBox.IsReadOnly = true;
-            DistroPanel.IsEnabled = PrivBox.IsEnabled = DestructiveBox.IsEnabled = false;
+            NameBox.IsReadOnly = DescBox.IsReadOnly = ScriptBox.IsReadOnly = TimeoutBox.IsReadOnly = ParamsBox.IsReadOnly = true;
+            DistroPanel.IsEnabled = PrivBox.IsEnabled = DestructiveBox.IsEnabled = KindBox.IsEnabled = false;
         }
+    }
+
+    private bool IsPs => KindBox.SelectedIndex == 1;
+
+    private void KindBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (BashPanel is null) return; // ещё строится XAML
+        BashPanel.Visibility = PrivPanel.Visibility = IsPs ? Visibility.Collapsed : Visibility.Visible;
+        PsPanel.Visibility = IsPs ? Visibility.Visible : Visibility.Collapsed;
+        KindHint.Text = IsPs
+            ? "Скрипт выполняется в PowerShell 7 с PowerCLI против vCenter, выбранного при запуске. Хосты не нужны."
+            : "Скрипт выполняется на каждом отмеченном хосте.";
+        // Шаблон нового скрипта — под выбранный тип, пока его не трогали.
+        if (IsPs && ScriptBox.Text.StartsWith("# {{host}}"))
+            ScriptBox.Text = "Get-VM | Select-Object Name, PowerState | Format-Table -AutoSize\n";
+        else if (!IsPs && ScriptBox.Text.StartsWith("Get-VM | Select-Object Name, PowerState"))
+            ScriptBox.Text = "# {{host}} {{user}}\nset -e\nuname -a\n";
+    }
+
+    /// <summary>Строка: «Имя = по умолчанию | подпись».</summary>
+    private static string FormatParams(IEnumerable<ActionParam> ps) =>
+        string.Join("\n", ps.Select(p => p.Name + " = " + p.Default + (string.IsNullOrWhiteSpace(p.Label) ? "" : " | " + p.Label)));
+
+    private static List<ActionParam>? ParseParams(string text, out string error)
+    {
+        error = "";
+        var list = new List<ActionParam>();
+        foreach (var raw in text.Replace("\r", "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            var label = "";
+            var bar = line.IndexOf('|');
+            if (bar >= 0)
+            {
+                label = line[(bar + 1)..].Trim();
+                line = line[..bar].Trim();
+            }
+
+            var eq = line.IndexOf('=');
+            var name = (eq >= 0 ? line[..eq] : line).Trim().TrimStart('$');
+            if (!Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]*$"))
+            {
+                error = $"Имя параметра «{name}»: только латиница, цифры и _, не с цифры.";
+                return null;
+            }
+
+            list.Add(new ActionParam { Name = name, Default = eq >= 0 ? line[(eq + 1)..].Trim() : "", Label = label });
+        }
+
+        return list;
     }
 
     private static string PreviewBuiltin(string id)
@@ -90,6 +143,14 @@ public partial class ActionEditWindow : Window
         if (!int.TryParse(TimeoutBox.Text.Trim(), out var timeout) || timeout < 5)
             timeout = 60;
 
+        var paramError = "";
+        var parameters = IsPs ? ParseParams(ParamsBox.Text, out paramError) : new List<ActionParam>();
+        if (parameters is null)
+        {
+            AppDialog.Info(this, paramError);
+            return;
+        }
+
         var id = _newId || string.IsNullOrWhiteSpace(Result.Id)
             ? ActionCatalog.UniqueId(string.IsNullOrWhiteSpace(Result.Id) ? Slug(NameBox.Text) : Result.Id)
             : Result.Id;
@@ -100,8 +161,10 @@ public partial class ActionEditWindow : Window
             Name = NameBox.Text.Trim(),
             Description = DescBox.Text.Trim(),
             Script = ScriptBox.Text,
-            Distros = CollectDistros(),
-            Privilege = (PrivBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "sudo/root",
+            Distros = IsPs ? new List<string>() : CollectDistros(),
+            Privilege = IsPs ? "vCenter" : (PrivBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "sudo/root",
+            Kind = IsPs ? "powershell" : "bash",
+            Parameters = parameters,
             TimeoutSeconds = timeout,
             Destructive = DestructiveBox.IsChecked == true,
             BuiltIn = false

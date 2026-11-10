@@ -1,0 +1,117 @@
+<UserControl x:Class="LinuxOps.Views.PowerShellView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit">
+  <!-- PowerShell в стиле ISE: скрипт сверху, консоль снизу, один сеанс на вкладку. -->
+  <Grid Margin="20,14,20,12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="3*" MinHeight="80"/>
+      <RowDefinition Height="6"/>
+      <RowDefinition Height="2*" MinHeight="80"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- Панель команд -->
+    <DockPanel Margin="0,0,0,8" LastChildFill="False">
+      <StackPanel Orientation="Horizontal">
+        <Button Content="Новый" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="New_Click" ToolTip="Новый скрипт (Ctrl+N)"/>
+        <Button Content="Открыть" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="Open_Click" ToolTip="Открыть .ps1 (Ctrl+O)"/>
+        <Button Content="Сохранить" Style="{StaticResource Btn}" Height="28" Margin="0,0,16,0" Click="Save_Click" ToolTip="Сохранить (Ctrl+S), с другим именем — Ctrl+Shift+S"/>
+        <Button x:Name="RunBtn" Content="▶  Запустить  F5" Style="{StaticResource BtnPrimary}" Height="28" Margin="0,0,6,0" Click="Run_Click"
+                AutomationProperties.AutomationId="PsRun" ToolTip="Выполнить весь скрипт"/>
+        <Button Content="Выделенное  F8" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="RunSelection_Click"
+                ToolTip="Выполнить выделенное или текущую строку"/>
+        <Button Content="■  Стоп" Style="{StaticResource Btn}" Height="28" Margin="0,0,16,0" Click="Stop_Click" IsEnabled="{Binding Busy}"
+                ToolTip="Остановить выполнение (Ctrl+Break)"/>
+        <Button Content="Перезапустить движок" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="Restart_Click"
+                ToolTip="Если «Стоп» не помогает. Переменные, модули и подключения сбрасываются"/>
+        <Button Content="Очистить консоль" Style="{StaticResource Btn}" Height="28" Click="ClearConsole_Click"/>
+      </StackPanel>
+      <Button DockPanel.Dock="Right" Content="vSphere…" Style="{StaticResource Btn}" Height="28" Click="Vsphere_Click"
+              ToolTip="Модули PowerCLI (интернет, ZIP, папка) и профили vCenter"/>
+    </DockPanel>
+
+    <!-- Вкладки скриптов -->
+    <Border Grid.Row="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <ListBox x:Name="ScriptTabs" ItemsSource="{Binding Scripts}" SelectedItem="{Binding SelectedScript}"
+               Background="Transparent" BorderThickness="0" Padding="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate>
+            <StackPanel Orientation="Horizontal"/>
+          </ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
+        <ListBox.ItemContainerStyle>
+          <Style TargetType="ListBoxItem">
+            <Setter Property="Template">
+              <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                  <Border x:Name="Chip" Height="30" Margin="0,0,4,0" Padding="10,0,4,0" CornerRadius="6,6,0,0"
+                          Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent" Cursor="Hand">
+                    <DockPanel>
+                      <Button DockPanel.Dock="Right" Content="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="9"
+                              Width="20" Height="20" MinWidth="0" MinHeight="0" Padding="0" Margin="6,0,0,0"
+                              Background="Transparent" BorderThickness="0" Foreground="{DynamicResource MutedBrush}"
+                              VerticalAlignment="Center" ToolTip="Закрыть" Click="CloseScript_Click"/>
+                      <TextBlock x:Name="Caption" Text="{Binding Header}" VerticalAlignment="Center" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource MutedBrush}" ToolTip="{Binding FilePath}"/>
+                    </DockPanel>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Chip" Property="Background" Value="{DynamicResource HoverSoftBrush}"/>
+                    </Trigger>
+                    <Trigger Property="IsSelected" Value="True">
+                      <Setter TargetName="Chip" Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+                      <Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                      <Setter TargetName="Caption" Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
+          </Style>
+        </ListBox.ItemContainerStyle>
+      </ListBox>
+    </Border>
+
+    <!-- Редактор скрипта -->
+    <Border Grid.Row="2" BorderBrush="{DynamicResource ConsoleBorderBrush}" BorderThickness="1,0,1,1">
+      <ae:TextEditor x:Name="Editor" FontFamily="Cascadia Mono, Consolas" FontSize="13" ShowLineNumbers="True"
+                     Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextBrush}"
+                     LineNumbersForeground="{DynamicResource MutedBrush}" Padding="4,2,0,0"
+                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                     AutomationProperties.AutomationId="PsEditor"/>
+    </Border>
+
+    <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"/>
+
+    <!-- Консоль -->
+    <Border Grid.Row="4" BorderBrush="{DynamicResource ConsoleBorderBrush}" BorderThickness="1"
+            Background="{DynamicResource ConsoleBrush}">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Bottom" Margin="6,2,6,4">
+          <TextBlock x:Name="PromptLabel" Text="{Binding PromptText}" FontFamily="Cascadia Mono, Consolas" FontSize="13"
+                     Foreground="#3CC7B8" VerticalAlignment="Center" Margin="0,0,6,0"/>
+          <TextBox x:Name="Input" FontFamily="Cascadia Mono, Consolas" FontSize="13" BorderThickness="0" Padding="0,3"
+                   Background="Transparent" Foreground="{DynamicResource ConsoleTextBrush}" CaretBrush="{DynamicResource ConsoleTextBrush}"
+                   PreviewKeyDown="Input_PreviewKeyDown" AutomationProperties.AutomationId="PsInput"
+                   ToolTip="Команда PowerShell. Enter — выполнить, ↑/↓ — история"/>
+        </DockPanel>
+        <ae:TextEditor x:Name="ConsoleOut" IsReadOnly="True" FontFamily="Cascadia Mono, Consolas" FontSize="13"
+                       Background="Transparent" Foreground="{DynamicResource ConsoleTextBrush}" Padding="6,4,0,0"
+                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" WordWrap="False"
+                       SizeChanged="ConsoleOut_SizeChanged" AutomationProperties.AutomationId="PsConsole"/>
+      </DockPanel>
+    </Border>
+
+    <!-- Строка состояния -->
+    <DockPanel Grid.Row="5" Margin="0,6,0,0">
+      <TextBlock DockPanel.Dock="Right" Text="{Binding Progress}" Foreground="{DynamicResource AccentDeepBrush}" Margin="12,0,0,0"/>
+      <TextBlock Text="{Binding Status}" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"
+                 AutomationProperties.AutomationId="PsStatus"/>
+    </DockPanel>
+  </Grid>
+</UserControl>

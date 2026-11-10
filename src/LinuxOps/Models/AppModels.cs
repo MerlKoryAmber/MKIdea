@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
@@ -89,6 +89,28 @@ public sealed class AppDefaults
     public string F4Editor { get; set; } = "";
     /// <summary>Тема: light, dark или system (как в Windows).</summary>
     public string Theme { get; set; } = "system";
+    /// <summary>Профили vCenter для PowerShell-действий. Пароль не хранится — спрашивается при подключении.</summary>
+    public List<VCenterProfile> VCenters { get; set; } = new();
+}
+
+public sealed class VCenterProfile
+{
+    public string Name { get; set; } = string.Empty;
+    public string Server { get; set; } = string.Empty;
+    public string User { get; set; } = string.Empty;
+    /// <summary>Самоподписанный сертификат vCenter — не проверять.</summary>
+    public bool IgnoreCert { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Title => string.IsNullOrWhiteSpace(Name) ? Server : $"{Name} ({Server})";
+    public override string ToString() => Title;
+}
+
+/// <summary>Параметр PowerShell-действия: спрашивается перед запуском, в скрипте — переменная $Name.</summary>
+public sealed class ActionParam
+{
+    public string Name { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string Default { get; set; } = string.Empty;
 }
 
 public sealed class ActionDefinition
@@ -103,6 +125,11 @@ public sealed class ActionDefinition
     public string Script { get; set; } = string.Empty;
     public string Privilege { get; set; } = "sudo/root";
     public int TimeoutSeconds { get; set; } = 60;
+    /// <summary>bash — по SSH на хостах (по умолчанию, и для старых файлов без поля); powershell — в движке PowerShell против vCenter.</summary>
+    public string Kind { get; set; } = "bash";
+    public List<ActionParam> Parameters { get; set; } = new();
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsPowerShell => string.Equals(Kind, "powershell", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class DistroInfo
@@ -175,8 +202,10 @@ public sealed class ActionItemView : INotifyPropertyChanged
     public static ActionItemView From(ActionDefinition def, bool selected)
     {
         var v = new ActionItemView { Definition = def, IsSelected = selected };
-        foreach (var t in DistroLabel.TagsForAction(def.Distros))
-            v.DistroTags.Add(t);
+        if (def.IsPowerShell) v.DistroTags.Add("PowerShell · vSphere");
+        else
+            foreach (var t in DistroLabel.TagsForAction(def.Distros))
+                v.DistroTags.Add(t);
         return v;
     }
 

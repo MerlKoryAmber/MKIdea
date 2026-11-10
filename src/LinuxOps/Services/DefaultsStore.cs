@@ -100,8 +100,21 @@ public static class DefaultsStore
         Write(defaults);
     }
 
+    public static void SaveVCenters(IEnumerable<VCenterProfile> profiles)
+    {
+        var defaults = Load();
+        defaults.VCenters = profiles.Select(p => new VCenterProfile
+        {
+            Name = p.Name.Trim(), Server = p.Server.Trim(), User = p.User.Trim(), IgnoreCert = p.IgnoreCert
+        }).ToList();
+        Write(defaults);
+    }
+
     private static void Write(AppDefaults defaults)
     {
+        // Load() расшифровывает пароли хостов — перед записью шифруем всегда, иначе любое сохранение
+        // (план, тема, редактор, vCenter) писало бы их открытым текстом. Protect повторно не шифрует.
+        defaults.Hosts = defaults.Hosts.Select(CloneHostForSave).ToList();
         var json = JsonSerializer.Serialize(defaults, JsonOptions);
         File.WriteAllText(DefaultsPath, json);
     }

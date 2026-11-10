@@ -30,6 +30,8 @@
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="ssh"/>
           <ToggleButton x:Name="ChipTerminal" Content="SSH Terminal" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="terminal"/>
+          <ToggleButton x:Name="ChipPowerShell" Content="PowerShell" Style="{StaticResource ModeChip}"
+                        Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="powershell"/>
           <ToggleButton x:Name="ChipHistory" Content="History" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="history"/>
         </StackPanel>
@@ -40,6 +42,7 @@
     <views:InventoryView x:Name="Inventory" Grid.Row="1" Visibility="Collapsed"/>
     <views:FilesTabsView x:Name="Ssh" Grid.Row="1" Visibility="Collapsed"/>
     <views:TerminalTabsView x:Name="Terminal" Grid.Row="1" Visibility="Collapsed"/>
+    <views:PowerShellView x:Name="PowerShell" Grid.Row="1" Visibility="Collapsed"/>
     <views:HistoryView x:Name="History" Grid.Row="1" Visibility="Collapsed"/>
 
     <Border x:Name="FooterBar" Grid.Row="2" Background="{DynamicResource PaperBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="28,14">

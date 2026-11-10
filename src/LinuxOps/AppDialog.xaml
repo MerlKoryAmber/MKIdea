@@ -8,6 +8,7 @@
     <DockPanel>
       <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
         <Button x:Name="OkBtn" Content="OK" Style="{StaticResource BtnPrimary}" Width="100" Margin="0,0,8,0" IsDefault="True" Click="Ok_Click"/>
+        <Button x:Name="NoBtn" Content="Не сохранять" Style="{StaticResource Btn}" MinWidth="100" Margin="0,0,8,0" Visibility="Collapsed" Click="No_Click"/>
         <Button x:Name="CancelBtn" Content="Отмена" Style="{StaticResource Btn}" Width="100" IsCancel="True" Click="Cancel_Click"/>
       </StackPanel>
       <StackPanel Orientation="Horizontal">
