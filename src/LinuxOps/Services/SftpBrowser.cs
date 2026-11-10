@@ -156,6 +156,49 @@ public sealed class SftpBrowser : IDisposable
         return list;
     }
 
+    /// <summary>
+    /// Список папки от root (режим «Права: sudo», когда своему пользователю папка закрыта).
+    /// Первая строка — канонический путь, дальше по строке на объект.
+    /// </summary>
+    public const string RootListScript = """
+        cd -- "$LINUXOPS_DIR" || exit 2
+        pwd -P
+        find . -mindepth 1 -maxdepth 1 -printf '%y\t%Y\t%s\t%T@\t%m\t%u\t%g\t%f\n'
+        """;
+
+    public static (string Dir, List<FileEntry> Entries) ParseRootList(string stdout)
+    {
+        var lines = stdout.Replace("\r", "").Split('\n');
+        var dir = lines.Length > 0 && lines[0].StartsWith('/') ? lines[0].Trim() : "/";
+        var list = new List<FileEntry>();
+        if (dir != "/")
+            list.Add(new FileEntry { Name = "..", FullPath = Parent(dir), IsDirectory = true, IsParentNav = true });
+        foreach (var line in lines.Skip(1))
+        {
+            var p = line.Split('\t', 8);
+            if (p.Length < 8 || p[7].Length == 0) continue;
+            var type = p[0];
+            var target = p[1];
+            var mode = Convert.ToInt32(p[4], 8) | type switch { "d" => 0x4000, "l" => 0xA000, _ => 0x8000 };
+            var seconds = double.TryParse(p[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 0;
+            list.Add(new FileEntry
+            {
+                Name = p[7],
+                FullPath = Join(dir, p[7]),
+                IsDirectory = type == "d" || (type == "l" && target == "d"),
+                IsSymlink = type == "l",
+                IsHidden = p[7].StartsWith('.'),
+                Size = long.TryParse(p[2], out var size) ? size : 0,
+                Modified = DateTimeOffset.FromUnixTimeMilliseconds((long)(seconds * 1000)).LocalDateTime,
+                Mode = mode,
+                Owner = p[5],
+                Group = p[6]
+            });
+        }
+
+        return (dir, list);
+    }
+
     public byte[] ReadHead(string remotePath, int maxBytes)
     {
         using var stream = _client.OpenRead(remotePath);

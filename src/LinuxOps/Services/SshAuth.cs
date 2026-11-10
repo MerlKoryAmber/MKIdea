@@ -7,6 +7,9 @@ namespace LinuxOps.Services;
 
 public static class SshAuth
 {
+    /// <summary>Пакет keepalive раз в 30 с — короче типичных таймаутов простоя файрволов (60–300 с).</summary>
+    public static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
+
     public static ConnectionInfo Build(HostConfig host, TimeSpan? timeout = null)
     {
         var info = new ConnectionInfo(
@@ -111,8 +114,13 @@ public static class SshAuth
         }
     }
 
+    /// <summary>
+    /// Проверка ключа хоста и keepalive. Без keepalive простаивающую сессию (терминал, SSH Files) рвут
+    /// файрволы и NAT по таймауту — со стороны программы это выглядит как «сессия отвалилась».
+    /// </summary>
     public static void AttachHostKey(BaseClient client, HostConfig host)
     {
+        client.KeepAliveInterval = KeepAlive;
         client.HostKeyReceived += (_, e) =>
         {
             var fp = "SHA256:" + e.FingerPrintSHA256;

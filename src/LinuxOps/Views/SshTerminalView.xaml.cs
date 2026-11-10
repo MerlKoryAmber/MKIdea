@@ -20,6 +20,9 @@ public partial class SshTerminalView : UserControl
         InitializeComponent();
         System.Windows.Automation.AutomationProperties.SetAutomationId(Out, "TermOut");
         Out.ScrollBar = OutBar;
+        // Мышь для mc/htop/vim: программа сама включает отчёты, Shift — своё выделение.
+        Out.MouseTracking = () => _vm?.Mouse ?? (0, false);
+        Out.MouseInput += seq => { if (_vm is { Connected: true }) _vm.SendMouse(seq); };
         Out.AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(Out_PreviewKeyDown), handledEventsToo: true);
         Out.AddHandler(TextCompositionManager.PreviewTextInputEvent, new TextCompositionEventHandler(Out_PreviewTextInput), handledEventsToo: true);
         _resize = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -166,6 +169,13 @@ public partial class SshTerminalView : UserControl
     private void Out_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (IsTabShortcut(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers)) return;
+        if (_vm is { Connected: false, ClosedHost: not null } && e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            e.Handled = true;
+            _ = _vm.Reconnect();
+            return;
+        }
+
         if (_vm is null || !_vm.Connected) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         var mods = Keyboard.Modifiers;

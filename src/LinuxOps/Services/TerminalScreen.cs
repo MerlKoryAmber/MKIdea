@@ -189,6 +189,10 @@ public sealed class TerminalScreen
     public bool AltScreen => _mainLines is not null;
     /// <summary>DECCKM: стрелки как ESC O A (vim, less, mc включают этот режим).</summary>
     public bool AppCursorKeys { get; private set; }
+    /// <summary>Отчёты мыши, которые включила программа: 0 — нет, 1000 — нажатия, 1002 — и перетаскивание, 1003 — любое движение.</summary>
+    public int MouseMode { get; private set; }
+    /// <summary>Формат SGR (1006): координаты без ограничения 223.</summary>
+    public bool MouseSgr { get; private set; }
     /// <summary>DECTCEM: программа может спрятать курсор.</summary>
     public bool CursorVisible { get; private set; } = true;
     public long Version => _version;
@@ -244,6 +248,8 @@ public sealed class TerminalScreen
         _pen = Cell.Blank;
         _g0Graphics = _g1Graphics = _shiftOut = false;
         AppCursorKeys = false;
+        MouseMode = 0;
+        MouseSgr = false;
         CursorVisible = true;
         _version++;
     }
@@ -402,6 +408,10 @@ public sealed class TerminalScreen
                     {
                         case 1: AppCursorKeys = on; break;
                         case 25: CursorVisible = on; break;
+                        case 9 or 1000 or 1002 or 1003:
+                            MouseMode = on ? (mode == 9 ? 1000 : mode) : MouseMode == mode || (mode == 9 && MouseMode == 1000) ? 0 : MouseMode;
+                            break;
+                        case 1006: MouseSgr = on; break;
                         case 47 or 1047:
                             if (on) EnterAlt(); else LeaveAlt();
                             break;

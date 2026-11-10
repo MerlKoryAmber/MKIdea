@@ -500,9 +500,91 @@ public sealed class TerminalCanvas : FrameworkElement
 
     private (long, long) Ordered() => _selA <= _selB ? (_selA, _selB) : (_selB, _selA);
 
+    // ── Мышь для программы на сервере (mc, htop, vim): xterm-отчёты 1000/1002/1003, формат X10 или SGR 1006 ──
+
+    /// <summary>Какие отчёты мыши включила программа на сервере (из TerminalScreen).</summary>
+    public Func<(int Mode, bool Sgr)>? MouseTracking { get; set; }
+
+    /// <summary>Готовая escape-последовательность отчёта — отправить в PTY.</summary>
+    public event Action<string>? MouseInput;
+
+    private int _reportButton = -1;
+    private (int Col, int Row) _reportCell;
+
+    /// <summary>Мышь уходит программе, если она её включила. Shift — как в PuTTY/xterm: своё выделение.</summary>
+    private bool Reporting => MouseInput is not null && MouseTracking?.Invoke().Mode > 0
+                              && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+
+    /// <summary>Клетка экрана (1-based) под точкой; false — точка в прокрутке выше экрана или за его краем.</summary>
+    private bool ScreenCell(Point p, out int col, out int row)
+    {
+        EnsureMetrics();
+        col = (int)Math.Floor((p.X - Padding.Left) / _cw) + 1;
+        var li = _offset + (int)Math.Floor((p.Y - Padding.Top) / _lh);
+        row = li - Math.Max(0, _frame.Lines.Length - _frame.Rows) + 1;
+        col = Math.Clamp(col, 1, Math.Max(_frame.Cols, 1));
+        return row >= 1 && row <= _frame.Rows;
+    }
+
+    private void Report(int button, bool release, bool motion, Point p)
+    {
+        if (MouseTracking?.Invoke() is not { Mode: > 0 } mode || !ScreenCell(p, out var col, out var row)) return;
+        var cb = button + (motion ? 32 : 0);
+        var mods = Keyboard.Modifiers;
+        if (mods.HasFlag(ModifierKeys.Alt)) cb += 8;
+        if (mods.HasFlag(ModifierKeys.Control)) cb += 16;
+        string seq;
+        if (mode.Sgr)
+            seq = $"\u001b[<{cb};{col};{row}{(release ? 'm' : 'M')}";
+        else
+        {
+            if (col > 223 || row > 223) return;
+            if (release) cb = 3 + (cb & ~3 & ~32);
+            seq = "\u001b[M" + (char)(32 + cb) + (char)(32 + col) + (char)(32 + row);
+        }
+
+        _reportCell = (col, row);
+        MouseInput?.Invoke(seq);
+    }
+
+    private static int ButtonCode(MouseButton b) => b switch { MouseButton.Left => 0, MouseButton.Middle => 1, MouseButton.Right => 2, _ => -1 };
+
+    protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
+    {
+        // Правую кнопку программе не отдаём — у окна своё меню (копировать/вставить).
+        if (e.ChangedButton is MouseButton.Left or MouseButton.Middle && Reporting)
+        {
+            Focus();
+            Keyboard.Focus(this);
+            ClearSelection();
+            _reportButton = ButtonCode(e.ChangedButton);
+            Report(_reportButton, release: false, motion: false, e.GetPosition(this));
+            CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
+        base.OnPreviewMouseDown(e);
+    }
+
+    protected override void OnPreviewMouseUp(MouseButtonEventArgs e)
+    {
+        if (_reportButton >= 0 && ButtonCode(e.ChangedButton) == _reportButton)
+        {
+            Report(_reportButton, release: true, motion: false, e.GetPosition(this));
+            _reportButton = -1;
+            ReleaseMouseCapture();
+            e.Handled = true;
+            return;
+        }
+
+        base.OnPreviewMouseUp(e);
+    }
+
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
+        if (e.Handled) return;
         Focus();
         Keyboard.Focus(this);
         EnsureMetrics();
@@ -536,6 +618,15 @@ public sealed class TerminalCanvas : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        if (MouseTracking?.Invoke() is { Mode: >= 1002 } m && (_reportButton >= 0 || (m.Mode == 1003 && Reporting)))
+        {
+            // Перетаскивание (1002) или любое движение (1003) — только при смене клетки.
+            var at = e.GetPosition(this);
+            if (ScreenCell(at, out var c, out var r) && (c, r) != _reportCell)
+                Report(_reportButton >= 0 ? _reportButton : 3, release: false, motion: true, at);
+            return;
+        }
+
         if (!_dragging) return;
         var p = e.GetPosition(this);
         if (p.Y < 0) ScrollLines(-1);
@@ -556,6 +647,16 @@ public sealed class TerminalCanvas : FrameworkElement
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         base.OnMouseWheel(e);
+        if (Reporting)
+        {
+            // Колесо программе: 64 — вверх, 65 — вниз, по отчёту на щелчок колеса.
+            var at = e.GetPosition(this);
+            for (var i = 0; i < Math.Max(1, Math.Abs(e.Delta) / 120); i++)
+                Report(e.Delta > 0 ? 64 : 65, release: false, motion: false, at);
+            e.Handled = true;
+            return;
+        }
+
         ScrollLines(-e.Delta / 40);
         e.Handled = true;
     }

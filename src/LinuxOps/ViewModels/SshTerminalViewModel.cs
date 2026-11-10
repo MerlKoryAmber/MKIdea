@@ -52,6 +52,10 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
     public TerminalFrame Frame { get; private set; } = TerminalFrame.Empty;
     public bool HasOutput => Frame.HasText;
     public bool AppCursorKeys { get { lock (_gate) return _screen.AppCursorKeys; } }
+    public (int Mode, bool Sgr) Mouse { get { lock (_gate) return (_screen.MouseMode, _screen.MouseSgr); } }
+
+    /// <summary>Отчёт мыши программе на сервере — мимо истории команд.</summary>
+    public void SendMouse(string data) => Send(data);
     public HostConfig? ConnectedHost => Connected ? _shellHost : null;
 
     /// <summary>Открыть терминал на хосте (F9 из SSH Files). cdPath — перейти в папку после входа.</summary>
@@ -65,7 +69,12 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Подключиться к хосту (двойной щелчок в списке).</summary>
-    public async Task Connect(HostConfig? host = null, bool confirmSwitch = true)
+    /// <summary>Хост сессии, которую закрыл сервер или сеть: Enter в окне — подключиться снова.</summary>
+    public HostConfig? ClosedHost { get; private set; }
+
+    public Task Reconnect() => ClosedHost is { } host ? Connect(host, confirmSwitch: false, clear: false) : Task.CompletedTask;
+
+    public async Task Connect(HostConfig? host = null, bool confirmSwitch = true, bool clear = true)
     {
         host ??= SelectedHost;
         if (host is null)
@@ -81,7 +90,8 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
             return;
 
         Disconnect();
-        Clear();
+        ClosedHost = null;
+        if (clear) Clear();
         Status = $"подключение к {host.Title}…";
         try
         {
@@ -93,6 +103,7 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
             _shellHost = host;
             shell.DataReceived += OnData;
             shell.ErrorOccurred += OnError;
+            client.ErrorOccurred += OnError;
             shell.Closed += OnClosed;
             // Окно могло получить свой размер, пока шло подключение (новая вкладка) — сообщить PTY настоящий.
             if (cols != _cols || rows != _rows)
@@ -137,6 +148,7 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
         {
             shell.DataReceived -= OnData;
             shell.ErrorOccurred -= OnError;
+            if (client is not null) client.ErrorOccurred -= OnError;
             shell.Closed -= OnClosed;
             try { shell.Dispose(); } catch { /* канал уже закрыт */ }
         }
@@ -258,22 +270,30 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
 
     private void OnError(object? sender, ExceptionEventArgs e)
     {
-        Application.Current?.Dispatcher.BeginInvoke(() => Status = "Ошибка: " + e.Exception.Message);
+        // Связь пропала (keepalive не прошёл, сеть, сервер) — это тоже конец сессии, а не просто строка в статусе.
+        if (_client is { IsConnected: false })
+            Lost("связь потеряна: " + e.Exception.Message);
+        else
+            Application.Current?.Dispatcher.BeginInvoke(() => Status = "Ошибка: " + e.Exception.Message);
     }
 
-    private void OnClosed(object? sender, EventArgs e)
+    private void OnClosed(object? sender, EventArgs e) => Lost("сессия закрыта");
+
+    private void Lost(string reason)
     {
         Application.Current?.Dispatcher.BeginInvoke(() =>
         {
             if (!Connected) return;
+            var host = _shellHost;
             lock (_gate)
             {
-                _screen.Feed("\u001b[0m\r\n[сессия закрыта]\r\n".AsSpan());
+                _screen.Feed($"\u001b[0m\r\n[{reason} — Enter: подключиться снова]\r\n".AsSpan());
             }
 
             Flush();
             Disconnect();
-            Status = "Сессия закрыта. Дважды щёлкните хост, чтобы подключиться снова.";
+            ClosedHost = host;
+            Status = $"{char.ToUpper(reason[0])}{reason[1..]}. Enter в окне — подключиться снова.";
         });
     }
 

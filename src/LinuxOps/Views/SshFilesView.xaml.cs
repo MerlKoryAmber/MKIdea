@@ -295,6 +295,7 @@ public partial class SshFilesView : UserControl
         if (e.Key != Key.Enter || _vm is null) return;
         e.Handled = true;
         await _vm.GoRemote(RemotePathBox.Text);
+        RemotePathBox.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget(); // не перешли — в поле снова текущая папка
         FocusList(RemoteFilesList);
     }
 
@@ -303,6 +304,7 @@ public partial class SshFilesView : UserControl
         if (e.Key != Key.Enter || _vm is null) return;
         e.Handled = true;
         _vm.ApplyTypedPath(LocalPathBox.Text);
+        LocalPathBox.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
         FocusList(LocalFilesList);
     }
 

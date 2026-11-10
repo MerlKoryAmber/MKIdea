@@ -123,7 +123,7 @@
                     <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
                   </Button>
                   <ComboBox DockPanel.Dock="Left" Width="64" Height="28" Margin="0,0,6,0" ItemsSource="{Binding Drives}" SelectedItem="{Binding SelectedDrive, Mode=TwoWay}"/>
-                  <TextBox x:Name="LocalPathBox" Height="28" Padding="6,2" VerticalContentAlignment="Center" Text="{Binding LocalPath, Mode=OneWay}"
+                  <TextBox x:Name="LocalPathBox" Height="28" Padding="6,2" VerticalContentAlignment="Center" Text="{Binding LocalPath, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                            KeyDown="LocalPathBox_KeyDown" ToolTip="Путь. Enter — перейти"/>
                 </DockPanel>
               </StackPanel>
@@ -195,7 +195,7 @@
                   <Button DockPanel.Dock="Left" Style="{StaticResource BtnIcon}" Click="RemoteRoot_Click" ToolTip="Корень (/)" Margin="0,0,6,0">
                     <TextBlock Text="/" FontFamily="{StaticResource MonoFont}" FontSize="13" FontWeight="Bold"/>
                   </Button>
-                  <TextBox x:Name="RemotePathBox" Height="28" Padding="6,2" VerticalContentAlignment="Center" Text="{Binding RemotePath, Mode=OneWay}"
+                  <TextBox x:Name="RemotePathBox" Height="28" Padding="6,2" VerticalContentAlignment="Center" Text="{Binding RemotePath, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                            KeyDown="RemotePathBox_KeyDown" ToolTip="Путь. Enter — перейти, ~ — домашняя папка"/>
                 </DockPanel>
               </StackPanel>

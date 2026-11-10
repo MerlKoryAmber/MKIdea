@@ -239,12 +239,40 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         CloseSftp();
     }
 
+    /// <summary>Переподключение без диалогов (вызывающий может держать _io). true — список снова живой.</summary>
+    private async Task<bool> TryReconnect(HostConfig host)
+    {
+        var path = RemotePath;
+        try
+        {
+            var browser = await Task.Run(() => SftpBrowser.Connect(host));
+            var old = _sftp;
+            _sftp = browser;
+            try { old?.Dispose(); } catch { /* уже закрыт */ }
+            if (_rootDir is null && path.Length > 0)
+            {
+                try { await Task.Run(() => browser.ChangeDirectory(path)); }
+                catch { /* остаёмся в домашней папке */ }
+            }
+
+            await FillRemoteAsync(record: false);
+            Connected = true;
+            _ = LoadNamesAsync(host);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private void CloseSftp()
     {
         if (_sftp is not null && _host is not null && RemotePath.Length > 0)
             _lastPath[_host.Host] = RemotePath;
         _sftp?.Dispose();
         _sftp = null;
+        _rootDir = null;
         Connected = false;
         OnPropertyChanged(nameof(ConnectedHost));
     }
@@ -349,8 +377,23 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
     {
         if (_sftp is null) return;
         var sftp = _sftp;
-        var entries = await Task.Run(() => sftp.List(showHidden: true));
-        var cwd = sftp.WorkingDirectory;
+        IReadOnlyList<FileEntry> entries;
+        string cwd;
+        if (_rootDir is not null)
+            (cwd, entries) = await RootList(_rootDir);
+        else
+        {
+            try
+            {
+                entries = await Task.Run(() => sftp.List(showHidden: true));
+                cwd = sftp.WorkingDirectory;
+            }
+            catch (SftpPermissionDeniedException) when (Sudo && _host is not null)
+            {
+                (cwd, entries) = await RootList(sftp.WorkingDirectory);
+            }
+        }
+
         _remoteAll = entries.ToList();
         ApplyRemote();
         RemotePath = cwd;
@@ -361,11 +404,45 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
             _back.Add(cwd);
     }
 
+    partial void OnSudoChanged(bool value)
+    {
+        // Выключили sudo в папке, открытой от root, — назад к последней своей папке.
+        if (value || _rootDir is null) return;
+        _rootDir = null;
+        _ = Refresh();
+    }
+
+    /// <summary>Папка, которую смотрим от root (sudo), или null — обычный SFTP.</summary>
+    private string? _rootDir;
+
+    private async Task<(string Dir, IReadOnlyList<FileEntry> Entries)> RootList(string dir)
+    {
+        var host = _host!;
+        var r = await Task.Run(() =>
+        {
+            using var ssh = SshRunner.Connect(host);
+            return ssh.RunAsRoot("files-list", SftpBrowser.RootListScript, 60, host,
+                new Dictionary<string, string> { ["LINUXOPS_DIR"] = dir });
+        });
+        if (r.ExitCode != 0)
+            throw new InvalidOperationException(Short((r.StdErr + "\n" + r.StdOut).Trim()) is { Length: > 0 } t ? t : $"exit {r.ExitCode}");
+        var (canonical, entries) = SftpBrowser.ParseRootList(r.StdOut);
+        _rootDir = canonical;
+        return (canonical, entries);
+    }
+
     private async Task LostConnection(Exception ex)
     {
         if (_sftp is { IsConnected: true })
         {
             LastOperation = "ошибка: " + Short(ex.Message);
+            return;
+        }
+
+        // Сессию закрыл сервер или сеть — пробуем тихо подключиться заново и вернуться в ту же папку.
+        if (_host is { } again && await TryReconnect(again))
+        {
+            LastOperation = "связь восстановлена (" + Short(ex.Message) + ") — повторите действие";
             return;
         }
 
@@ -411,13 +488,24 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         var target = path.Trim();
         if (target == "~" ) target = _home;
         else if (target.StartsWith("~/", StringComparison.Ordinal)) target = SftpBrowser.Join(_home, target[2..]);
+        var prevRoot = _rootDir;
         try
         {
             await _io.WaitAsync();
             try
             {
                 var sftp = _sftp;
-                await Task.Run(() => sftp.ChangeDirectory(target));
+                try
+                {
+                    await Task.Run(() => sftp.ChangeDirectory(target));
+                    _rootDir = null;
+                }
+                catch (SftpPermissionDeniedException) when (Sudo && _host is not null)
+                {
+                    // Своему пользователю папка закрыта — в режиме sudo смотрим её от root.
+                    _rootDir = target.StartsWith('/') ? target : SftpBrowser.Join(RemotePath, target);
+                }
+
                 await FillRemoteAsync(record: true);
             }
             finally { _io.Release(); }
@@ -425,7 +513,13 @@ public partial class SshFilesViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             if (ex is SftpPathNotFoundException or SftpPermissionDeniedException)
-                AppDialog.Info(OwnerWin(), $"Не удалось открыть {target}:\n{ex.Message}", "SSH Files");
+                AppDialog.Info(OwnerWin(), $"Не удалось открыть {target}:\n{ex.Message}"
+                    + (ex is SftpPermissionDeniedException && !Sudo ? "\n\nДля чужих папок выберите «Права: sudo»." : ""), "SSH Files");
+            else if (ex is InvalidOperationException && _rootDir is not null && _rootDir != prevRoot)
+            {
+                _rootDir = prevRoot;
+                AppDialog.Info(OwnerWin(), $"Не удалось открыть {target} от root:\n{ex.Message}", "SSH Files");
+            }
             else await LostConnection(ex);
         }
     }
