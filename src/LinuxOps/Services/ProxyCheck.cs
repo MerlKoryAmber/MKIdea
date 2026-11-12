@@ -7,13 +7,14 @@ public sealed class ProxyRow
 {
     public string Where { get; init; } = "";
     public string Value { get; init; } = "";
-    /// <summary>lo — LinuxOps, off — отключено LinuxOps (вернётся при «убрать»), other — чужая настройка.</summary>
+    /// <summary>lo — LinuxOps, off — отключено LinuxOps (вернётся при «убрать»), over — чужой скрипт перекрыт нашим, other — чужая настройка.</summary>
     public string Owner { get; init; } = "other";
 
     public string OwnerText => Owner switch
     {
         "lo" => "LinuxOps",
         "off" => "отключено LinuxOps",
+        "over" => "перекрыто LinuxOps",
         _ => "чужое"
     };
 }

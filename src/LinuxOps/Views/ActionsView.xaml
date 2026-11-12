@@ -379,6 +379,9 @@
                           <DataTrigger Binding="{Binding Owner}" Value="off">
                             <Setter TargetName="OwnerBadge" Property="Background" Value="#7A5A1E"/>
                           </DataTrigger>
+                          <DataTrigger Binding="{Binding Owner}" Value="over">
+                            <Setter TargetName="OwnerBadge" Property="Background" Value="#7A5A1E"/>
+                          </DataTrigger>
                         </DataTemplate.Triggers>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>

@@ -47,7 +47,7 @@ public static class BuiltinActions
         {
             Id = "proxy-set",
             Name = "Прокси: прописать",
-            Description = "Для обновлений (apt / dnf / zypper) и при желании для окружения; затем проверка через обновление списков пакетов",
+            Description = "Для обновлений (apt / dnf / zypper) и при желании для окружения, вместо чужого (например, из шаблона ВМ); затем проверка через обновление списков пакетов",
             BuiltIn = true,
             Destructive = true,
             TimeoutSeconds = 300,
@@ -63,7 +63,7 @@ public static class BuiltinActions
         {
             Id = "proxy-unset",
             Name = "Прокси: убрать",
-            Description = "Убрать то, что прописал LinuxOps; чужие настройки не трогаются",
+            Description = "Убрать то, что прописал LinuxOps, и вернуть прежний прокси",
             BuiltIn = true,
             Destructive = true,
             TimeoutSeconds = 60,

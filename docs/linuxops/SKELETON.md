@@ -28,7 +28,7 @@
 - `HostDialogs` — добавить / изменить / дублировать / удалить ресурс и папку; `VCenterEditWindow`
 - ViewModels вкладок (`CommunityToolkit.Mvvm`)
 - `ActionCatalog` + `BuiltinActions` + `VsphereActions` + `ActionEditWindow`; `ActionDefinition.Kind` = bash | powershell, `Parameters` (у Bash — переменные окружения через `SshRunner.EncodeEnv`, base64)
-- `ProxyScripts` — прокси на хостах: проверить / прописать / убрать (apt, dnf·yum, zypper, окружение; dry-run — `LINUXOPS_DRY=1`); `ProxyCheck` — разбор «проверить» в таблицу (`ResultRow.Proxy`)
+- `ProxyScripts` — прокси на хостах: проверить / прописать / убрать (apt, dnf·yum, zypper, окружение; dry-run — `LINUXOPS_DRY=1`). «Прописать» заменяет чужой прокси (строки отключаются пометкой LinuxOps-disabled, profile.d перекрывается `zz-linuxops-proxy.sh`), «убрать» возвращает его; `ProxyCheck` — разбор «проверить» в таблицу (`ResultRow.Proxy`)
 - `PsEngineClient` — процесс движка, события в UI-поток; `PsPrompts` — Read-Host / Get-Credential / выбор окнами
 - `PowerShellViewModel` + `PowerShellView` + `PsConsoleColorizer` — вкладка PowerShell (один сеанс на вкладку)
 - `PsActionRunner` — PowerShell-действия: свой движок, подключение к vCenter держится до закрытия, пароль vCenter только в памяти
