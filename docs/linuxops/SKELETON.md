@@ -27,12 +27,13 @@
 - `IInventoryItem` (`HostConfig`, `VCenterProfile`), `HostFolder`; `InventoryTree` (`FolderNode` / `ItemNode`) + `ResourceTree` — одно дерево на все вкладки: папки, галочки, поиск, перетаскивание
 - `HostDialogs` — добавить / изменить / дублировать / удалить ресурс и папку; `VCenterEditWindow`
 - ViewModels вкладок (`CommunityToolkit.Mvvm`)
-- `ActionCatalog` + `BuiltinActions` + `VsphereActions` + `ActionEditWindow`; `ActionDefinition.Kind` = bash | powershell, `Parameters`
+- `ActionCatalog` + `BuiltinActions` + `VsphereActions` + `ActionEditWindow`; `ActionDefinition.Kind` = bash | powershell, `Parameters` (у Bash — переменные окружения через `SshRunner.EncodeEnv`, base64)
+- `ProxyScripts` — прокси на хостах: проверить / прописать / убрать (apt, dnf·yum, zypper, окружение; dry-run — `LINUXOPS_DRY=1`); `ProxyCheck` — разбор «проверить» в таблицу (`ResultRow.Proxy`)
 - `PsEngineClient` — процесс движка, события в UI-поток; `PsPrompts` — Read-Host / Get-Credential / выбор окнами
 - `PowerShellViewModel` + `PowerShellView` + `PsConsoleColorizer` — вкладка PowerShell (один сеанс на вкладку)
 - `PsActionRunner` — PowerShell-действия: свой движок, подключение к vCenter держится до закрытия, пароль vCenter только в памяти
 - `PowerCliInstaller` — PowerCLI из PowerShell Gallery (nupkg + зависимости), из ZIP/папки, экспорт в ZIP
-- `VsphereWindow` (модули PowerCLI), `PsRunWindow` (параметры PowerShell-действий перед запуском, если они есть)
+- `VsphereWindow` (модули PowerCLI), `PsRunWindow` («Параметры действий» — Bash и PowerShell, перед запуском, если они есть)
 - `DistroLabel` + цветные монограмм-иконки в списке хостов
 - `HistoryStore`
 

@@ -53,10 +53,13 @@ public partial class ActionsViewModel : ObservableObject
     [ObservableProperty] private string detail = "Выберите строку плана.";
     [ObservableProperty] private ResultRow? selectedResult;
     /// <summary>Аудит пользователей: таблица (по умолчанию) или текст.</summary>
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowAuditTable))] [NotifyPropertyChangedFor(nameof(DetailViewText))] private bool showRawDetail;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowAuditTable))] [NotifyPropertyChangedFor(nameof(ShowProxyTable))] [NotifyPropertyChangedFor(nameof(DetailViewText))] private bool showRawDetail;
     public LinuxOps.Services.UserAuditReport? DetailAudit => SelectedResult?.Audit;
-    public bool HasDetailAudit => DetailAudit is not null;
-    public bool ShowAuditTable => HasDetailAudit && !ShowRawDetail;
+    public LinuxOps.Services.ProxyReport? DetailProxy => SelectedResult?.Proxy;
+    /// <summary>У строки есть табличный вид (аудит или прокси) — показываем переключатель «Таблица / Текст».</summary>
+    public bool HasDetailAudit => DetailAudit is not null || DetailProxy is not null;
+    public bool ShowAuditTable => DetailAudit is not null && !ShowRawDetail;
+    public bool ShowProxyTable => DetailProxy is not null && !ShowRawDetail;
     public string DetailViewText => ShowRawDetail ? "Таблица" : "Текст";
     [ObservableProperty] private bool isRunning;
     /// <summary>Что запустят Dry-run и «Применить» — строка внизу окна.</summary>
@@ -196,8 +199,10 @@ public partial class ActionsViewModel : ObservableObject
     partial void OnSelectedResultChanged(ResultRow? value)
     {
         OnPropertyChanged(nameof(DetailAudit));
+        OnPropertyChanged(nameof(DetailProxy));
         OnPropertyChanged(nameof(HasDetailAudit));
         OnPropertyChanged(nameof(ShowAuditTable));
+        OnPropertyChanged(nameof(ShowProxyTable));
         // Пользователь сам выбрал строку во время запуска — не перескакиваем на новые RUN.
         if (!_programmatic && IsRunning) _autoFollow = false;
         if (value is { Status: "RUN" } && _running.TryGetValue(value.Title, out var run))
@@ -713,17 +718,17 @@ public partial class ActionsViewModel : ObservableObject
             return;
         }
 
+        // Параметры (Bash и PowerShell) — одним окном, только если есть что спросить.
         Dictionary<string, string> psArgs = new();
+        if (planned.Any(a => a.Parameters.Count > 0))
+        {
+            var dlg = new PsRunWindow(planned) { Owner = OwnerWin() };
+            if (dlg.ShowDialog() != true) return;
+            psArgs = dlg.Args;
+        }
+
         if (psActions.Count > 0)
         {
-            // Окно — только если есть что спросить (параметры действий).
-            if (psActions.Any(a => a.Parameters.Count > 0))
-            {
-                var dlg = new PsRunWindow(psActions) { Owner = OwnerWin() };
-                if (dlg.ShowDialog() != true) return;
-                psArgs = dlg.Args;
-            }
-
             var psDestructive = psActions.Where(a => a.Destructive).ToList();
             if (apply && psDestructive.Count > 0 &&
                 !AppDialog.Confirm(OwnerWin(), $"Применить {string.Join(", ", psDestructive.Select(a => a.Name))} на vCenter: {string.Join(", ", vcs.Select(v => v.Title))}? Продолжить?"))
@@ -756,7 +761,7 @@ public partial class ActionsViewModel : ObservableObject
             var canceled = false;
             if (actions.Count > 0)
             {
-                var result = await _runner.RunAsync(hosts, actions, apply, progress, _runCts.Token);
+                var result = await _runner.RunAsync(hosts, actions, apply, progress, _runCts.Token, psArgs);
                 if (result.History.Count > 0)
                     HistoryStore.Append(result.History);
                 canceled = result.Canceled;

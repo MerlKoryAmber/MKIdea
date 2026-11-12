@@ -28,7 +28,8 @@ public sealed class PlanRunner
         IReadOnlyList<ActionDefinition> actions,
         bool apply,
         IProgress<PlanProgress> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? args = null)
     {
         var mode = apply ? "apply" : "dry-run";
         var history = new List<HistoryEntry>();
@@ -60,7 +61,7 @@ public sealed class PlanRunner
                     try
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        RunHost(host, hosts.Count, actions, apply, mode, history, progress, cancellationToken);
+                        RunHost(host, hosts.Count, actions, apply, mode, history, progress, cancellationToken, args);
                     }
                     finally
                     {
@@ -98,7 +99,8 @@ public sealed class PlanRunner
         string mode,
         List<HistoryEntry> history,
         IProgress<PlanProgress> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? args)
     {
         try
         {
@@ -154,7 +156,7 @@ public sealed class PlanRunner
                     {
                         var simTimeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
                         var simKey = Started(progress, host.Name, action.Name, "симуляция");
-                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, cancellationToken: cancellationToken,
+                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, Env(action, args, dry: BuiltinActions.UsesDryFlag(action.Id)), cancellationToken: cancellationToken,
                             onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = simKey }));
                         sim.HostName = host.Name;
                         sim.ActionName = action.Name;
@@ -178,7 +180,7 @@ public sealed class PlanRunner
                 var timeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
                 var sudo = SshRunner.NeedsSudo(host, action);
                 var key = Started(progress, host.Name, action.Name, apply && action.Destructive ? "применяется" : "выполняется");
-                var result = ssh.Run(action.Id, script, timeout, sudo, host, cancellationToken: cancellationToken,
+                var result = ssh.Run(action.Id, script, timeout, sudo, host, Env(action, args, dry: false), cancellationToken: cancellationToken,
                     onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = key }));
                 result.HostName = host.Name;
                 result.ActionName = action.Name;
@@ -202,6 +204,20 @@ public sealed class PlanRunner
             });
             Remember(history, ToHistory(mode, host.Name, "pre-flight", fail));
         }
+    }
+
+    /// <summary>
+    /// Параметры действия — переменными окружения (значения через base64, без подстановок в shell).
+    /// Значение из окна запуска (ключ «id:Имя»), иначе по умолчанию. dry — LINUXOPS_DRY=1: показать, не менять.
+    /// </summary>
+    internal static Dictionary<string, string>? Env(ActionDefinition action, IReadOnlyDictionary<string, string>? args, bool dry)
+    {
+        if (action.Parameters.Count == 0 && !dry) return null;
+        var env = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in action.Parameters)
+            env[p.Name] = args is not null && args.TryGetValue(action.Id + ":" + p.Name, out var v) ? v : p.Default;
+        if (dry) env["LINUXOPS_DRY"] = "1";
+        return env;
     }
 
     /// <summary>Строка RUN: действие запущено. Итоговая строка с тем же заголовком её заменит.</summary>
@@ -259,6 +275,22 @@ public sealed class PlanRunner
                 Detail = UserAudit.Format(host, audit),
                 IsOk = true,
                 Audit = audit
+            };
+        }
+
+        if (r.Ok && string.Equals(r.ActionId, ProxyCheck.ActionId, StringComparison.OrdinalIgnoreCase)
+            && ProxyCheck.Parse(r.StdOut) is { } proxy)
+        {
+            proxy.Host = host;
+            return new ResultRow
+            {
+                // Репозиторий недоступен — не сбой проверки, но внимание.
+                Status = proxy.RepoOk == false ? "WARN" : "OK",
+                Title = $"{host} · {actionName}",
+                Preview = proxy.Summary,
+                Detail = ProxyCheck.Format(host, proxy),
+                IsOk = true,
+                Proxy = proxy
             };
         }
 

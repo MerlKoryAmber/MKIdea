@@ -53,9 +53,8 @@ public partial class ActionEditWindow : Window
     {
         if (BashPanel is null) return; // ещё строится XAML
         BashPanel.Visibility = PrivPanel.Visibility = IsPs ? Visibility.Collapsed : Visibility.Visible;
-        PsPanel.Visibility = IsPs ? Visibility.Visible : Visibility.Collapsed;
         KindHint.Text = IsPs
-            ? "Скрипт выполняется в PowerShell 7 с PowerCLI против vCenter, выбранного при запуске. Хосты не нужны."
+            ? "Скрипт выполняется в PowerShell 7 с PowerCLI на каждом отмеченном vCenter. Хосты не нужны."
             : "Скрипт выполняется на каждом отмеченном хосте.";
         // Шаблон нового скрипта — под выбранный тип, пока его не трогали.
         if (IsPs && ScriptBox.Text.StartsWith("# {{host}}"))
@@ -89,6 +88,12 @@ public partial class ActionEditWindow : Window
             if (!Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]*$"))
             {
                 error = $"Имя параметра «{name}»: только латиница, цифры и _, не с цифры.";
+                return null;
+            }
+
+            if (!SshRunner.IsSafeEnvName(name) || name.StartsWith("LINUXOPS_", StringComparison.OrdinalIgnoreCase))
+            {
+                error = $"Имя параметра «{name}» занято системой (PATH, HOME, LD_… и т.п.) — выберите другое.";
                 return null;
             }
 
@@ -144,7 +149,7 @@ public partial class ActionEditWindow : Window
             timeout = 60;
 
         var paramError = "";
-        var parameters = IsPs ? ParseParams(ParamsBox.Text, out paramError) : new List<ActionParam>();
+        var parameters = ParseParams(ParamsBox.Text, out paramError);
         if (parameters is null)
         {
             AppDialog.Info(this, paramError);

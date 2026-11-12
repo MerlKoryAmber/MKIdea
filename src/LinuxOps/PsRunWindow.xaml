@@ -1,10 +1,10 @@
 <Window x:Class="LinuxOps.PsRunWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PowerShell-действия — параметры" Width="520" SizeToContent="Height"
+        Title="Параметры действий" Width="520" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
   <StackPanel Margin="20,16">
-    <TextBlock Text="Выполнится на отмеченных vCenter во вкладке Actions. Пароль спросится при первом подключении."
+    <TextBlock x:Name="Hint" Text="Значения передаются в скрипт как есть. Последние запоминаются до закрытия программы."
                Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,12"/>
     <StackPanel x:Name="ParamsPanel"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">

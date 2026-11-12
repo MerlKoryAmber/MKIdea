@@ -27,7 +27,7 @@ public partial class PsRunWindow : Window
                 ParamsPanel.Children.Add(box);
                 ParamsPanel.Children.Add(new TextBlock
                 {
-                    Text = $"В скрипте — ${p.Name}. По умолчанию: {p.Default}",
+                    Text = $"В скрипте — ${p.Name}. По умолчанию: {(p.Default.Length > 0 ? p.Default : "пусто")}",
                     Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush"), FontSize = 11.5, Margin = new Thickness(0, 2, 0, 10)
                 });
                 _fields.Add((key, box));

@@ -74,13 +74,27 @@ public sealed class SshRunner : IDisposable
         return hint is null ? result : WithHint(result, hint);
     }
 
+    private static readonly HashSet<string> ReservedEnv = new(StringComparer.Ordinal) // в shell имена различают регистр: ENV ≠ Env
+    {
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PS4", "PWD", "OLDPWD", "TERM", "LANG", "LC_ALL",
+        "SUDO_USER", "SUDO_UID", "SUDO_GID", "SUDO_COMMAND", "TMPDIR", "PROMPT_COMMAND", "CDPATH", "GLOBIGNORE", "SHELLOPTS", "BASHOPTS"
+    };
+
+    /// <summary>Имя переменной окружения для параметра действия: латиница/цифры/_, не системное (PATH, LD_…, BASH_…).</summary>
+    public static bool IsSafeEnvName(string key)
+        => System.Text.RegularExpressions.Regex.IsMatch(key, @"^[A-Za-z_][A-Za-z0-9_]{0,40}$")
+           && !ReservedEnv.Contains(key)
+           && !key.StartsWith("LD_", StringComparison.Ordinal)
+           && !key.StartsWith("BASH_", StringComparison.Ordinal)
+           && !key.StartsWith("LC_", StringComparison.Ordinal);
+
     /// <summary>Значения только в stdin (base64), не в argv.</summary>
     public static string EncodeEnv(IReadOnlyDictionary<string, string> env)
     {
         var sb = new StringBuilder();
         foreach (var (key, value) in env)
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(key, @"^[A-Z][A-Z0-9_]{0,40}$"))
+            if (!IsSafeEnvName(key))
                 throw new ArgumentException($"Имя переменной недопустимо: {key}");
             var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(value ?? string.Empty));
             sb.Append(key).Append("=$(printf '%s' '").Append(b64).Append("' | base64 -d)\nexport ").Append(key).Append('\n');

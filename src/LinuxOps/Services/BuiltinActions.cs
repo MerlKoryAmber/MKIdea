@@ -33,7 +33,46 @@ public static class BuiltinActions
             BuiltIn = true,
             Distros = new List<string> { "any" }
         },
+        new ActionDefinition
+        {
+            Id = "proxy-check",
+            Name = "Прокси: проверить",
+            Description = "Что прописано (apt / dnf / zypper, окружение) и доступен ли репозиторий",
+            BuiltIn = true,
+            Privilege = "user",
+            TimeoutSeconds = 60,
+            Distros = new List<string> { "ubuntu", "debian", "rhel", "alma", "suse" }
+        },
+        new ActionDefinition
+        {
+            Id = "proxy-set",
+            Name = "Прокси: прописать",
+            Description = "Для обновлений (apt / dnf / zypper) и при желании для окружения; затем проверка через обновление списков пакетов",
+            BuiltIn = true,
+            Destructive = true,
+            TimeoutSeconds = 300,
+            Distros = new List<string> { "ubuntu", "debian", "rhel", "alma", "suse" },
+            Parameters = new List<ActionParam>
+            {
+                new() { Name = "Proxy", Label = "Адрес прокси, например http://proxy.corp.local:3128 (без логина и пароля)", Default = "" },
+                new() { Name = "NoProxy", Label = "Исключения через запятую (no_proxy)", Default = "localhost,127.0.0.1" },
+                new() { Name = "Env", Label = "Также окружение — curl, wget, скрипты (да / нет)", Default = "да" }
+            }
+        },
+        new ActionDefinition
+        {
+            Id = "proxy-unset",
+            Name = "Прокси: убрать",
+            Description = "Убрать то, что прописал LinuxOps; чужие настройки не трогаются",
+            BuiltIn = true,
+            Destructive = true,
+            TimeoutSeconds = 60,
+            Distros = new List<string> { "ubuntu", "debian", "rhel", "alma", "suse" }
+        },
     };
+
+    /// <summary>Действия, у которых dry-run — тот же скрипт с LINUXOPS_DRY=1: показывает изменения, ничего не пишет.</summary>
+    public static bool UsesDryFlag(string id) => id is "proxy-set" or "proxy-unset";
 
     public static string ResolveScript(string id, DistroInfo distro)
     {
@@ -42,6 +81,9 @@ public static class BuiltinActions
             "check-updates" => CheckUpdates(distro),
             "install-updates" => InstallUpdates(distro),
             "list-users" => ListUsers(distro),
+            "proxy-check" => ProxyScripts.Check,
+            "proxy-set" => ProxyScripts.Set,
+            "proxy-unset" => ProxyScripts.Unset,
             _ => throw new InvalidOperationException($"Неизвестное built-in действие: {id}")
         };
     }
@@ -99,6 +141,12 @@ public static class BuiltinActions
     public static bool TrySimulate(string id, DistroInfo distro, out string script)
     {
         script = "";
+        if (UsesDryFlag(id))
+        {
+            script = ResolveScript(id, distro);
+            return true;
+        }
+
         if (!string.Equals(id, "install-updates", StringComparison.OrdinalIgnoreCase))
             return false;
         script = SimulateInstall(distro);

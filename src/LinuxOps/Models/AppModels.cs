@@ -260,6 +260,8 @@ public sealed class ResultRow : INotifyPropertyChanged
     public bool IsOk { get; init; }
     /// <summary>Разобранный аудит пользователей (list-users) — для табличного вида.</summary>
     public LinuxOps.Services.UserAuditReport? Audit { get; init; }
+    /// <summary>Разобранная проверка прокси (proxy-check) — для табличного вида.</summary>
+    public LinuxOps.Services.ProxyReport? Proxy { get; init; }
 }
 
 public sealed class ActionItemView : INotifyPropertyChanged

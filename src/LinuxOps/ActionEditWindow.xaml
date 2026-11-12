@@ -28,12 +28,12 @@
         <TextBlock x:Name="KindHint" Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,10"
                    Text="Скрипт выполняется на каждом отмеченном хосте."/>
 
-        <StackPanel x:Name="PsPanel" Visibility="Collapsed">
+        <StackPanel x:Name="PsPanel">
           <TextBlock Text="Параметры" Margin="0,0,0,4" FontWeight="SemiBold"/>
           <TextBox x:Name="ParamsBox" Height="64" AcceptsReturn="True" VerticalContentAlignment="Top" TextWrapping="NoWrap"
                    FontFamily="{StaticResource MonoFont}" FontSize="12" AutomationProperties.AutomationId="ActParams"/>
           <TextBlock Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,12"
-                     Text="По строке: Имя = значение по умолчанию | подпись. Спрашиваются перед запуском, в скрипте — переменная $Имя. Подключение к vCenter LinuxOps делает сам."/>
+                     Text="По строке: Имя = значение по умолчанию | подпись. Спрашиваются перед запуском, в скрипте — переменная $Имя (в Bash — переменная окружения, значение передаётся как есть, без подстановок). Подключение к vCenter LinuxOps делает сам."/>
         </StackPanel>
 
         <StackPanel x:Name="BashPanel">

@@ -302,6 +302,89 @@
                   <TextBlock Text="{Binding DetailAudit.SudoersText}" Foreground="#8EB8B0" FontSize="11.5" Margin="2,4,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
               </ScrollViewer>
+              <!-- Прокси: где прописан, кем, и доступен ли репозиторий -->
+              <ScrollViewer Background="#0F1C2B" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                            Visibility="{Binding ShowProxyTable, Converter={StaticResource BoolVis}}"
+                            AutomationProperties.AutomationId="ProxyTable">
+                <StackPanel Margin="10,8,10,10">
+                  <Border Background="#152536" BorderBrush="#1E3348" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
+                    <StackPanel>
+                      <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding DetailProxy.ManagerText}" Foreground="#8EB8B0" FontSize="11.5"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Foreground="#7EB8AE" FontSize="11" VerticalAlignment="Center" Text="Прокси для обновлений"/>
+                      </DockPanel>
+                      <TextBlock Text="{Binding DetailProxy.ProxyText}" FontWeight="SemiBold" FontSize="14" Foreground="#E8F1F7"
+                                 FontFamily="{StaticResource MonoFont}" Margin="0,4,0,6" TextTrimming="CharacterEllipsis"
+                                 AutomationProperties.AutomationId="ProxyValue"/>
+                      <DockPanel>
+                        <Border DockPanel.Dock="Left" CornerRadius="3" Padding="6,1" Margin="0,0,8,0" VerticalAlignment="Center">
+                          <Border.Style>
+                            <Style TargetType="Border">
+                              <Setter Property="Background" Value="#4A5A6B"/>
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding DetailProxy.RepoOk}" Value="True">
+                                  <Setter Property="Background" Value="#1A6B62"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding DetailProxy.RepoOk}" Value="False">
+                                  <Setter Property="Background" Value="#8C3A3A"/>
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </Border.Style>
+                          <TextBlock Foreground="White" FontSize="11">
+                            <TextBlock.Style>
+                              <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="не проверен"/>
+                                <Style.Triggers>
+                                  <DataTrigger Binding="{Binding DetailProxy.RepoOk}" Value="True">
+                                    <Setter Property="Text" Value="доступен"/>
+                                  </DataTrigger>
+                                  <DataTrigger Binding="{Binding DetailProxy.RepoOk}" Value="False">
+                                    <Setter Property="Text" Value="недоступен"/>
+                                  </DataTrigger>
+                                </Style.Triggers>
+                              </Style>
+                            </TextBlock.Style>
+                          </TextBlock>
+                        </Border>
+                        <TextBlock Text="{Binding DetailProxy.RepoText}" Foreground="#8EB8B0" FontSize="11.5" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding DetailProxy.RepoText}"
+                                   AutomationProperties.AutomationId="ProxyRepo"/>
+                      </DockPanel>
+                    </StackPanel>
+                  </Border>
+                  <TextBlock Text="{Binding DetailProxy.RowsTitle}" Foreground="#7EB8AE" FontSize="11" Margin="2,0,0,4"/>
+                  <ItemsControl ItemsSource="{Binding DetailProxy.Rows}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Background="#152536" BorderBrush="#1E3348" BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,0,0,4">
+                          <DockPanel>
+                            <Border x:Name="OwnerBadge" DockPanel.Dock="Right" Background="#4A5A6B" CornerRadius="3" Padding="6,1" Margin="8,0,0,0"
+                                    VerticalAlignment="Top">
+                              <TextBlock Text="{Binding OwnerText}" Foreground="White" FontSize="11"/>
+                            </Border>
+                            <StackPanel>
+                              <TextBlock Text="{Binding Value}" Foreground="#D5E4EF" FontFamily="{StaticResource MonoFont}" FontSize="11.5"
+                                         TextTrimming="CharacterEllipsis" ToolTip="{Binding Value}"/>
+                              <TextBlock Text="{Binding Where}" Foreground="#8EB8B0" FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                         ToolTip="{Binding Where}"/>
+                            </StackPanel>
+                          </DockPanel>
+                        </Border>
+                        <DataTemplate.Triggers>
+                          <DataTrigger Binding="{Binding Owner}" Value="lo">
+                            <Setter TargetName="OwnerBadge" Property="Background" Value="#1A6B62"/>
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding Owner}" Value="off">
+                            <Setter TargetName="OwnerBadge" Property="Background" Value="#7A5A1E"/>
+                          </DataTrigger>
+                        </DataTemplate.Triggers>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </ScrollViewer>
             </Grid>
           </DockPanel>
         </Grid>
