@@ -24,7 +24,8 @@ public partial class ActionsViewModel : ObservableObject
     {
         _session = session;
         Hosts.CollectionChanged += HostsChanged;
-        foreach (var h in Hosts)
+        VCenters.CollectionChanged += HostsChanged;
+        foreach (var h in _session.Items)
             h.PropertyChanged += HostChanged;
         UpdateHostSelection();
         RefreshBaseUsers();
@@ -36,7 +37,9 @@ public partial class ActionsViewModel : ObservableObject
     public void RefreshBaseUsers()
         => BaseUsersText = "Базовые пользователи (" + UserListStore.Load().Count + ")";
 
+    public AppSession Session => _session;
     public ObservableCollection<HostConfig> Hosts => _session.Hosts;
+    public ObservableCollection<VCenterProfile> VCenters => _session.VCenters;
     public ObservableCollection<ActionItemView> Actions { get; } = new();
     public ObservableCollection<ResultRow> Results { get; } = new();
 
@@ -93,19 +96,25 @@ public partial class ActionsViewModel : ObservableObject
         SelectedResult = null;
         var all = Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
         var planned = all.Where(a => !a.IsPowerShell).ToList();
+        var psPlanned = all.Where(a => a.IsPowerShell).ToList();
         var hosts = Hosts.Where(h => h.IsSelected).ToList();
-        foreach (var ps in all.Where(a => a.IsPowerShell))
-            Results.Add(PlanRunner.MakeRow("INFO", $"vCenter · {ps.Name}", "войдёт в запуск — vCenter выбирается при запуске",
-                ps.Description, true));
-        if (hosts.Count == 0 || planned.Count == 0)
+        var vcs = VCenters.Where(v => v.IsSelected).ToList();
+        if (all.Count == 0)
         {
-            if (Results.Count == 0)
-                Results.Add(PlanRunner.MakeRow("INFO", "План пуст", "Отметьте хосты и «В плане» у действий.", "", true));
-            else if (planned.Count > 0)
-                Results.Add(PlanRunner.MakeRow("INFO", "Bash-действия", "отметьте хосты", "", true));
+            Results.Add(PlanRunner.MakeRow("INFO", "План пуст", "Отметьте хосты или vCenter слева и действия в каталоге.", "", true));
             SelectedResult = Results.FirstOrDefault();
             return;
         }
+
+        if (planned.Count > 0 && hosts.Count == 0)
+            Results.Add(PlanRunner.MakeRow("INFO", "Bash-действия", "отметьте хосты Linux", string.Join(", ", planned.Select(a => a.Name)), true));
+        if (psPlanned.Count > 0 && vcs.Count == 0)
+            Results.Add(PlanRunner.MakeRow("INFO", "PowerShell-действия", "отметьте vCenter", string.Join(", ", psPlanned.Select(a => a.Name)), true));
+        foreach (var vc in vcs)
+        foreach (var ps in psPlanned)
+            Results.Add(PlanRunner.MakeRow("INFO", $"{vc.Title} · {ps.Name}", "войдёт в запуск",
+                $"vCenter {vc.Server}. {ps.Description}", true));
+        if (planned.Count == 0) hosts.Clear();
 
         foreach (var host in hosts)
         {
@@ -138,16 +147,32 @@ public partial class ActionsViewModel : ObservableObject
 
     private void UpdatePlanSummary()
     {
-        var planned = Actions.Where(a => a.IsSelected).Select(a => a.Definition.Name).ToList();
-        var hosts = Hosts.Count(h => h.IsSelected);
-        var onlyPs = Actions.Where(a => a.IsSelected).All(a => a.Definition.IsPowerShell);
-        PlanSummary = planned.Count == 0
-            ? "План пуст: щёлкните действие в каталоге"
-            : onlyPs
-                ? "План: " + string.Join(", ", planned) + " → vCenter (выбор при запуске)"
-            : hosts == 0
-                ? "План: " + string.Join(", ", planned) + " — отметьте хосты"
-                : "План: " + string.Join(", ", planned) + " → " + hosts + " " + Plural(hosts, "хост", "хоста", "хостов");
+        var defs = Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
+        if (defs.Count == 0)
+        {
+            PlanSummary = "План пуст: щёлкните действие в каталоге";
+            return;
+        }
+
+        var targets = new List<string>();
+        var missing = new List<string>();
+        if (defs.Any(a => !a.IsPowerShell))
+        {
+            var n = Hosts.Count(h => h.IsSelected);
+            if (n == 0) missing.Add("хосты");
+            else targets.Add(n + " " + Plural(n, "хост", "хоста", "хостов"));
+        }
+
+        if (defs.Any(a => a.IsPowerShell))
+        {
+            var n = VCenters.Count(v => v.IsSelected);
+            if (n == 0) missing.Add("vCenter");
+            else targets.Add(n + " vCenter");
+        }
+
+        PlanSummary = "План: " + string.Join(", ", defs.Select(a => a.Name)) +
+                      (targets.Count > 0 ? " → " + string.Join(" и ", targets) : "") +
+                      (missing.Count > 0 ? " — отметьте " + string.Join(" и ", missing) : "");
     }
 
     private static string Plural(int n, string one, string few, string many)
@@ -307,7 +332,7 @@ public partial class ActionsViewModel : ObservableObject
     public void SetAllHosts(bool all)
     {
         _bulkHosts = true;
-        foreach (var h in Hosts)
+        foreach (var h in _session.Items)
             h.IsSelected = all;
         _bulkHosts = false;
         UpdateHostSelection();
@@ -348,8 +373,29 @@ public partial class ActionsViewModel : ObservableObject
     private async Task Probe()
     {
         var targets = Hosts.Where(h => h.IsSelected).ToList();
-        if (targets.Count == 0) targets = Hosts.ToList();
-        if (targets.Count == 0) return;
+        var vcs = VCenters.Where(v => v.IsSelected).ToList();
+        if (targets.Count == 0 && vcs.Count == 0)
+        {
+            targets = Hosts.ToList();
+            vcs = VCenters.ToList();
+        }
+
+        if (targets.Count == 0 && vcs.Count == 0) return;
+        // vCenter — только доступность HTTPS (443): вход с паролем здесь не нужен.
+        var vcProbe = Task.WhenAll(vcs.Select(async v =>
+        {
+            try
+            {
+                using var tcp = new System.Net.Sockets.TcpClient();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+                await tcp.ConnectAsync(v.Server.Trim(), 443, cts.Token);
+                v.Status = "Online";
+            }
+            catch
+            {
+                v.Status = "Offline";
+            }
+        }));
 
         var window = OwnerWin();
         window.Cursor = Cursors.Wait;
@@ -382,6 +428,7 @@ public partial class ActionsViewModel : ObservableObject
                     host.DistroHint = hint;
             }
 
+            await vcProbe;
             _session.Persist();
         }
         catch (Exception ex)
@@ -394,9 +441,9 @@ public partial class ActionsViewModel : ObservableObject
         }
     }
 
-    public void EditHost(HostConfig? host)
+    public void EditHost(IInventoryItem? host)
     {
-        host ??= Hosts.FirstOrDefault(h => h.IsSelected) ?? Hosts.FirstOrDefault();
+        host ??= _session.Items.FirstOrDefault(h => h.IsSelected) ?? _session.Items.FirstOrDefault();
         if (host is null)
         {
             AppDialog.Info(OwnerWin(), "Нет хоста для правки.");
@@ -655,21 +702,31 @@ public partial class ActionsViewModel : ObservableObject
 
         if (actions.Count > 0 && hosts.Count == 0)
         {
-            Warn("Отметьте хост.");
+            Warn("Отметьте хост Linux слева — для Bash-действий.");
             return;
         }
 
-        VCenterProfile? vc = null;
+        var vcs = VCenters.Where(v => v.IsSelected).ToList();
+        if (psActions.Count > 0 && vcs.Count == 0)
+        {
+            Warn("Отметьте vCenter слева — для PowerShell-действий. Добавить vCenter — вкладка Inventory.");
+            return;
+        }
+
         Dictionary<string, string> psArgs = new();
         if (psActions.Count > 0)
         {
-            var dlg = new PsRunWindow(psActions) { Owner = OwnerWin() };
-            if (dlg.ShowDialog() != true || dlg.Profile is null) return;
-            vc = dlg.Profile;
-            psArgs = dlg.Args;
+            // Окно — только если есть что спросить (параметры действий).
+            if (psActions.Any(a => a.Parameters.Count > 0))
+            {
+                var dlg = new PsRunWindow(psActions) { Owner = OwnerWin() };
+                if (dlg.ShowDialog() != true) return;
+                psArgs = dlg.Args;
+            }
+
             var psDestructive = psActions.Where(a => a.Destructive).ToList();
             if (apply && psDestructive.Count > 0 &&
-                !AppDialog.Confirm(OwnerWin(), $"Применить {string.Join(", ", psDestructive.Select(a => a.Name))} на vCenter {vc.Title}? Продолжить?"))
+                !AppDialog.Confirm(OwnerWin(), $"Применить {string.Join(", ", psDestructive.Select(a => a.Name))} на vCenter: {string.Join(", ", vcs.Select(v => v.Title))}? Продолжить?"))
                 return;
         }
 
@@ -705,8 +762,10 @@ public partial class ActionsViewModel : ObservableObject
                 canceled = result.Canceled;
             }
 
-            if (psActions.Count > 0 && vc is not null && !canceled)
+            // vCenter — по очереди: у PowerShell-действий один движок, подключения к каждому держатся до закрытия.
+            foreach (var vc in psActions.Count > 0 ? vcs : new List<VCenterProfile>())
             {
+                if (canceled) break;
                 try
                 {
                     _ps.Owner = OwnerWin;
@@ -831,16 +890,16 @@ public partial class ActionsViewModel : ObservableObject
     {
         if (e.Action == NotifyCollectionChangedAction.Reset)
         {
-            foreach (var h in Hosts)
-                h.PropertyChanged += HostChanged;
+            foreach (var h in (System.Collections.IEnumerable?)sender ?? Array.Empty<object>())
+                if (h is IInventoryItem i) i.PropertyChanged += HostChanged;
         }
         else
         {
             if (e.OldItems is not null)
-                foreach (HostConfig h in e.OldItems)
+                foreach (IInventoryItem h in e.OldItems)
                     h.PropertyChanged -= HostChanged;
             if (e.NewItems is not null)
-                foreach (HostConfig h in e.NewItems)
+                foreach (IInventoryItem h in e.NewItems)
                     h.PropertyChanged += HostChanged;
         }
 
@@ -849,16 +908,25 @@ public partial class ActionsViewModel : ObservableObject
 
     private void HostChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(HostConfig.IsSelected))
+        // Галочка папки меняет сразу много ресурсов — пересчёт один раз, после всех.
+        if (e.PropertyName != nameof(IInventoryItem.IsSelected) || _selectionQueued) return;
+        _selectionQueued = true;
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            _selectionQueued = false;
             UpdateHostSelection();
+        }, DispatcherPriority.Background);
     }
+
+    private bool _selectionQueued;
 
     private void UpdateHostSelection()
     {
         if (_bulkHosts) return;
-        var n = Hosts.Count(h => h.IsSelected);
+        var items = _session.Items.ToList();
+        var n = items.Count(h => h.IsSelected);
         HostsSelectedText = n == 0 ? "ничего не выбрано" : $"{n} выбрано";
-        var all = Hosts.Count > 0 && n == Hosts.Count;
+        var all = items.Count > 0 && n == items.Count;
         if (SelectAllChecked == all) 
         {
             if (!IsRunning) RefreshPreview();

@@ -18,8 +18,12 @@
                      Foreground="{DynamicResource AccentDeepBrush}"
                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
-        <TextBlock x:Name="MessageText" TextWrapping="Wrap" MaxWidth="360" VerticalAlignment="Center"
-                   Foreground="{DynamicResource TextBrush}" FontSize="13.5"/>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock x:Name="MessageText" TextWrapping="Wrap" MaxWidth="360" VerticalAlignment="Center"
+                     Foreground="{DynamicResource TextBrush}" FontSize="13.5"/>
+          <TextBox x:Name="InputBox" Visibility="Collapsed" Width="320" Margin="0,10,0,0" HorizontalAlignment="Left"
+                   AutomationProperties.AutomationId="DlgInput"/>
+        </StackPanel>
       </StackPanel>
     </DockPanel>
   </Border>

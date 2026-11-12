@@ -4,11 +4,11 @@
 
 | Контур | Содержимое |
 |--------|------------|
-| Inventory | CRUD хостов → defaults.json |
-| Actions | хосты · каталог · план · редактор действия; Bash по SSH и PowerShell против vCenter |
-| SSH Files | SFTP dual-pane + terminal command; sudo — просмотр чужих папок от root |
-| SSH Terminal | вкладки SSH-сессий, xterm-эмулятор (`TerminalScreen` + `TerminalCanvas`), мышь для mc/htop |
-| PowerShell | в стиле ISE: скрипты (AvalonEdit) + консоль, F5/F8, стоп, перезапуск движка; «vSphere…» — модули и профили vCenter |
+| Inventory | дерево: хосты Linux и vCenter по папкам (вложенные, сворачиваются, перетаскивание мышью) → defaults.json |
+| Actions | дерево ресурсов с галочками (у папки — все внутри) · каталог · план · редактор действия; Bash по SSH на хостах, PowerShell на отмеченных vCenter |
+| SSH Files | дерево хостов (без vCenter) + SFTP dual-pane + terminal command; sudo — просмотр чужих папок от root |
+| SSH Terminal | дерево хостов (без vCenter), вкладки SSH-сессий, xterm-эмулятор (`TerminalScreen` + `TerminalCanvas`), мышь для mc/htop |
+| PowerShell | в стиле ISE: скрипты (AvalonEdit) + консоль, F5/F8, стоп, перезапуск движка; «vSphere…» — модули PowerCLI |
 | History | LinuxOps.history.json |
 
 ## Процессы
@@ -23,13 +23,16 @@
 - `PlanRunner` — план параллельно (до 4 хостов), отмена и прогресс
 - `UserProvisioning` + `AddUserWindow` — учётка на отмеченных хостах
 - `UserListStore` + `UserListWindow` — базовый список пользователей
-- `AppSession` + ViewModels вкладок (`CommunityToolkit.Mvvm`)
+- `AppSession` — общий Inventory: `Hosts`, `VCenters`, `Folders` (плоские списки; папка — `FolderId` у ресурса), событие `TreeChanged`
+- `IInventoryItem` (`HostConfig`, `VCenterProfile`), `HostFolder`; `InventoryTree` (`FolderNode` / `ItemNode`) + `ResourceTree` — одно дерево на все вкладки: папки, галочки, поиск, перетаскивание
+- `HostDialogs` — добавить / изменить / дублировать / удалить ресурс и папку; `VCenterEditWindow`
+- ViewModels вкладок (`CommunityToolkit.Mvvm`)
 - `ActionCatalog` + `BuiltinActions` + `VsphereActions` + `ActionEditWindow`; `ActionDefinition.Kind` = bash | powershell, `Parameters`
 - `PsEngineClient` — процесс движка, события в UI-поток; `PsPrompts` — Read-Host / Get-Credential / выбор окнами
 - `PowerShellViewModel` + `PowerShellView` + `PsConsoleColorizer` — вкладка PowerShell (один сеанс на вкладку)
 - `PsActionRunner` — PowerShell-действия: свой движок, подключение к vCenter держится до закрытия, пароль vCenter только в памяти
 - `PowerCliInstaller` — PowerCLI из PowerShell Gallery (nupkg + зависимости), из ZIP/папки, экспорт в ZIP
-- `VsphereWindow` (модули + профили vCenter), `PsRunWindow` (vCenter и параметры перед запуском)
+- `VsphereWindow` (модули PowerCLI), `PsRunWindow` (параметры PowerShell-действий перед запуском, если они есть)
 - `DistroLabel` + цветные монограмм-иконки в списке хостов
 - `HistoryStore`
 

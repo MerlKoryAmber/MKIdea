@@ -6,7 +6,32 @@ using System.Windows.Media;
 
 namespace LinuxOps.Models;
 
-public sealed class HostConfig : INotifyPropertyChanged
+/// <summary>Ресурс Inventory: хост Linux или vCenter. Общее для дерева с папками.</summary>
+public interface IInventoryItem : INotifyPropertyChanged
+{
+    string Title { get; }
+    string Subtitle { get; }
+    string Display { get; }
+    string IconLetter { get; }
+    Brush IconBrush { get; }
+    string IconTip { get; }
+    string Status { get; }
+    string StatusColor { get; }
+    bool IsSelected { get; set; }
+    /// <summary>Id папки (<see cref="HostFolder.Id"/>), пусто — корень.</summary>
+    string FolderId { get; set; }
+}
+
+/// <summary>Папка Inventory. Вложенность — через <see cref="ParentId"/>; свёрнутость общая для всех вкладок.</summary>
+public sealed class HostFolder
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string ParentId { get; set; } = string.Empty;
+    public bool IsExpanded { get; set; } = true;
+}
+
+public sealed class HostConfig : IInventoryItem
 {
     private bool _isSelected = true;
     private string _status = "—";
@@ -22,6 +47,7 @@ public sealed class HostConfig : INotifyPropertyChanged
     public string Password { get; set; } = string.Empty;
     /// <summary>Выполнять действия с привилегией sudo/root через sudo. Для root не используется.</summary>
     public bool UseSudo { get; set; } = true;
+    public string FolderId { get; set; } = string.Empty;
 
     public string DistroHint
     {
@@ -74,10 +100,19 @@ public sealed class HostConfig : INotifyPropertyChanged
     };
 
     [JsonIgnore] public string Display => $"{Title} · {Subtitle}";
+    [JsonIgnore] public string IconLetter => DistroLetter;
+    [JsonIgnore] public Brush IconBrush => DistroColorBrush;
+    [JsonIgnore] public string IconTip => DistroBadge;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (name != nameof(DistroHint)) return;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconLetter)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconBrush)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconTip)));
+    }
 }
 
 public sealed class AppDefaults
@@ -91,18 +126,64 @@ public sealed class AppDefaults
     public string Theme { get; set; } = "system";
     /// <summary>Профили vCenter для PowerShell-действий. Пароль не хранится — спрашивается при подключении.</summary>
     public List<VCenterProfile> VCenters { get; set; } = new();
+    /// <summary>Папки Inventory: хосты и vCenter ссылаются на них через FolderId.</summary>
+    public List<HostFolder> Folders { get; set; } = new();
 }
 
-public sealed class VCenterProfile
+/// <summary>vCenter в Inventory. Пароль не хранится — спрашивается при подключении и живёт до закрытия программы.</summary>
+public sealed class VCenterProfile : IInventoryItem
 {
+    private static readonly Brush VcBrush = Frozen("#3B7DD8");
+    private bool _isSelected = true;
+    private string _status = "—";
+
     public string Name { get; set; } = string.Empty;
     public string Server { get; set; } = string.Empty;
     public string User { get; set; } = string.Empty;
     /// <summary>Самоподписанный сертификат vCenter — не проверять.</summary>
     public bool IgnoreCert { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore]
-    public string Title => string.IsNullOrWhiteSpace(Name) ? Server : $"{Name} ({Server})";
+    public string FolderId { get; set; } = string.Empty;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { _isSelected = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Online / Offline — доступность порта 443 после «Опросить» (UI; не в JSON).</summary>
+    [JsonIgnore]
+    public string Status
+    {
+        get => _status;
+        set { _status = value; OnPropertyChanged(); OnPropertyChanged(nameof(StatusColor)); }
+    }
+
+    [JsonIgnore] public string Title => string.IsNullOrWhiteSpace(Name) ? Server : Name;
+    [JsonIgnore] public string Subtitle => string.IsNullOrWhiteSpace(User) ? Server : $"{User} · {Server}";
+    [JsonIgnore] public string Display => $"vCenter {Title} · {Server}";
+    [JsonIgnore] public string IconLetter => "vC";
+    [JsonIgnore] public Brush IconBrush => VcBrush;
+    [JsonIgnore] public string IconTip => "vCenter";
+    [JsonIgnore]
+    public string StatusColor => Status switch
+    {
+        "Online" => "#2F9E6F",
+        "Offline" => "#C45C5C",
+        _ => "#8A9AAB"
+    };
+
     public override string ToString() => Title;
+
+    private static Brush Frozen(string hex)
+    {
+        var b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
+        b.Freeze();
+        return b;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>Параметр PowerShell-действия: спрашивается перед запуском, в скрипте — переменная $Name.</summary>

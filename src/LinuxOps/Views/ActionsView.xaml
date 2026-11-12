@@ -1,6 +1,7 @@
 ﻿<UserControl x:Class="LinuxOps.Views.ActionsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:LinuxOps.Views">
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BoolVis"/>
   </UserControl.Resources>
@@ -23,9 +24,9 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Хосты" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                <TextBlock Text="Хосты и vCenter" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
                 <Button Grid.Column="1" Content="Опросить" Style="{StaticResource Btn}" Height="28" MinWidth="88"
-                        Padding="10,0" Margin="8,0,10,0" ToolTip="SSH: определить дистрибутив и статус"
+                        Padding="10,0" Margin="8,0,10,0" ToolTip="Хосты — SSH: дистрибутив и статус; vCenter — доступность порта 443"
                         Command="{Binding ProbeCommand}"/>
                 <TextBlock Grid.Column="2" VerticalAlignment="Center"
                            Foreground="{DynamicResource MutedBrush}" FontSize="12" Text="{Binding HostsSelectedText}"/>
@@ -45,62 +46,8 @@
             <CheckBox x:Name="SelectAllHosts" Content="Выбрать все / снять все"
                       IsChecked="{Binding SelectAllChecked, Mode=OneWay}" Click="SelectAllHosts_Click"/>
           </Border>
-          <ListBox x:Name="HostsList" ItemsSource="{Binding Hosts}" BorderThickness="0" Margin="14,10,14,8" SelectionMode="Single"
-                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                   MouseDoubleClick="HostsList_DoubleClick">
-            <ListBox.ItemContainerStyle>
-              <Style TargetType="ListBoxItem">
-                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="Margin" Value="0"/>
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Focusable" Value="False"/>
-              </Style>
-            </ListBox.ItemContainerStyle>
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <!-- Макет: [✓] [лого] имя/IP …… ● Online [тег] -->
-                <Border Padding="12,11" BorderBrush="{DynamicResource CardLineBrush}" BorderThickness="0,0,0,1" Background="Transparent">
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="Auto"/>
-                      <ColumnDefinition Width="Auto"/>
-                      <ColumnDefinition Width="*"/>
-                      <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                              VerticalAlignment="Center" Margin="0,0,8,0"
-                             />
-                    <Grid Grid.Column="1" Width="28" Height="28" Margin="0,0,10,0" VerticalAlignment="Center"
-                          ToolTip="{Binding DistroBadge}">
-                      <Ellipse Fill="{Binding DistroColorBrush}"/>
-                      <TextBlock Text="{Binding DistroLetter}" Foreground="White" FontWeight="Bold" FontSize="13"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Grid>
-                    <StackPanel Grid.Column="2" MinWidth="120" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap"/>
-                      <TextBlock Text="{Binding Host}" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <Ellipse Grid.Column="3" x:Name="StatusDot" Width="8" Height="8"
-                             Fill="{DynamicResource UnknownBrush}" VerticalAlignment="Center"
-                             ToolTip="{Binding Status}" Margin="10,0,0,0"/>
-                  </Grid>
-                </Border>
-                <DataTemplate.Triggers>
-                  <DataTrigger Binding="{Binding Status}" Value="Online">
-                    <Setter TargetName="StatusDot" Property="Fill" Value="{DynamicResource OnlineBrush}"/>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding Status}" Value="Warning">
-                    <Setter TargetName="StatusDot" Property="Fill" Value="{DynamicResource WarnBrush}"/>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding Status}" Value="Offline">
-                    <Setter TargetName="StatusDot" Property="Fill" Value="{DynamicResource OfflineBrush}"/>
-                  </DataTrigger>
-                </DataTemplate.Triggers>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+          <local:ResourceTree x:Name="HostsTree" ShowChecks="True" Margin="8,6,8,4"
+                              EmptyMessage="Ресурсов нет. Добавьте хосты Linux и vCenter на вкладке Inventory."/>
         </DockPanel>
       </Border>
 

@@ -24,6 +24,7 @@ public partial class HostEditWindow : Window
         KeyBox.Text = existing.PrivateKeyPath;
         AuthBox.SelectedIndex = string.Equals(existing.Auth, "Password", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         Result.IsSelected = existing.IsSelected;
+        Result.FolderId = existing.FolderId;
         _distroHint = existing.DistroHint ?? string.Empty;
         if (!string.IsNullOrEmpty(existing.Password))
             PassBox.Password = existing.Password;
@@ -98,7 +99,8 @@ public partial class HostEditWindow : Window
             Password = PassBox.Password,
             UseSudo = UseSudoBox.IsChecked == true,
             DistroHint = _distroHint,
-            IsSelected = Result.IsSelected
+            IsSelected = Result.IsSelected,
+            FolderId = Result.FolderId
         };
         return true;
     }

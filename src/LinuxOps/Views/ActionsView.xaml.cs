@@ -20,6 +20,8 @@ public partial class ActionsView : UserControl
             if (e.NewValue is not ActionsViewModel vm) return;
             _vm = vm;
             vm.Owner = () => Window.GetWindow(this);
+            HostsTree.Bind(vm.Session);
+            HostsTree.ItemActivated += item => vm.EditHost(item);
             vm.ReadActions = () => vm.Actions.Where(a => a.IsSelected).Select(a => a.Definition).ToList();
             vm.ActionsReloaded += OnActionsReloaded;
             vm.PropertyChanged += (_, pe) =>
@@ -131,9 +133,6 @@ public partial class ActionsView : UserControl
     private void CardClone_Click(object sender, RoutedEventArgs e) => _vm?.CloneFromCard(ItemOf(sender));
 
     private void CardRemove_Click(object sender, RoutedEventArgs e) => _vm?.RemoveFromCard(ItemOf(sender));
-
-    private void HostsList_DoubleClick(object sender, MouseButtonEventArgs e)
-        => _vm?.EditHost(HostsList.SelectedItem as HostConfig);
 
     private void SelectAllHosts_Click(object sender, RoutedEventArgs e)
         => _vm?.SetAllHosts(SelectAllHosts.IsChecked == true);

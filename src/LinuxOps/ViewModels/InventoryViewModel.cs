@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -6,51 +5,66 @@ using LinuxOps.Models;
 
 namespace LinuxOps.ViewModels;
 
+/// <summary>Inventory: дерево хостов Linux и vCenter с папками. Выделение и «куда добавлять» даёт дерево.</summary>
 public partial class InventoryViewModel : ObservableObject
 {
-    private readonly AppSession _session;
+    public InventoryViewModel(AppSession session) => Session = session;
 
-    public InventoryViewModel(AppSession session) => _session = session;
-
-    public ObservableCollection<HostConfig> Hosts => _session.Hosts;
+    public AppSession Session { get; }
 
     public Func<Window?>? Owner { get; set; }
 
-    [ObservableProperty] private HostConfig? selectedHost;
+    /// <summary>Выделенный узел дерева (папка или ресурс).</summary>
+    public TreeNode? Selected { get; set; }
+
+    /// <summary>Папка для новых ресурсов: выделенная папка или папка выделенного ресурса.</summary>
+    public HostFolder? TargetFolder { get; set; }
 
     [RelayCommand]
-    private void Add() => HostDialogs.TryAdd(OwnerWin(), _session);
+    private void AddHost() => HostDialogs.TryAdd(OwnerWin(), Session, TargetFolder?.Id);
+
+    [RelayCommand]
+    private void AddVCenter() => HostDialogs.TryAddVCenter(OwnerWin(), Session, TargetFolder?.Id);
+
+    [RelayCommand]
+    private void AddFolder() => HostDialogs.TryAddFolder(OwnerWin(), Session, TargetFolder?.Id);
 
     [RelayCommand]
     private void Edit()
     {
-        if (SelectedHost is null)
+        switch (Selected)
         {
-            AppDialog.Info(OwnerWin(), "Нет хоста для правки.");
-            return;
+            case ItemNode i:
+                HostDialogs.TryEdit(OwnerWin(), Session, i.Item);
+                break;
+            case FolderNode f:
+                HostDialogs.TryRenameFolder(OwnerWin(), Session, f.Folder);
+                break;
+            default:
+                AppDialog.Info(OwnerWin(), "Выделите хост, vCenter или папку.");
+                break;
         }
-
-        HostDialogs.TryEdit(OwnerWin(), _session, SelectedHost);
     }
 
     [RelayCommand]
     private void Duplicate()
     {
-        if (SelectedHost is null)
-        {
-            AppDialog.Info(OwnerWin(), "Нет хоста для дублирования.");
-            return;
-        }
-
-        if (!HostDialogs.TryDuplicate(OwnerWin(), _session, SelectedHost)) return;
-        SelectedHost = Hosts.Count > 0 ? Hosts[^1] : null;
+        if (Selected is ItemNode i) HostDialogs.TryDuplicate(OwnerWin(), Session, i.Item);
+        else AppDialog.Info(OwnerWin(), Selected is FolderNode ? "Папку дублировать нельзя — выделите хост или vCenter." : "Выделите хост или vCenter.");
     }
 
     [RelayCommand]
     private void Remove()
     {
-        if (SelectedHost is null) return;
-        HostDialogs.TryRemove(OwnerWin(), _session, SelectedHost);
+        switch (Selected)
+        {
+            case ItemNode i:
+                HostDialogs.TryRemove(OwnerWin(), Session, i.Item);
+                break;
+            case FolderNode f:
+                HostDialogs.TryRemoveFolder(OwnerWin(), Session, f.Folder);
+                break;
+        }
     }
 
     private Window OwnerWin() => Owner?.Invoke() ?? Application.Current.MainWindow!;

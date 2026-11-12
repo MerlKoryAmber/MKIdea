@@ -1,20 +1,16 @@
 <Window x:Class="LinuxOps.PsRunWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PowerShell-действия" Width="520" SizeToContent="Height"
+        Title="PowerShell-действия — параметры" Width="520" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
   <StackPanel Margin="20,16">
-    <TextBlock Text="vCenter" FontWeight="SemiBold" Margin="0,0,0,4"/>
-    <DockPanel>
-      <Button DockPanel.Dock="Right" Content="Профили…" Style="{StaticResource Btn}" Height="28" Margin="8,0,0,0" Click="Profiles_Click"/>
-      <ComboBox x:Name="VcBox" DisplayMemberPath="Title" AutomationProperties.AutomationId="PsRunVc"/>
-    </DockPanel>
-    <TextBlock x:Name="VcHint" Text="Против какого vCenter выполнить. Пароль спросится при первом подключении."
-               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,12"/>
+    <TextBlock Text="Выполнится на отмеченных vCenter во вкладке Actions. Пароль спросится при первом подключении."
+               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,12"/>
     <StackPanel x:Name="ParamsPanel"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
       <Button Content="Отмена" Style="{StaticResource Btn}" Width="100" Margin="0,0,8,0" IsCancel="True"/>
-      <Button Content="Запустить" Style="{StaticResource BtnPrimary}" Width="120" IsDefault="True" Click="Ok_Click"/>
+      <Button Content="Запустить" Style="{StaticResource BtnPrimary}" Width="120" IsDefault="True" Click="Ok_Click"
+              AutomationProperties.AutomationId="PsRunOk"/>
     </StackPanel>
   </StackPanel>
 </Window>

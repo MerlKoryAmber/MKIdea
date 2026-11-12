@@ -1,24 +1,31 @@
-using System.Collections.ObjectModel;
-using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Input;
 using LinuxOps.Models;
+using LinuxOps.ViewModels;
 
 namespace LinuxOps.Views;
 
-/// <summary>Список хостов слева: поиск, двойной щелчок или Enter — подключение.</summary>
+/// <summary>Хосты слева (SSH Files, Terminal): дерево с папками, поиск, двойной щелчок или Enter — подключение.</summary>
 public partial class HostListPanel : UserControl
 {
-    private ObservableCollection<HostConfig>? _hosts;
-    private ListCollectionView? _view;
     private bool _silent;
 
     public HostListPanel()
     {
         InitializeComponent();
+        List.SelectionChanged += _ =>
+        {
+            if (!_silent) HostSelected?.Invoke(SelectedHost);
+        };
+        List.ItemActivated += item =>
+        {
+            if (item is HostConfig h) HostActivated?.Invoke(h);
+        };
+        List.TypingStarted += FocusSearch;
+        List.Rebuilt += UpdateCount;
+        // Меню — только для хоста, у папки его нет.
+        TreeHost.ContextMenuOpening += (_, e) => e.Handled = SelectedHost is null;
     }
 
     /// <summary>Хост выбран щелчком (без подключения).</summary>
@@ -45,16 +52,7 @@ public partial class HostListPanel : UserControl
 
     public HostConfig? SelectedHost => List.SelectedItem as HostConfig;
 
-    public void Bind(ObservableCollection<HostConfig> hosts)
-    {
-        if (_hosts is not null) _hosts.CollectionChanged -= OnHostsChanged;
-        _hosts = hosts;
-        _hosts.CollectionChanged += OnHostsChanged;
-        _view = new ListCollectionView(hosts) { Filter = Match };
-        _view.SortDescriptions.Add(new SortDescription(nameof(HostConfig.Title), ListSortDirection.Ascending));
-        List.ItemsSource = _view;
-        UpdateCount();
-    }
+    public void Bind(AppSession session) => List.Bind(session);
 
     /// <summary>Выделить хост без события выбора.</summary>
     public void Select(HostConfig? host)
@@ -62,10 +60,12 @@ public partial class HostListPanel : UserControl
         _silent = true;
         try
         {
-            List.SelectedItem = host;
-            if (host is not null) List.ScrollIntoView(host);
+            List.Select(host);
         }
-        finally { _silent = false; }
+        finally
+        {
+            _silent = false;
+        }
     }
 
     public void FocusSearch()
@@ -74,12 +74,10 @@ public partial class HostListPanel : UserControl
         Keyboard.Focus(Search);
     }
 
-    private bool Match(object item)
+    private bool Match(IInventoryItem item)
     {
         if (item is not HostConfig h) return false;
-        var q = Search.Text.Trim();
-        if (q.Length == 0) return true;
-        foreach (var part in q.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in Search.Text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
             var hit = h.Title.Contains(part, StringComparison.OrdinalIgnoreCase)
                       || h.Host.Contains(part, StringComparison.OrdinalIgnoreCase)
@@ -91,34 +89,24 @@ public partial class HostListPanel : UserControl
         return true;
     }
 
-    private void OnHostsChanged(object? sender, NotifyCollectionChangedEventArgs e) => UpdateCount();
-
     private void UpdateCount()
     {
-        var total = _hosts?.Count ?? 0;
-        var shown = _view?.Count ?? 0;
+        var total = List.TotalCount;
+        var shown = List.ShownCount;
         CountText.Text = shown == total ? total.ToString() : $"{shown} из {total}";
         SearchHint.Visibility = Search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (total == 0)
-        {
-            EmptyText.Text = "Хостов нет. Добавьте их на вкладке Inventory.";
-            EmptyText.Visibility = Visibility.Visible;
-        }
-        else if (shown == 0)
-        {
-            EmptyText.Text = "Ничего не найдено";
-            EmptyText.Visibility = Visibility.Visible;
-        }
-        else
-            EmptyText.Visibility = Visibility.Collapsed;
     }
 
     private void Search_TextChanged(object sender, TextChangedEventArgs e)
     {
-        _view?.Refresh();
-        UpdateCount();
-        if (List.SelectedItem is null && _view is { Count: 1 })
-            List.SelectedIndex = 0;
+        List.Filter = Search.Text.Trim().Length == 0 ? null : Match;
+        List.Rebuild();
+        if (SelectedHost is null && List.ShownCount == 1)
+        {
+            var only = List.FirstVisibleItem() as HostConfig;
+            Select(only);
+            HostSelected?.Invoke(only);
+        }
     }
 
     private void Search_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -130,16 +118,17 @@ public partial class HostListPanel : UserControl
                 e.Handled = true;
                 break;
             case Key.Down:
-                if (List.Items.Count > 0)
+                if (SelectedHost is null && List.FirstVisibleItem() is HostConfig first)
                 {
-                    if (List.SelectedIndex < 0) List.SelectedIndex = 0;
-                    (List.ItemContainerGenerator.ContainerFromIndex(List.SelectedIndex) as ListBoxItem)?.Focus();
+                    Select(first);
+                    HostSelected?.Invoke(first);
                 }
 
+                List.FocusSelected();
                 e.Handled = true;
                 break;
             case Key.Enter:
-                var host = List.SelectedItem as HostConfig ?? (_view is { Count: > 0 } ? _view.GetItemAt(0) as HostConfig : null);
+                var host = SelectedHost ?? List.FirstVisibleItem() as HostConfig;
                 if (host is not null)
                 {
                     Select(host);
@@ -152,49 +141,18 @@ public partial class HostListPanel : UserControl
         }
     }
 
-    private void List_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_silent) return;
-        HostSelected?.Invoke(List.SelectedItem as HostConfig);
-    }
-
-    private void List_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is DependencyObject d && ItemsControl.ContainerFromElement(List, d) is ListBoxItem { DataContext: HostConfig host })
-            HostActivated?.Invoke(host);
-    }
-
-    private void List_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter && List.SelectedItem is HostConfig host)
-        {
-            HostActivated?.Invoke(host);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Up && List.SelectedIndex == 0)
-        {
-            FocusSearch();
-            e.Handled = true;
-        }
-        else if (e.Key is >= Key.A and <= Key.Z && Keyboard.Modifiers == ModifierKeys.None)
-        {
-            // Начали печатать в списке — переносим ввод в поиск.
-            FocusSearch();
-        }
-    }
-
     private void MenuConnect_Click(object sender, RoutedEventArgs e)
     {
-        if (List.SelectedItem is HostConfig host) HostActivated?.Invoke(host);
+        if (SelectedHost is { } host) HostActivated?.Invoke(host);
     }
 
     private void MenuNew_Click(object sender, RoutedEventArgs e)
     {
-        if (List.SelectedItem is HostConfig host) NewRequested?.Invoke(host);
+        if (SelectedHost is { } host) NewRequested?.Invoke(host);
     }
 
     private void MenuOther_Click(object sender, RoutedEventArgs e)
     {
-        if (List.SelectedItem is HostConfig host) OtherRequested?.Invoke(host);
+        if (SelectedHost is { } host) OtherRequested?.Invoke(host);
     }
 }

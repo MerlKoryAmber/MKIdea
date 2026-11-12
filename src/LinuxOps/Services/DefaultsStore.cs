@@ -41,13 +41,6 @@ public static class DefaultsStore
         return new AppDefaults();
     }
 
-    public static void SaveHosts(IEnumerable<HostConfig> hosts)
-    {
-        var defaults = Load();
-        defaults.Hosts = hosts.Select(CloneHostForSave).ToList();
-        Write(defaults);
-    }
-
     /// <summary>Notepad++ из комплекта (Tools\Notepad++ рядом с exe), если он есть.</summary>
     public static string? BundledEditor
     {
@@ -100,12 +93,19 @@ public static class DefaultsStore
         Write(defaults);
     }
 
-    public static void SaveVCenters(IEnumerable<VCenterProfile> profiles)
+    /// <summary>Inventory целиком: хосты, vCenter и папки — одной записью.</summary>
+    public static void SaveInventory(IEnumerable<HostConfig> hosts, IEnumerable<VCenterProfile> vcenters, IEnumerable<HostFolder> folders)
     {
         var defaults = Load();
-        defaults.VCenters = profiles.Select(p => new VCenterProfile
+        defaults.Hosts = hosts.Select(CloneHostForSave).ToList();
+        defaults.VCenters = vcenters.Select(p => new VCenterProfile
         {
-            Name = p.Name.Trim(), Server = p.Server.Trim(), User = p.User.Trim(), IgnoreCert = p.IgnoreCert
+            Name = p.Name.Trim(), Server = p.Server.Trim(), User = p.User.Trim(), IgnoreCert = p.IgnoreCert,
+            FolderId = p.FolderId, IsSelected = p.IsSelected
+        }).ToList();
+        defaults.Folders = folders.Select(f => new HostFolder
+        {
+            Id = f.Id, Name = f.Name.Trim(), ParentId = f.ParentId, IsExpanded = f.IsExpanded
         }).ToList();
         Write(defaults);
     }
@@ -130,7 +130,8 @@ public static class DefaultsStore
         Password = Protect(h.Password),
         UseSudo = h.UseSudo,
         DistroHint = h.DistroHint,
-        IsSelected = h.IsSelected
+        IsSelected = h.IsSelected,
+        FolderId = h.FolderId
     };
 
     public const string PasswordPrefix = "dpapi:";

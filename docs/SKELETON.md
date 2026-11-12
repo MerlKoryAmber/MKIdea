@@ -8,7 +8,7 @@
 | Продукт | Путь | Статус | Назначение |
 |---------|------|--------|------------|
 | **AdServerGroups** | `src/AdServerGroups` | боевой контур | AD-группы → локальные Administrators (+ SQL sysadmin provider) |
-| **LinuxOps** | `src/LinuxOps` (+ `src/LinuxOps.PsHost`) | 0.3.38 | Actions + SSH Files + Terminal + PowerShell + History |
+| **LinuxOps** | `src/LinuxOps` (+ `src/LinuxOps.PsHost`) | 0.3.39 | Actions + SSH Files + Terminal + PowerShell + History |
 
 Пакет/инсталлятор «всех утилит» — позже; пока отдельные `dist\<App>-<ver>\`.
 

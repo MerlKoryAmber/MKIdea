@@ -49,7 +49,7 @@ public partial class FilesTabsView : UserControl
     public void Init(AppSession session)
     {
         _session = session;
-        HostsPanel.Bind(session.Hosts);
+        HostsPanel.Bind(session);
         HostsPanel.Select(session.Hosts.FirstOrDefault(h => h.IsSelected) ?? session.Hosts.FirstOrDefault());
         NewTab();
     }

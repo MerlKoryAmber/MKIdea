@@ -1,0 +1,27 @@
+<Window x:Class="LinuxOps.VCenterEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="vCenter" Width="480" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+  <StackPanel Margin="20,16">
+    <TextBlock Text="Имя" FontWeight="SemiBold" Margin="0,0,0,2"/>
+    <TextBox x:Name="NameBox" AutomationProperties.AutomationId="VcName"/>
+    <TextBlock Text="Как vCenter называется в дереве, например «Прод». Пусто — адрес." Foreground="{DynamicResource MutedBrush}"
+               FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,8"/>
+    <TextBlock Text="Адрес vCenter" FontWeight="SemiBold" Margin="0,0,0,2"/>
+    <TextBox x:Name="ServerBox" AutomationProperties.AutomationId="VcServer"/>
+    <TextBlock Text="Имя или IP, например vcenter.merl.loc." Foreground="{DynamicResource MutedBrush}" FontSize="11.5" Margin="0,2,0,8"/>
+    <TextBlock Text="Пользователь" FontWeight="SemiBold" Margin="0,0,0,2"/>
+    <TextBox x:Name="UserBox" AutomationProperties.AutomationId="VcUser"/>
+    <TextBlock Text="Например administrator@vsphere.local. Пароль не хранится: спрашивается при первом подключении и живёт до закрытия программы."
+               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,8"/>
+    <CheckBox x:Name="CertBox" Content="Самоподписанный сертификат — не проверять" AutomationProperties.AutomationId="VcCert"/>
+    <TextBlock Text="PowerShell-действия выполняются на отмеченных vCenter во вкладке Actions. Модули PowerCLI — вкладка PowerShell → «vSphere…»."
+               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,12,0,0"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+      <Button Content="Отмена" Style="{StaticResource Btn}" Width="100" Margin="0,0,8,0" IsCancel="True"/>
+      <Button Content="Сохранить" Style="{StaticResource BtnPrimary}" Width="120" IsDefault="True" Click="Save_Click"
+              AutomationProperties.AutomationId="VcSave"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

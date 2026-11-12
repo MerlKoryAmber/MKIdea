@@ -33,6 +33,26 @@ public partial class AppDialog : Window
         => new AppDialog(message, confirm: true, title) { Owner = owner }.ShowDialog() == true;
 
     /// <summary>Несохранённые изменения: true — сохранить, false — не сохранять, null — отмена.</summary>
+    /// <summary>Строка от пользователя (имя папки и т.п.): null — отмена или пусто.</summary>
+    public static string? AskText(Window owner, string message, string initial = "", string? title = null)
+    {
+        var d = new AppDialog(message, confirm: true, title) { Owner = owner };
+        d.OkBtn.Content = "OK";
+        d.IconText.Text = "✎";
+        d.IconBox.Background = (System.Windows.Media.Brush)d.FindResource("BadgeBgBrush");
+        d.IconText.Foreground = (System.Windows.Media.Brush)d.FindResource("AccentDeepBrush");
+        d.InputBox.Visibility = Visibility.Visible;
+        d.InputBox.Text = initial;
+        d.Loaded += (_, _) =>
+        {
+            d.InputBox.Focus();
+            d.InputBox.SelectAll();
+        };
+        if (d.ShowDialog() != true) return null;
+        var v = d.InputBox.Text.Trim();
+        return v.Length == 0 ? null : v;
+    }
+
     public static bool? AskSave(Window owner, string message, string? title = null)
     {
         var d = new AppDialog(message, confirm: true, title) { Owner = owner };
