@@ -231,8 +231,9 @@ public static class UserProvisioning
         parts.Add(map.TryGetValue("created", out var created) && created == "yes" ? "создан" : "уже был");
         if (map.TryGetValue("sudo", out var sudo))
         {
-            if (sudo == "added") parts.Add("sudo добавлен");
-            else if (sudo == "already") parts.Add("sudo уже есть");
+            var free = map.TryGetValue("nopasswd", out var np) && np == "yes" ? " без пароля" : "";
+            if (sudo == "added") parts.Add($"sudo{free} добавлен");
+            else if (sudo == "already") parts.Add($"sudo{free} уже есть");
         }
 
         if (map.TryGetValue("key", out var key))
@@ -299,6 +300,8 @@ public static class UserProvisioning
                 ["LINUXOPS_GROUP"] = suse ? "" : distro.Family == "debian" ? "sudo" : "wheel",
                 ["LINUXOPS_SUDO_MODE"] = suse ? "file" : "group",
                 ["LINUXOPS_SUDO"] = request.Sudo ? "yes" : "no",
+                // Вход по ключу (у ключа своя парольная фраза) — sudo без пароля: третий пароль лишний.
+                ["LINUXOPS_NOPASSWD"] = request.Sudo && request.Keys.Trim().Length > 0 ? "yes" : "no",
                 ["LINUXOPS_KEYS"] = request.Keys.Replace("\r\n", "\n").Trim(),
                 ["LINUXOPS_PASSWORD"] = request.Password
             };
@@ -343,6 +346,8 @@ public static class UserProvisioning
         group="${LINUXOPS_GROUP:-}"
         mode="${LINUXOPS_SUDO_MODE:-group}"
         want_sudo="${LINUXOPS_SUDO:-no}"
+        nopass="${LINUXOPS_NOPASSWD:-no}"
+        [ "$nopass" = "yes" ] && mode=file
         die() { echo "$1" >&2; exit 1; }
         created=no
         if ! id "$login" >/dev/null 2>&1; then
@@ -356,6 +361,7 @@ public static class UserProvisioning
           if [ "$mode" = "file" ]; then
             defaults="Defaults:$login !targetpw"
             rule="$login ALL=(ALL) ALL"
+            if [ "$nopass" = "yes" ]; then rule="$login ALL=(ALL) NOPASSWD: ALL"; fi
             file="/etc/sudoers.d/linuxops-$login"
             if [ -f "$file" ] && grep -qxF -- "$defaults" "$file" && grep -qxF -- "$rule" "$file"; then
               sudo_state=already
@@ -412,6 +418,7 @@ public static class UserProvisioning
         fi
         echo "created=$created"
         echo "sudo=$sudo_state"
+        if [ "$want_sudo" = "yes" ]; then echo "nopasswd=$nopass"; fi
         echo "key=$key_state"
         echo "password=$pass_state"
         """;

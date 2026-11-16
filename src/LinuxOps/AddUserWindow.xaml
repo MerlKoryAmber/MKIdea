@@ -12,7 +12,7 @@
       <StackPanel>
         <TextBlock Text="Логин" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
         <TextBox x:Name="LoginBox" Height="28" Margin="0,4,0,10"/>
-        <CheckBox x:Name="SudoBox" Content="sudo (группа wheel или sudo)" Margin="0,0,0,10"/>
+        <CheckBox x:Name="SudoBox" Content="sudo (с ключом — без пароля; без ключа — по паролю учётки)" Margin="0,0,0,10"/>
         <DockPanel Margin="0,0,0,4">
           <Button DockPanel.Dock="Right" Content="Файл…" Style="{StaticResource Btn}" Height="28" MinWidth="80" Margin="8,0,0,0" Click="PickKey_Click"/>
           <TextBlock Text="Открытый ключ SSH" Foreground="{DynamicResource MutedBrush}" FontSize="12" VerticalAlignment="Center"/>

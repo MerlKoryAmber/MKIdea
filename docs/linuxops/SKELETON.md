@@ -22,7 +22,7 @@
 
 - `SshRunner` / `SshAuth` / `SftpBrowser`
 - `PlanRunner` — план параллельно (до 4 хостов), отмена и прогресс
-- `UserProvisioning` + `AddUserWindow` — учётка на отмеченных хостах
+- `UserProvisioning` + `AddUserWindow` — учётка на отмеченных хостах; с ключом и sudo — `/etc/sudoers.d/linuxops-<логин>` NOPASSWD, без ключа — группа sudo/wheel
 - `UserListStore` + `UserListWindow` — базовый список пользователей
 - `AppSession` — общий Inventory: `Hosts`, `VCenters`, `Folders` (плоские списки; папка — `FolderId` у ресурса), событие `TreeChanged`
 - `IInventoryItem` (`HostConfig`, `VCenterProfile`), `HostFolder`; `InventoryTree` (`FolderNode` / `ItemNode`) + `ResourceTree` — одно дерево на все вкладки: папки, галочки, поиск, перетаскивание
