@@ -47,6 +47,7 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args.Length >= 1 && args[0] == "--console") return ConsoleMode.Run(args[1..]);
         if (args.Length < 2)
         {
             Console.Error.WriteLine("LinuxOps.PsHost запускается из LinuxOps.");
@@ -73,6 +74,7 @@ public static class Program
                 case "stop": channel.CancelAsks(); engine.Stop(); break;
                 case "reply": channel.Answer(m); break;
                 case "width": engine.Host.Width = m.Width; break;
+                case "complete": engine.Complete(m.Id, m.Text ?? "", m.Start); break;
                 case "exit": Environment.Exit(0); break;
             }
         }

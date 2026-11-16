@@ -15,10 +15,19 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.22" />
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\LinuxOps\Services\PsProtocol.cs" Link="PsProtocol.cs" />
+  </ItemGroup>
+
+  <!-- PSReadLine 2.3.6 (Microsoft, BSD-2, из PowerShell Gallery): подсказки, Tab-меню, история в консоли вкладки PowerShell.
+       Лежит в $PSHOME\Modules, чтобы не зависеть от того, что установлено на машине. -->
+  <ItemGroup>
+    <None Include="Modules\PSReadLine\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Link="Modules\PSReadLine\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Встроенные модули (Utility, Management, Security …) SDK кладёт в runtimes\win\lib\net8.0\Modules,

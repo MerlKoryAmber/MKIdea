@@ -1,8 +1,9 @@
 <UserControl x:Class="LinuxOps.Views.PowerShellView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit">
-  <!-- PowerShell в стиле ISE: скрипт сверху, консоль снизу, один сеанс на вкладку. -->
+             xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit"
+             xmlns:views="clr-namespace:LinuxOps.Views">
+  <!-- PowerShell как в VS Code: скрипт сверху, консоль снизу; F5/F8 выполняют в этой консоли. -->
   <Grid Margin="20,14,20,12">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
@@ -20,12 +21,12 @@
         <Button Content="Открыть" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="Open_Click" ToolTip="Открыть .ps1 (Ctrl+O)"/>
         <Button Content="Сохранить" Style="{StaticResource Btn}" Height="28" Margin="0,0,16,0" Click="Save_Click" ToolTip="Сохранить (Ctrl+S), с другим именем — Ctrl+Shift+S"/>
         <Button x:Name="RunBtn" Content="▶  Запустить  F5" Style="{StaticResource BtnPrimary}" Height="28" Margin="0,0,6,0" Click="Run_Click"
-                AutomationProperties.AutomationId="PsRun" ToolTip="Выполнить весь скрипт"/>
+                AutomationProperties.AutomationId="PsRun" ToolTip="Выполнить весь скрипт в консоли (изменённый файл сначала сохраняется)"/>
         <Button Content="Выделенное  F8" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="RunSelection_Click"
-                ToolTip="Выполнить выделенное или текущую строку"/>
-        <Button Content="■  Стоп" Style="{StaticResource Btn}" Height="28" Margin="0,0,16,0" Click="Stop_Click" IsEnabled="{Binding Busy}"
-                ToolTip="Остановить выполнение (Ctrl+Break)"/>
-        <Button Content="Перезапустить движок" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="Restart_Click"
+                ToolTip="Выполнить в консоли выделенное или текущую строку"/>
+        <Button Content="■  Стоп" Style="{StaticResource Btn}" Height="28" Margin="0,0,16,0" Click="Stop_Click"
+                ToolTip="Прервать команду в консоли (Ctrl+C)"/>
+        <Button Content="Перезапустить консоль" Style="{StaticResource Btn}" Height="28" Margin="0,0,6,0" Click="Restart_Click"
                 ToolTip="Если «Стоп» не помогает. Переменные, модули и подключения сбрасываются"/>
         <Button Content="Очистить консоль" Style="{StaticResource Btn}" Height="28" Click="ClearConsole_Click"/>
       </StackPanel>
@@ -88,28 +89,14 @@
 
     <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"/>
 
-    <!-- Консоль -->
+    <!-- Консоль: настоящая консоль PowerShell (ConPTY + PSReadLine), как терминал VS Code -->
     <Border Grid.Row="4" BorderBrush="{DynamicResource ConsoleBorderBrush}" BorderThickness="1"
             Background="{DynamicResource ConsoleBrush}">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Bottom" Margin="6,2,6,4">
-          <TextBlock x:Name="PromptLabel" Text="{Binding PromptText}" FontFamily="Cascadia Mono, Consolas" FontSize="13"
-                     Foreground="#3CC7B8" VerticalAlignment="Center" Margin="0,0,6,0"/>
-          <TextBox x:Name="Input" FontFamily="Cascadia Mono, Consolas" FontSize="13" BorderThickness="0" Padding="0,3"
-                   Background="Transparent" Foreground="{DynamicResource ConsoleTextBrush}" CaretBrush="{DynamicResource ConsoleTextBrush}"
-                   PreviewKeyDown="Input_PreviewKeyDown" AutomationProperties.AutomationId="PsInput"
-                   ToolTip="Команда PowerShell. Enter — выполнить, ↑/↓ — история"/>
-        </DockPanel>
-        <ae:TextEditor x:Name="ConsoleOut" IsReadOnly="True" FontFamily="Cascadia Mono, Consolas" FontSize="13"
-                       Background="Transparent" Foreground="{DynamicResource ConsoleTextBrush}" Padding="6,4,0,0"
-                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" WordWrap="False"
-                       SizeChanged="ConsoleOut_SizeChanged" AutomationProperties.AutomationId="PsConsole"/>
-      </DockPanel>
+      <views:PsConsoleView x:Name="ConsolePane"/>
     </Border>
 
     <!-- Строка состояния -->
     <DockPanel Grid.Row="5" Margin="0,6,0,0">
-      <TextBlock DockPanel.Dock="Right" Text="{Binding Progress}" Foreground="{DynamicResource AccentDeepBrush}" Margin="12,0,0,0"/>
       <TextBlock Text="{Binding Status}" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"
                  AutomationProperties.AutomationId="PsStatus"/>
     </DockPanel>

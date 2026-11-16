@@ -8,13 +8,14 @@
 | Actions | дерево ресурсов с галочками (у папки — все внутри) · каталог · план · редактор действия; Bash по SSH на хостах, PowerShell на отмеченных vCenter |
 | SSH Files | дерево хостов (без vCenter) + SFTP dual-pane + terminal command; sudo — просмотр чужих папок от root |
 | SSH Terminal | дерево хостов (без vCenter), вкладки SSH-сессий, xterm-эмулятор (`TerminalScreen` + `TerminalCanvas`), мышь для mc/htop |
-| PowerShell | в стиле ISE: скрипты (AvalonEdit) + консоль, F5/F8, стоп, перезапуск движка; «vSphere…» — модули PowerCLI |
+| PowerShell | как VS Code: скрипты (AvalonEdit, подсказки по мере набора, Ctrl+F, автоотступ) + настоящая консоль PowerShell с PSReadLine (ConPTY): список подсказок у курсора, серый хвост из истории; F5/F8 — в эту консоль; «vSphere…» — модули PowerCLI |
 | History | LinuxOps.history.json |
 
 ## Процессы
 
 - `LinuxOps.exe` — WPF, .NET 8, single-file.
 - `pwsh\LinuxOps.PsHost.exe` — движок PowerShell 7.4 (`Microsoft.PowerShell.SDK`), отдельный процесс: модули (PowerCLI) не делят сборки с LinuxOps, зависший вызов снимается вместе с процессом. Связь — анонимные каналы, строки JSON (`PsProtocol`). Встроенные модули PowerShell — `pwsh\Modules` ($PSHOME).
+- `LinuxOps.PsHost.exe --console --suggest <канал>` — консоль вкладки PowerShell: `ConsoleShell.Start` (как pwsh.exe) с PSReadLine 2.3.6 (`pwsh\Modules\PSReadLine`, вложен в репозиторий) внутри псевдоконсоли Windows (ConPTY). Предиктор `CompletionPredictor` шлёт дополнения набранной строки по именованному каналу, список рисует LinuxOps.
 - `Modules\` рядом с LinuxOps.exe — модули пользователя (PowerCLI), первыми в PSModulePath. Переносится вместе с папкой LinuxOps на машины без интернета.
 
 ## Ключевые типы
@@ -30,7 +31,8 @@
 - `ActionCatalog` + `BuiltinActions` + `VsphereActions` + `ActionEditWindow`; `ActionDefinition.Kind` = bash | powershell, `Parameters` (у Bash — переменные окружения через `SshRunner.EncodeEnv`, base64)
 - `ProxyScripts` — прокси на хостах: проверить / прописать / убрать (apt, dnf·yum, zypper, окружение; dry-run — `LINUXOPS_DRY=1`). «Прописать» заменяет чужой прокси (строки отключаются пометкой LinuxOps-disabled, profile.d перекрывается `zz-linuxops-proxy.sh`), «убрать» возвращает его; `ProxyCheck` — разбор «проверить» в таблицу (`ResultRow.Proxy`)
 - `PsEngineClient` — процесс движка, события в UI-поток; `PsPrompts` — Read-Host / Get-Credential / выбор окнами
-- `PowerShellViewModel` + `PowerShellView` + `PsConsoleColorizer` — вкладка PowerShell (один сеанс на вкладку)
+- `PowerShellViewModel` + `PowerShellView` — вкладка PowerShell; `PsEditorAssist` (подсказки, поиск, автоотступ, отмена по словам) + `PsHighlighting` — редактор; `PsEngineClient` в режиме «только дополнения» — подсказки редактора
+- `ConPty` (псевдоконсоль Windows) + `PsConsoleSession` (консоль: ConPTY + `TerminalScreen`, канал подсказок, перезапуск) + `PsConsoleView` (холст терминала, список подсказок у курсора, копирование/вставка); `TerminalKeys` — клавиши в VT и win32-input-mode (общие с SSH Terminal)
 - `PsActionRunner` — PowerShell-действия: свой движок, подключение к vCenter держится до закрытия, пароль vCenter только в памяти
 - `PowerCliInstaller` — PowerCLI из PowerShell Gallery (nupkg + зависимости), из ZIP/папки, экспорт в ZIP
 - `VsphereWindow` (модули PowerCLI), `PsRunWindow` («Параметры действий» — Bash и PowerShell, перед запуском, если они есть)

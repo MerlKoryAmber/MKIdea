@@ -1,9 +1,7 @@
 using System.ComponentModel;
-using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using System.Windows.Threading;
 using LinuxOps.Services;
 using LinuxOps.ViewModels;
@@ -13,49 +11,34 @@ namespace LinuxOps.Views;
 
 public partial class PowerShellView : UserControl
 {
-    private readonly DispatcherTimer _width;
     private PowerShellViewModel? _vm;
-    private bool _scrollQueued;
 
     public PowerShellView()
     {
         InitializeComponent();
-        Editor.SyntaxHighlighting = PsConsoleColorizer.ScriptHighlighting();
+        Editor.SyntaxHighlighting = PsHighlighting.ScriptHighlighting();
         Editor.Options.ConvertTabsToSpaces = true;
         Editor.Options.IndentationSize = 4;
         Editor.Options.HighlightCurrentLine = true;
-        ThemeManager.Changed += () => Editor.SyntaxHighlighting = PsConsoleColorizer.ScriptHighlighting();
+        ThemeManager.Changed += () => Editor.SyntaxHighlighting = PsHighlighting.ScriptHighlighting();
         PreviewKeyDown += OnPreviewKeyDown;
-
-        _width = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-        _width.Tick += (_, _) =>
-        {
-            _width.Stop();
-            PushWidth();
-        };
 
         DataContextChanged += (_, e) =>
         {
-            if (e.OldValue is PowerShellViewModel old)
-            {
-                old.PropertyChanged -= OnVmChanged;
-                old.ConsoleChanged -= OnConsoleChanged;
-            }
-
+            if (e.OldValue is PowerShellViewModel old) old.PropertyChanged -= OnVmChanged;
             if (e.NewValue is not PowerShellViewModel vm) return;
             _vm = vm;
             vm.Owner = () => Window.GetWindow(this);
             vm.PropertyChanged += OnVmChanged;
-            vm.ConsoleChanged += OnConsoleChanged;
-            ConsoleOut.Document = vm.ConsoleDoc;
-            ConsoleOut.TextArea.TextView.LineTransformers.Add(new PsConsoleColorizer(vm.Spans));
+            ConsolePane.Bind(vm.Console);
+            PsEditorAssist.Attach(Editor, vm.Complete);
             ShowScript();
         };
 
         IsVisibleChanged += (_, _) =>
         {
             if (!IsVisible || _vm is null) return;
-            _vm.EnsureEngine();
+            _vm.EnsureStarted();
             Dispatcher.BeginInvoke(() => Editor.TextArea.Focus(), DispatcherPriority.Input);
         };
     }
@@ -63,8 +46,6 @@ public partial class PowerShellView : UserControl
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(PowerShellViewModel.SelectedScript)) ShowScript();
-        if (e.PropertyName == nameof(PowerShellViewModel.Busy) && _vm is { Busy: false } && Input.IsKeyboardFocusWithin == false
-            && ConsoleOut.IsKeyboardFocusWithin) Input.Focus();
     }
 
     private void ShowScript()
@@ -72,50 +53,22 @@ public partial class PowerShellView : UserControl
         if (_vm?.SelectedScript is { } s && !ReferenceEquals(Editor.Document, s.Document)) Editor.Document = s.Document;
     }
 
-    /// <summary>Вывод идёт кусками — прокрутка и перерисовка не чаще одного раза за цикл диспетчера.</summary>
-    private void OnConsoleChanged()
-    {
-        if (_scrollQueued) return;
-        _scrollQueued = true;
-        Dispatcher.BeginInvoke(() =>
-        {
-            _scrollQueued = false;
-            ConsoleOut.TextArea.TextView.Redraw();
-            ConsoleOut.ScrollToEnd();
-        }, DispatcherPriority.Background);
-    }
-
-    // ---------- Ширина консоли → BufferSize хоста (Format-Table укладывается по ширине) ----------
-
-    private void ConsoleOut_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        _width.Stop();
-        _width.Start();
-    }
-
-    private void PushWidth()
-    {
-        if (_vm is null || ConsoleOut.ActualWidth < 100) return;
-        var ft = new FormattedText("MMMMMMMMMM", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface(ConsoleOut.FontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
-            ConsoleOut.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        var cols = (int)((ConsoleOut.ActualWidth - SystemParameters.VerticalScrollBarWidth - 12) / (ft.WidthIncludingTrailingWhitespace / 10));
-        _vm.SetWidth(cols);
-    }
-
     // ---------- Клавиши ----------
 
+    /// <summary>
+    /// F5/F8 и Ctrl+N/O/S — в редакторе и на панели. В консоли все клавиши уходят PowerShell
+    /// (там F8 — поиск по истории, Ctrl+S — поиск вперёд), как в терминале VS Code.
+    /// </summary>
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_vm is null) return;
+        if (_vm is null || ConsolePane.IsConsoleFocused) return;
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         switch (key)
         {
-            case Key.F5: _vm.RunScript(); break;
+            case Key.F5: RunScript(); break;
             case Key.F8: RunSelection(); break;
-            case Key.Cancel: _vm.Stop(); break; // Ctrl+Break
             case Key.N when ctrl: _vm.NewScript(); break;
             case Key.O when ctrl: Open_Click(sender, e); break;
             case Key.S when ctrl: Save(_vm.SelectedScript, saveAs: shift); break;
@@ -125,49 +78,62 @@ public partial class PowerShellView : UserControl
         e.Handled = true;
     }
 
-    private void Input_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (_vm is null) return;
-        switch (e.Key)
-        {
-            case Key.Enter:
-                if (_vm.Busy) break;
-                var line = Input.Text;
-                Input.Clear();
-                _vm.RunLine(line);
-                break;
-            case Key.Up or Key.Down:
-                if (_vm.HistoryStep(e.Key == Key.Up ? -1 : 1) is { } h)
-                {
-                    Input.Text = h;
-                    Input.CaretIndex = h.Length;
-                }
+    // ---------- Выполнение — в консоли ----------
 
-                break;
-            case Key.Escape:
-                Input.Clear();
-                break;
-            default: return;
+    /// <summary>F5: изменённый файл сохраняется (как в VS Code), затем dot-source в консоли — переменные остаются в сеансе.</summary>
+    private void RunScript()
+    {
+        if (_vm?.SelectedScript is not { } s) return;
+        if (s.FilePath is not null && s.Dirty && !Save(s, saveAs: false)) return;
+        string? cmd;
+        try { cmd = _vm.RunCommand(s); }
+        catch (Exception ex)
+        {
+            AppDialog.Info(Window.GetWindow(this)!, "Не удалось подготовить запуск:\n" + ex.Message, "PowerShell");
+            return;
         }
 
-        e.Handled = true;
+        if (cmd is null) return;
+        Execute(cmd);
     }
 
+    /// <summary>F8: выделенное или текущая строка — набирается в консоли (несколько строк — одним вводом).</summary>
     private void RunSelection()
     {
         if (_vm is null) return;
         var text = Editor.SelectionLength > 0
             ? Editor.SelectedText
             : Editor.Document.GetText(Editor.Document.GetLineByOffset(Editor.CaretOffset));
-        _vm.RunSelection(text);
+        if (string.IsNullOrWhiteSpace(text)) return;
+        Execute(text.Trim('\r', '\n'));
+    }
+
+    /// <summary>Esc очищает начатую в консоли строку (PSReadLine; первый Esc закрывает список подсказок), затем текст и Enter.</summary>
+    private void Execute(string text)
+    {
+        _vm?.EnsureStarted();
+        ConsolePane.SendKey(Key.Escape);
+        ConsolePane.SendKey(Key.Escape);
+        ConsolePane.SendLines(text, submit: true);
     }
 
     // ---------- Кнопки ----------
 
-    private void Run_Click(object sender, RoutedEventArgs e) => _vm?.RunScript();
+    private void Run_Click(object sender, RoutedEventArgs e) => RunScript();
     private void RunSelection_Click(object sender, RoutedEventArgs e) => RunSelection();
-    private void Stop_Click(object sender, RoutedEventArgs e) => _vm?.Stop();
-    private void ClearConsole_Click(object sender, RoutedEventArgs e) => _vm?.ClearConsole();
+
+    private void Stop_Click(object sender, RoutedEventArgs e)
+    {
+        ConsolePane.SendKey(Key.C, ModifierKeys.Control);
+        ConsolePane.FocusConsole();
+    }
+
+    private void ClearConsole_Click(object sender, RoutedEventArgs e)
+    {
+        ConsolePane.Clear();
+        ConsolePane.FocusConsole();
+    }
+
     private void New_Click(object sender, RoutedEventArgs e) => _vm?.NewScript();
     private void Vsphere_Click(object sender, RoutedEventArgs e) => VsphereWindow.Open(Window.GetWindow(this));
     private void Save_Click(object sender, RoutedEventArgs e) => Save(_vm?.SelectedScript, saveAs: false);
@@ -175,9 +141,10 @@ public partial class PowerShellView : UserControl
     private void Restart_Click(object sender, RoutedEventArgs e)
     {
         if (_vm is null) return;
-        if (!AppDialog.Confirm(Window.GetWindow(this)!, "Перезапустить движок PowerShell?\nПеременные, загруженные модули и подключения (vCenter и др.) будут сброшены.", "PowerShell"))
+        if (!AppDialog.Confirm(Window.GetWindow(this)!, "Перезапустить консоль PowerShell?\nПеременные, загруженные модули и подключения (vCenter и др.) будут сброшены, запущенные в ней программы — остановлены.", "PowerShell"))
             return;
         _vm.Restart();
+        ConsolePane.FocusConsole();
     }
 
     private void Open_Click(object sender, RoutedEventArgs e)

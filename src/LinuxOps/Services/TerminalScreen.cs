@@ -193,6 +193,8 @@ public sealed class TerminalScreen
     public int MouseMode { get; private set; }
     /// <summary>Формат SGR (1006): координаты без ограничения 223.</summary>
     public bool MouseSgr { get; private set; }
+    /// <summary>win32-input-mode (9001): ConPTY просит клавиши целиком (код, скан-код, символ, модификаторы) — так доходят Shift+Enter, Ctrl+Space.</summary>
+    public bool Win32Input { get; private set; }
     /// <summary>DECTCEM: программа может спрятать курсор.</summary>
     public bool CursorVisible { get; private set; } = true;
     public long Version => _version;
@@ -412,6 +414,7 @@ public sealed class TerminalScreen
                             MouseMode = on ? (mode == 9 ? 1000 : mode) : MouseMode == mode || (mode == 9 && MouseMode == 1000) ? 0 : MouseMode;
                             break;
                         case 1006: MouseSgr = on; break;
+                        case 9001: Win32Input = on; break;
                         case 47 or 1047:
                             if (on) EnterAlt(); else LeaveAlt();
                             break;

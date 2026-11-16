@@ -9,8 +9,8 @@ namespace LinuxOps.Services;
 /// </summary>
 public sealed class PsMsg
 {
-    // В помощник: run, stop, reply, width, exit.
-    // Из помощника: ready, out, prompt, progress, done.
+    // В помощник: run, stop, reply, width, complete, exit.
+    // Из помощника: ready, out, prompt, progress, done, completions.
     public string T { get; set; } = "";
     public int Id { get; set; }
     public string? Text { get; set; }
@@ -34,6 +34,11 @@ public sealed class PsMsg
     public string? Location { get; set; }
     public int Width { get; set; }
 
+    /// <summary>complete: позиция курсора в Text. completions: что заменить (Start, Length) и чем.</summary>
+    public int Start { get; set; }
+    public int Length { get; set; }
+    public List<PsCompletion>? Completions { get; set; }
+
     private static readonly JsonSerializerOptions Json = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
@@ -41,6 +46,15 @@ public sealed class PsMsg
 
     public string ToLine() => JsonSerializer.Serialize(this, Json);
     public static PsMsg? Parse(string line) => JsonSerializer.Deserialize<PsMsg>(line, Json);
+}
+
+/// <summary>Подсказка редактора: что вставить, как показать в списке, тип (Command, Parameter, Variable…), описание.</summary>
+public sealed class PsCompletion
+{
+    public string Text { get; set; } = "";
+    public string List { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string? Tip { get; set; }
 }
 
 public sealed class PsField

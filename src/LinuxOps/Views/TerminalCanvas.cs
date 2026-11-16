@@ -134,6 +134,14 @@ public sealed class TerminalCanvas : FrameworkElement
 
     public void ScrollPage(int direction) => ScrollLines(direction * Math.Max(1, VisibleRows - 1));
 
+    /// <summary>Прямоугольник клетки курсора в координатах холста; null — курсор вне видимой части.</summary>
+    public Rect? CursorRect()
+    {
+        var row = _frame.CursorLine - _offset;
+        if (row < 0 || row >= VisibleRows) return null;
+        return new Rect(Padding.Left + _frame.CursorCol * CharWidth, Padding.Top + row * LineHeight, CharWidth, LineHeight);
+    }
+
     public void ClearSelection()
     {
         if (_selA < 0) return;

@@ -113,6 +113,56 @@ public sealed class PsEngine
         }
     }
 
+    /// <summary>
+    /// Подсказки редактора (как IntelliSense в VS Code): CommandCompletion по тексту скрипта и позиции курсора.
+    /// Отдельный поток; пока runspace занят запуском (PS-действие), подсказок нет — пустой список.
+    /// </summary>
+    public void Complete(int id, string script, int caret)
+    {
+        new Thread(() =>
+        {
+            var msg = new PsMsg { T = "completions", Id = id, Completions = new List<PsCompletion>() };
+            PowerShell? ps = null;
+            try
+            {
+                lock (_lock)
+                {
+                    if (_current is null)
+                    {
+                        ps = PowerShell.Create();
+                        ps.Runspace = _rs;
+                        _current = ps;
+                    }
+                }
+
+                if (ps is not null)
+                {
+                    var r = CommandCompletion.CompleteInput(script, Math.Clamp(caret, 0, script.Length), null, ps);
+                    msg.Start = r.ReplacementIndex;
+                    msg.Length = r.ReplacementLength;
+                    msg.Completions = r.CompletionMatches.Take(300).Select(c => new PsCompletion
+                    {
+                        Text = c.CompletionText,
+                        List = c.ListItemText,
+                        Type = c.ResultType.ToString(),
+                        Tip = c.ToolTip == c.ListItemText ? null : c.ToolTip
+                    }).ToList();
+                }
+            }
+            catch { /* нет подсказок */ }
+            finally
+            {
+                if (ps is not null)
+                {
+                    lock (_lock) if (ReferenceEquals(_current, ps)) _current = null;
+                    ps.Dispose();
+                }
+            }
+
+            _ch.Send(msg);
+        }) { IsBackground = true, Name = "ps-complete" }.Start();
+    }
+
     public void Stop()
     {
         PowerShell? ps;

@@ -181,7 +181,6 @@ public partial class SshTerminalView : UserControl
         var mods = Keyboard.Modifiers;
         var ctrl = mods.HasFlag(ModifierKeys.Control);
         var shift = mods.HasFlag(ModifierKeys.Shift);
-        var alt = mods.HasFlag(ModifierKeys.Alt);
 
         // Копирование и вставка в стиле терминалов Windows.
         if (ctrl && shift && key == Key.C) { Copy_Click(sender, e); e.Handled = true; return; }
@@ -206,63 +205,7 @@ public partial class SshTerminalView : UserControl
             return;
         }
 
-        var app = _vm.AppCursorKeys;
-        string? data = key switch
-        {
-            Key.Enter => "\r",
-            Key.Space when ctrl => "\0",
-            Key.Space => " ",
-            Key.Back => alt ? "\u001b\u007f" : "\u007f",
-            Key.Tab => shift ? "\u001b[Z" : "\t",
-            Key.Escape => "\u001b",
-            Key.Delete => "\u001b[3~",
-            Key.Insert => "\u001b[2~",
-            Key.Up => app ? "\u001bOA" : ctrl ? "\u001b[1;5A" : "\u001b[A",
-            Key.Down => app ? "\u001bOB" : ctrl ? "\u001b[1;5B" : "\u001b[B",
-            Key.Right => app ? "\u001bOC" : ctrl ? "\u001b[1;5C" : "\u001b[C",
-            Key.Left => app ? "\u001bOD" : ctrl ? "\u001b[1;5D" : "\u001b[D",
-            Key.Home => app ? "\u001bOH" : "\u001b[H",
-            Key.End => app ? "\u001bOF" : "\u001b[F",
-            Key.PageUp => "\u001b[5~",
-            Key.PageDown => "\u001b[6~",
-            Key.F1 => "\u001bOP",
-            Key.F2 => "\u001bOQ",
-            Key.F3 => "\u001bOR",
-            Key.F4 => "\u001bOS",
-            Key.F5 => "\u001b[15~",
-            Key.F6 => "\u001b[17~",
-            Key.F7 => "\u001b[18~",
-            Key.F8 => "\u001b[19~",
-            Key.F9 => "\u001b[20~",
-            Key.F10 => "\u001b[21~",
-            Key.F11 => "\u001b[23~",
-            Key.F12 => "\u001b[24~",
-            _ => null
-        };
-
-        if (data is null && ctrl && !alt && key is >= Key.A and <= Key.Z)
-            data = ((char)(key - Key.A + 1)).ToString();
-        if (data is null && ctrl && !alt)
-        {
-            data = key switch
-            {
-                Key.OemOpenBrackets => "\u001b",
-                Key.Oem5 => "\u001c",
-                Key.OemCloseBrackets => "\u001d",
-                Key.D6 => "\u001e",
-                Key.OemMinus => "\u001f",
-                _ => null
-            };
-        }
-
-        if (data is null && alt && !ctrl && (key is >= Key.A and <= Key.Z || key is >= Key.D0 and <= Key.D9))
-        {
-            var ch = key is >= Key.A and <= Key.Z
-                ? (char)((shift ? 'A' : 'a') + (key - Key.A))
-                : (char)('0' + (key - Key.D0));
-            data = "\u001b" + ch;
-        }
-
+        var data = TerminalKeys.Vt(key, mods, _vm.AppCursorKeys);
         if (data is null) return;
         TypeToShell(data);
         e.Handled = true;

@@ -112,7 +112,25 @@ public sealed class PsEngineClient : IDisposable
                 if (m.Id == _runId) _runId = 0;
                 Done?.Invoke(m.Id, m.Ok, m.Text);
                 break;
+            case "completions":
+                if (_completions.Remove(m.Id, out var tcs)) tcs.TrySetResult(m);
+                break;
         }
+    }
+
+    private readonly Dictionary<int, TaskCompletionSource<PsMsg?>> _completions = new();
+
+    /// <summary>Подсказки для текста скрипта у позиции курсора (UI-поток). null — движок не запущен или не ответил.</summary>
+    public async Task<PsMsg?> Complete(string text, int caret)
+    {
+        if (!IsRunning || Busy) return null;
+        var id = ++_nextId;
+        var tcs = new TaskCompletionSource<PsMsg?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _completions[id] = tcs;
+        Send(new PsMsg { T = "complete", Id = id, Text = text, Start = caret });
+        var done = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+        _completions.Remove(id);
+        return done == tcs.Task ? tcs.Task.Result : null;
     }
 
     private void Send(PsMsg m)
