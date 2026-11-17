@@ -4,7 +4,7 @@
 
 | Контур | Содержимое |
 |--------|------------|
-| Inventory | дерево: хосты Linux, хосты Windows (RDP) и vCenter по папкам (вложенные, сворачиваются, перетаскивание мышью) → defaults.json |
+| Inventory | дерево: хосты Linux, хосты Windows (RDP) и vCenter по папкам (вложенные, сворачиваются, перетаскивание мышью) → defaults.json (испорченный файл откладывается в `LinuxOps.defaults.broken-<время>.json` с предупреждением при старте; занятый — только чтение; запись атомарная через .tmp) |
 | Actions | дерево ресурсов с галочками (у папки — все внутри) · каталог · план · редактор действия; Bash по SSH на хостах, PowerShell на отмеченных vCenter |
 | SSH Files | дерево хостов Linux (без vCenter и Windows) + SFTP dual-pane + terminal command; sudo — просмотр чужих папок от root |
 | Подключения | дерево хостов Linux и Windows (без vCenter), общие вкладки сессий: SSH — xterm-эмулятор (`TerminalScreen` + `TerminalCanvas`), мышь для mc/htop; RDP — встроенный mstscax (`RdpControl` в `WindowsFormsHost`), окно подключения при каждом входе, Remote Credential Guard / Restricted Admin — галочки |

@@ -16,28 +16,84 @@ public static class DefaultsStore
 
     public static string DefaultsPath { get; } = Path.Combine(GetAppDirectory(), "LinuxOps.defaults.json");
 
+    /// <summary>
+    /// Что случилось с файлом настроек при чтении (испорчен — отложен в копию, не читается — запись отключена).
+    /// Показывается один раз при старте; null — всё в порядке.
+    /// </summary>
+    public static string? Problem { get; private set; }
+
+    /// <summary>Файл не удалось прочитать (занят, нет прав) — не перезаписываем его пустыми настройками.</summary>
+    private static bool _readOnly;
+
     public static AppDefaults Load()
     {
+        if (!File.Exists(DefaultsPath)) return new AppDefaults();
+
+        string json;
         try
         {
-            if (File.Exists(DefaultsPath))
-            {
-                var json = File.ReadAllText(DefaultsPath);
-                var loaded = JsonSerializer.Deserialize<AppDefaults>(json, JsonOptions);
-                if (loaded is not null)
-                {
-                    ExpandPaths(loaded);
-                    foreach (var h in loaded.Hosts)
-                        h.Password = Unprotect(h.Password);
-                    return loaded;
-                }
-            }
+            json = ReadWithRetry(DefaultsPath);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // fall through
+            _readOnly = true;
+            Problem ??= $"Не удалось прочитать файл настроек ({Why(ex)}):\n{DefaultsPath}\n\n" +
+                        "Программа работает с пустыми настройками, изменения в файл не сохраняются, чтобы не затереть его. " +
+                        "Закройте то, что держит файл, и перезапустите LinuxOps.";
+            return new AppDefaults();
         }
 
+        AppDefaults? loaded;
+        try
+        {
+            loaded = JsonSerializer.Deserialize<AppDefaults>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return SetAsideBroken(ex.LineNumber is { } line
+                ? $"ошибка в JSON, строка {line + 1}, позиция {(ex.BytePositionInLine ?? 0) + 1}"
+                : "ошибка в JSON");
+        }
+        if (loaded is null) return SetAsideBroken("в файле нет настроек (null)");
+
+        ExpandPaths(loaded);
+        foreach (var h in loaded.Hosts)
+            h.Password = Unprotect(h.Password);
+        return loaded;
+    }
+
+    private static string Why(Exception ex) => ex is UnauthorizedAccessException
+        ? "нет прав доступа к файлу"
+        : "файл занят другой программой или недоступен";
+
+    private static string ReadWithRetry(string path)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try { return File.ReadAllText(path); }
+            catch (IOException) when (attempt < 5) { Thread.Sleep(100); }
+        }
+    }
+
+    /// <summary>Испорченный файл переименовываем рядом — дальше программа начинает с чистого файла, данные не теряются.</summary>
+    private static AppDefaults SetAsideBroken(string reason)
+    {
+        var dir = Path.GetDirectoryName(DefaultsPath)!;
+        var backup = Path.Combine(dir, $"LinuxOps.defaults.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        try
+        {
+            File.Move(DefaultsPath, backup);
+            Problem ??= $"Файл настроек испорчен ({reason}) и не прочитан.\n\n" +
+                        $"Он сохранён как:\n{backup}\n\n" +
+                        "Программа начала с пустыми настройками. Исправьте копию и верните её под именем " +
+                        "LinuxOps.defaults.json при закрытой программе — или перенесите хосты заново.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _readOnly = true;
+            Problem ??= $"Файл настроек испорчен ({reason}), отложить его в копию не удалось ({Why(ex)}):\n{DefaultsPath}\n\n" +
+                        "Изменения в файл не сохраняются, чтобы не затереть его.";
+        }
         return new AppDefaults();
     }
 
@@ -121,9 +177,13 @@ public static class DefaultsStore
     {
         // Load() расшифровывает пароли хостов — перед записью шифруем всегда, иначе любое сохранение
         // (план, тема, редактор, vCenter) писало бы их открытым текстом. Protect повторно не шифрует.
+        if (_readOnly) return;
         defaults.Hosts = defaults.Hosts.Select(CloneHostForSave).ToList();
         var json = JsonSerializer.Serialize(defaults, JsonOptions);
-        File.WriteAllText(DefaultsPath, json);
+        // Сначала во временный файл, потом подмена: оборванная запись не оставит полупустой JSON.
+        var tmp = DefaultsPath + ".tmp";
+        File.WriteAllText(tmp, json);
+        File.Move(tmp, DefaultsPath, overwrite: true);
     }
 
     private static HostConfig CloneHostForSave(HostConfig h) => new()

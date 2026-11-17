@@ -48,6 +48,8 @@ public partial class MainWindow : Window
         _actions.Load();
         FooterVersionText.Text = $"v{GetVersion()}";
         ShowMode("actions");
+        if (Services.DefaultsStore.Problem is { } problem)
+            ContentRendered += (_, _) => AppDialog.Info(this, problem, "Файл настроек");
     }
 
     protected override void OnSourceInitialized(EventArgs e)
