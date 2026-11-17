@@ -5,7 +5,7 @@ using LinuxOps.Services;
 namespace LinuxOps.ViewModels;
 
 /// <summary>
-/// Общий Inventory для всех вкладок: хосты Linux, vCenter и папки. Списки плоские — папки только способ
+/// Общий Inventory для всех вкладок: хосты Linux, vCenter, хосты Windows и папки. Списки плоские — папки только способ
 /// показа (FolderId у ресурса), поэтому SSH, SFTP и запуск действий о них не знают.
 /// </summary>
 public sealed class AppSession
@@ -13,11 +13,19 @@ public sealed class AppSession
     public ObservableCollection<HostConfig> Hosts { get; } = new();
     public ObservableCollection<VCenterProfile> VCenters { get; } = new();
     public ObservableCollection<HostFolder> Folders { get; } = new();
+    public ObservableCollection<WindowsHost> WindowsHosts { get; } = new();
 
     /// <summary>Поменялось дерево (папки, перенос ресурса) — деревья на вкладках перестраиваются.</summary>
     public event Action? TreeChanged;
 
+    /// <summary>Ресурсы для действий (Actions): хосты Linux и vCenter. Хосты Windows сюда не входят.</summary>
     public IEnumerable<IInventoryItem> Items => Hosts.Cast<IInventoryItem>().Concat(VCenters);
+
+    /// <summary>Все ресурсы Inventory, вместе с хостами Windows (папки, Inventory, «Подключения»).</summary>
+    public IEnumerable<IInventoryItem> AllItems => Items.Concat(WindowsHosts);
+
+    /// <summary>Хосты для вкладки «Подключения»: Linux (SSH) и Windows (RDP).</summary>
+    public IEnumerable<IInventoryItem> ConnectItems => Hosts.Cast<IInventoryItem>().Concat(WindowsHosts);
 
     public void Reload()
     {
@@ -26,16 +34,18 @@ public sealed class AppSession
         foreach (var h in d.Hosts) Hosts.Add(h);
         VCenters.Clear();
         foreach (var v in d.VCenters) VCenters.Add(v);
+        WindowsHosts.Clear();
+        foreach (var w in d.WindowsHosts) WindowsHosts.Add(w);
         Folders.Clear();
         foreach (var f in d.Folders) Folders.Add(f);
         // Ссылка на несуществующую папку (правили JSON руками) — ресурс в корень.
         var ids = Folders.Select(f => f.Id).ToHashSet();
-        foreach (var i in Items.Where(i => i.FolderId.Length > 0 && !ids.Contains(i.FolderId))) i.FolderId = "";
+        foreach (var i in AllItems.Where(i => i.FolderId.Length > 0 && !ids.Contains(i.FolderId))) i.FolderId = "";
         foreach (var f in Folders.Where(f => f.ParentId.Length > 0 && !ids.Contains(f.ParentId))) f.ParentId = "";
         TreeChanged?.Invoke();
     }
 
-    public void Persist() => DefaultsStore.SaveInventory(Hosts, VCenters, Folders);
+    public void Persist() => DefaultsStore.SaveInventory(Hosts, VCenters, Folders, WindowsHosts);
 
     /// <summary>Сохранить и перестроить деревья.</summary>
     public void Commit()
@@ -73,14 +83,14 @@ public sealed class AppSession
     /// <summary>Удалить папку: её ресурсы и вложенные папки переезжают на уровень выше.</summary>
     public void DeleteFolder(HostFolder folder)
     {
-        foreach (var i in Items.Where(i => i.FolderId == folder.Id)) i.FolderId = folder.ParentId;
+        foreach (var i in AllItems.Where(i => i.FolderId == folder.Id)) i.FolderId = folder.ParentId;
         foreach (var f in Folders.Where(f => f.ParentId == folder.Id)) f.ParentId = folder.ParentId;
         Folders.Remove(folder);
         Commit();
     }
 
     /// <summary>Ресурсов в папке вместе с вложенными.</summary>
-    public int CountIn(HostFolder folder) => Items.Count(i => IsInside(i.FolderId, folder.Id));
+    public int CountIn(HostFolder folder) => AllItems.Count(i => IsInside(i.FolderId, folder.Id));
 
     public void Move(IInventoryItem item, string? folderId)
     {

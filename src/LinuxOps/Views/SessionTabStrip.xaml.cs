@@ -20,6 +20,11 @@ public partial class SessionTab : ObservableObject
     public object Vm { get; }
 
     [ObservableProperty] private HostConfig? host;
+    /// <summary>Хост Windows — у вкладки RDP-сессии (тогда <see cref="Host"/> пуст).</summary>
+    [ObservableProperty] private WindowsHost? rdp;
+
+    /// <summary>Ресурс вкладки: хост Linux или Windows.</summary>
+    public IInventoryItem? Resource => (IInventoryItem?)Host ?? Rdp;
     [ObservableProperty] private string title = "";
     [ObservableProperty] private string tip = "";
     [ObservableProperty] private bool connected;

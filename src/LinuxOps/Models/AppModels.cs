@@ -6,7 +6,7 @@ using System.Windows.Media;
 
 namespace LinuxOps.Models;
 
-/// <summary>Ресурс Inventory: хост Linux или vCenter. Общее для дерева с папками.</summary>
+/// <summary>Ресурс Inventory: хост Linux, vCenter или хост Windows (RDP). Общее для дерева с папками.</summary>
 public interface IInventoryItem : INotifyPropertyChanged
 {
     string Title { get; }
@@ -128,6 +128,83 @@ public sealed class AppDefaults
     public List<VCenterProfile> VCenters { get; set; } = new();
     /// <summary>Папки Inventory: хосты и vCenter ссылаются на них через FolderId.</summary>
     public List<HostFolder> Folders { get; set; } = new();
+    /// <summary>Хосты Windows (RDP). Пароль не хранится — спрашивается при каждом подключении.</summary>
+    public List<WindowsHost> WindowsHosts { get; set; } = new();
+}
+
+/// <summary>Хост Windows в Inventory — подключение по RDP во вкладке «Подключения». Пароль не хранится.</summary>
+public sealed class WindowsHost : IInventoryItem
+{
+    private static readonly Brush WinBrush = Frozen("#0078D4");
+    private bool _isSelected = true;
+    private string _status = "—";
+
+    public string Name { get; set; } = string.Empty;
+    /// <summary>Имя (FQDN) или IP. Для Remote Credential Guard и Restricted Admin — имя: им нужен Kerberos.</summary>
+    public string Host { get; set; } = string.Empty;
+    public int Port { get; set; } = 3389;
+    /// <summary>ДОМЕН\логин или логин@домен. Пусто — спросить при подключении.</summary>
+    public string User { get; set; } = string.Empty;
+    /// <summary>rcg — Remote Credential Guard, restricted — Restricted Admin, password — обычный вход (пароль уходит на сервер).</summary>
+    public string Auth { get; set; } = "rcg";
+    /// <summary>Консольная (административная) сессия, как mstsc /admin.</summary>
+    public bool AdminConsole { get; set; }
+    /// <summary>Диски по умолчанию в окне подключения.</summary>
+    public bool RedirectDrives { get; set; }
+    /// <summary>Принтеры по умолчанию в окне подключения.</summary>
+    public bool RedirectPrinters { get; set; }
+    public string FolderId { get; set; } = string.Empty;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { _isSelected = value; OnPropertyChanged(); }
+    }
+
+    [JsonIgnore]
+    public string Status
+    {
+        get => _status;
+        set { _status = value; OnPropertyChanged(); OnPropertyChanged(nameof(StatusColor)); }
+    }
+
+    [JsonIgnore] public string Title => string.IsNullOrWhiteSpace(Name) ? Host : Name;
+    [JsonIgnore] public string Subtitle => (string.IsNullOrWhiteSpace(User) ? "" : User + " · ") + Host + (Port > 0 && Port != 3389 ? $":{Port}" : "");
+    [JsonIgnore] public string Display => $"Windows {Title} · {Host}";
+    [JsonIgnore] public string IconLetter => "W";
+    [JsonIgnore] public Brush IconBrush => WinBrush;
+    [JsonIgnore] public string IconTip => "Windows · RDP";
+    [JsonIgnore]
+    public string StatusColor => Status switch
+    {
+        "Online" => "#2F9E6F",
+        "Offline" => "#C45C5C",
+        _ => "#8A9AAB"
+    };
+
+    /// <summary>Галочки окна → режим: RCG, Restricted Admin или обычный (ни одной).</summary>
+    public static string AuthFrom(bool rcg, bool restricted) => rcg ? "rcg" : restricted ? "restricted" : "password";
+
+    /// <summary>Подпись режима входа для UI.</summary>
+    public static string AuthLabel(string? auth) => auth switch
+    {
+        "restricted" => "Restricted Admin",
+        "password" => "Обычный (пароль на сервер)",
+        _ => "Remote Credential Guard"
+    };
+
+    public override string ToString() => Title;
+
+    private static Brush Frozen(string hex)
+    {
+        var b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
+        b.Freeze();
+        return b;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>vCenter в Inventory. Пароль не хранится — спрашивается при подключении и живёт до закрытия программы.</summary>

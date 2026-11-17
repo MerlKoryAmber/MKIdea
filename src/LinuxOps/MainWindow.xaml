@@ -28,7 +28,7 @@
                         IsChecked="True" Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="actions"/>
           <ToggleButton x:Name="ChipSsh" Content="SSH Files" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="ssh"/>
-          <ToggleButton x:Name="ChipTerminal" Content="SSH Terminal" Style="{StaticResource ModeChip}"
+          <ToggleButton x:Name="ChipTerminal" Content="Подключения" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="terminal"/>
           <ToggleButton x:Name="ChipPowerShell" Content="PowerShell" Style="{StaticResource ModeChip}"
                         Checked="ModeChip_Checked" Unchecked="ModeChip_Unchecked" Tag="powershell"/>

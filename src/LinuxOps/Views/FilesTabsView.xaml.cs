@@ -26,7 +26,10 @@ public partial class FilesTabsView : UserControl
             if (host is not null && ActiveVm is { Connected: false } vm) vm.SelectedHost = host;
         };
         HostsPanel.HostActivated += async host => await ConnectTo(host);
-        HostsPanel.NewRequested += async host => await ConnectTo(host, newTab: true);
+        HostsPanel.NewRequested += async item =>
+        {
+            if (item is HostConfig host) await ConnectTo(host, newTab: true);
+        };
         HostsPanel.OtherRequested += host => OpenTerminalRequested?.Invoke(host, null);
         Strip.AddTip = "Новая вкладка (Ctrl+T)";
         Strip.Selected += Activate;

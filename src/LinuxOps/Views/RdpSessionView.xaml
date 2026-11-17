@@ -1,0 +1,55 @@
+<UserControl x:Class="LinuxOps.Views.RdpSessionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:wfi="clr-namespace:System.Windows.Forms.Integration;assembly=WindowsFormsIntegration">
+  <!-- Одна RDP-сессия: строка состояния и рабочий стол (встроенный mstscax). Вкладки и хосты — в TerminalTabsView. -->
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <DockPanel Margin="0,0,0,8" LastChildFill="True">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button x:Name="ReconnectBtn" Content="Переподключить" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,0"
+                Click="Reconnect_Click" ToolTip="Подключиться заново с теми же учётными данными"
+                AutomationProperties.AutomationId="RdpReconnect"/>
+        <Button Content="Отключить" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,0" Click="Disconnect_Click"
+                IsEnabled="{Binding Connected}" AutomationProperties.AutomationId="RdpDisconnect"
+                ToolTip="Отключиться, сеанс на сервере остаётся"/>
+        <Button Content="Полный экран" Style="{StaticResource Btn}" Height="28" Margin="0,0,8,0" Click="FullScreen_Click"
+                IsEnabled="{Binding Connected}" AutomationProperties.AutomationId="RdpFullScreen"
+                ToolTip="Выход — кнопка «Восстановить» на панели вверху экрана"/>
+        <Button Content="Открыть в mstsc" Style="{StaticResource Btn}" Height="28" Click="Mstsc_Click"
+                AutomationProperties.AutomationId="RdpMstsc"
+                ToolTip="Тот же хост в обычном «Подключении к удалённому рабочему столу» (пароль спросит mstsc)"/>
+      </StackPanel>
+      <Ellipse Width="9" Height="9" Margin="2,0,8,0" VerticalAlignment="Center">
+        <Ellipse.Style>
+          <Style TargetType="Ellipse">
+            <Setter Property="Fill" Value="{DynamicResource UnknownBrush}"/>
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding Connected}" Value="True">
+                <Setter Property="Fill" Value="{DynamicResource OnlineBrush}"/>
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Ellipse.Style>
+      </Ellipse>
+      <TextBlock x:Name="StatusText" Text="{Binding Status}" VerticalAlignment="Center" FontWeight="SemiBold"
+                 TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="RdpStatus"/>
+    </DockPanel>
+
+    <Grid Grid.Row="1" x:Name="Body">
+      <Border Background="{DynamicResource ConsoleBrush}" BorderBrush="{DynamicResource ConsoleBorderBrush}" BorderThickness="1"/>
+      <!-- Поверх рабочего стола WPF рисовать не может (это окно Windows), поэтому без сессии он скрыт и виден текст. -->
+      <wfi:WindowsFormsHost x:Name="Desk" Margin="1" Visibility="Collapsed" SizeChanged="Desk_SizeChanged"/>
+      <StackPanel x:Name="Placeholder" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="{Binding Status}" FontSize="15" FontWeight="SemiBold" Foreground="#8FA3B5"
+                   HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="560"/>
+        <TextBlock x:Name="PlaceholderHint" Text="Enter или «Переподключить» — подключиться снова" Margin="0,6,0,0"
+                   Foreground="#8FA3B5" HorizontalAlignment="Center"/>
+      </StackPanel>
+    </Grid>
+  </Grid>
+</UserControl>

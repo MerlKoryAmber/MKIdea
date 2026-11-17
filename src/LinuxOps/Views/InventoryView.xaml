@@ -8,12 +8,15 @@
           <Border DockPanel.Dock="Top" Style="{StaticResource SurfaceHeader}">
             <StackPanel>
               <TextBlock Text="Inventory · хосты и vCenter" Style="{StaticResource SectionTitle}"/>
-              <TextBlock Text="Хосты Linux (SSH) и vCenter (PowerShell-действия) по папкам. Перетаскивайте мышью — ресурсы и папки; щелчок по треугольнику сворачивает папку. Сохраняется в LinuxOps.defaults.json."
+              <TextBlock Text="Хосты Linux (SSH), хосты Windows (RDP) и vCenter (PowerShell-действия) по папкам. Перетаскивайте мышью — ресурсы и папки; щелчок по треугольнику сворачивает папку. Сохраняется в LinuxOps.defaults.json."
                          Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,8" TextWrapping="Wrap"/>
               <WrapPanel>
                 <Button Content="+ Хост Linux" Style="{StaticResource Btn}" MinWidth="110" Height="30" Margin="0,0,6,4" Padding="10,0"
                         Command="{Binding AddHostCommand}" AutomationProperties.AutomationId="InvAddHost"
                         ToolTip="Новый хост — в выделенную папку"/>
+                <Button Content="+ Хост Windows" Style="{StaticResource Btn}" MinWidth="120" Height="30" Margin="0,0,6,4" Padding="10,0"
+                        Command="{Binding AddWindowsCommand}" AutomationProperties.AutomationId="InvAddWin"
+                        ToolTip="Новый хост Windows (RDP) — в выделенную папку"/>
                 <Button Content="+ vCenter" Style="{StaticResource Btn}" MinWidth="96" Height="30" Margin="0,0,6,4" Padding="10,0"
                         Command="{Binding AddVCenterCommand}" AutomationProperties.AutomationId="InvAddVc"
                         ToolTip="Новый vCenter — в выделенную папку"/>
@@ -32,10 +35,11 @@
             </StackPanel>
           </Border>
           <views:ResourceTree x:Name="TreeView" Margin="8"
-                              EmptyMessage="Пусто. Добавьте хост Linux или vCenter кнопками выше.">
+                              EmptyMessage="Пусто. Добавьте хост Linux, хост Windows или vCenter кнопками выше.">
             <views:ResourceTree.ContextMenu>
               <ContextMenu>
                 <MenuItem Header="Новый хост Linux" Command="{Binding AddHostCommand}"/>
+                <MenuItem Header="Новый хост Windows" Command="{Binding AddWindowsCommand}"/>
                 <MenuItem Header="Новый vCenter" Command="{Binding AddVCenterCommand}"/>
                 <MenuItem Header="Новая папка" Command="{Binding AddFolderCommand}"/>
                 <Separator/>

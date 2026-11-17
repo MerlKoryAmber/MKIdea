@@ -30,7 +30,7 @@
             <MenuItem x:Name="MenuOther" Header="Открыть" Click="MenuOther_Click"/>
           </ContextMenu>
         </Grid.ContextMenu>
-        <local:ResourceTree x:Name="List" LinuxOnly="True"
+        <local:ResourceTree x:Name="List" Scope="Linux"
                             EmptyMessage="Хостов нет. Добавьте их на вкладке Inventory."/>
       </Grid>
     </DockPanel>

@@ -3,7 +3,7 @@ using LinuxOps.Models;
 
 namespace LinuxOps.ViewModels;
 
-/// <summary>Добавить / изменить / дублировать / удалить ресурс Inventory (хост Linux или vCenter).</summary>
+/// <summary>Добавить / изменить / дублировать / удалить ресурс Inventory (хост Linux, vCenter или хост Windows).</summary>
 internal static class HostDialogs
 {
     public static bool TryAdd(Window owner, AppSession session, string? folderId = null)
@@ -27,10 +27,28 @@ internal static class HostDialogs
         return true;
     }
 
+    public static bool TryAddWindows(Window owner, AppSession session, string? folderId = null)
+    {
+        var dlg = new WindowsHostEditWindow { Owner = owner };
+        if (dlg.ShowDialog() != true) return false;
+        dlg.Result.FolderId = folderId ?? "";
+        session.WindowsHosts.Add(dlg.Result);
+        session.Persist();
+        return true;
+    }
+
     public static bool TryEdit(Window owner, AppSession session, IInventoryItem item)
     {
         switch (item)
         {
+            case WindowsHost win:
+            {
+                var dlg = new WindowsHostEditWindow(win) { Owner = owner };
+                if (dlg.ShowDialog() != true) return false;
+                var idx = session.WindowsHosts.IndexOf(win);
+                if (idx >= 0) session.WindowsHosts[idx] = dlg.Result;
+                break;
+            }
             case HostConfig host:
             {
                 var dlg = new HostEditWindow(host) { Owner = owner };
@@ -93,6 +111,19 @@ internal static class HostDialogs
                 session.VCenters.Add(dlg.Result);
                 break;
             }
+            case WindowsHost win:
+            {
+                var copy = new WindowsHost
+                {
+                    Name = NextName(session, win.Title), Host = win.Host, Port = win.Port, User = win.User, Auth = win.Auth,
+                    AdminConsole = win.AdminConsole, RedirectDrives = win.RedirectDrives, RedirectPrinters = win.RedirectPrinters,
+                    FolderId = win.FolderId
+                };
+                var dlg = new WindowsHostEditWindow(copy) { Owner = owner, Title = "Дублировать хост Windows" };
+                if (dlg.ShowDialog() != true) return false;
+                session.WindowsHosts.Add(dlg.Result);
+                break;
+            }
             default:
                 return false;
         }
@@ -103,7 +134,7 @@ internal static class HostDialogs
 
     private static string NextName(AppSession session, string baseName)
     {
-        var names = session.Items.Select(h => h.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = session.AllItems.Select(h => h.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var n = 2; ; n++)
         {
             var candidate = baseName + "-" + n;
@@ -117,6 +148,7 @@ internal static class HostDialogs
             return false;
         if (item is HostConfig h) session.Hosts.Remove(h);
         else if (item is VCenterProfile v) session.VCenters.Remove(v);
+        else if (item is WindowsHost w) session.WindowsHosts.Remove(w);
         session.Persist();
         return true;
     }

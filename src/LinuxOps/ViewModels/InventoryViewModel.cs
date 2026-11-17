@@ -5,7 +5,7 @@ using LinuxOps.Models;
 
 namespace LinuxOps.ViewModels;
 
-/// <summary>Inventory: дерево хостов Linux и vCenter с папками. Выделение и «куда добавлять» даёт дерево.</summary>
+/// <summary>Inventory: дерево хостов Linux, vCenter и хостов Windows с папками. Выделение и «куда добавлять» даёт дерево.</summary>
 public partial class InventoryViewModel : ObservableObject
 {
     public InventoryViewModel(AppSession session) => Session = session;
@@ -27,6 +27,9 @@ public partial class InventoryViewModel : ObservableObject
     private void AddVCenter() => HostDialogs.TryAddVCenter(OwnerWin(), Session, TargetFolder?.Id);
 
     [RelayCommand]
+    private void AddWindows() => HostDialogs.TryAddWindows(OwnerWin(), Session, TargetFolder?.Id);
+
+    [RelayCommand]
     private void AddFolder() => HostDialogs.TryAddFolder(OwnerWin(), Session, TargetFolder?.Id);
 
     [RelayCommand]
@@ -41,7 +44,7 @@ public partial class InventoryViewModel : ObservableObject
                 HostDialogs.TryRenameFolder(OwnerWin(), Session, f.Folder);
                 break;
             default:
-                AppDialog.Info(OwnerWin(), "Выделите хост, vCenter или папку.");
+                AppDialog.Info(OwnerWin(), "Выделите хост, vCenter, хост Windows или папку.");
                 break;
         }
     }
@@ -50,7 +53,7 @@ public partial class InventoryViewModel : ObservableObject
     private void Duplicate()
     {
         if (Selected is ItemNode i) HostDialogs.TryDuplicate(OwnerWin(), Session, i.Item);
-        else AppDialog.Info(OwnerWin(), Selected is FolderNode ? "Папку дублировать нельзя — выделите хост или vCenter." : "Выделите хост или vCenter.");
+        else AppDialog.Info(OwnerWin(), Selected is FolderNode ? "Папку дублировать нельзя — выделите ресурс." : "Выделите хост, vCenter или хост Windows.");
     }
 
     [RelayCommand]

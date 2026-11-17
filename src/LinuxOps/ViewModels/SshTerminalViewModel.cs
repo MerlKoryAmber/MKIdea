@@ -79,14 +79,14 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
         host ??= SelectedHost;
         if (host is null)
         {
-            AppDialog.Info(OwnerWin(), "Выберите хост в списке слева.", "SSH Terminal");
+            AppDialog.Info(OwnerWin(), "Выберите хост в списке слева.", "Подключения");
             return;
         }
 
         SelectedHost = host;
         if (Connected && ReferenceEquals(_shellHost, host)) return;
         if (Connected && confirmSwitch && _shellHost is not null &&
-            !AppDialog.Confirm(OwnerWin(), $"Закрыть сессию {_shellHost.Title} и подключиться к {host.Title}?", "SSH Terminal"))
+            !AppDialog.Confirm(OwnerWin(), $"Закрыть сессию {_shellHost.Title} и подключиться к {host.Title}?", "Подключения"))
             return;
 
         Disconnect();
@@ -121,7 +121,7 @@ public partial class SshTerminalViewModel : ObservableObject, IDisposable
         {
             host.Status = "Offline";
             Status = "Ошибка: " + ex.Message;
-            AppDialog.Info(OwnerWin(), ex.Message, "SSH Terminal");
+            AppDialog.Info(OwnerWin(), ex.Message, "Подключения");
             Disconnect();
         }
     }

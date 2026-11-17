@@ -6,17 +6,25 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- RDP: встроенный mstscax — ActiveX, встраивается через WindowsFormsHost. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>0.3.43</Version>
-    <AssemblyVersion>0.3.43.0</AssemblyVersion>
-    <FileVersion>0.3.43.0</FileVersion>
-    <InformationalVersion>0.3.43</InformationalVersion>
+    <Version>0.3.44</Version>
+    <AssemblyVersion>0.3.44.0</AssemblyVersion>
+    <FileVersion>0.3.44.0</FileVersion>
+    <InformationalVersion>0.3.44</InformationalVersion>
     <Company>Merl</Company>
     <Product>LinuxOps</Product>
     <AssemblyTitle>LinuxOps</AssemblyTitle>
     <Description>SSH checks and actions for Linux hosts from Windows</Description>
     <Copyright>Copyright © Merl 2026</Copyright>
   </PropertyGroup>
+
+  <!-- WinForms нужен только для RDP: его имена (Application, Point, Brush…) не должны конфликтовать с WPF. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AvalonEdit" Version="6.3.1.120" />

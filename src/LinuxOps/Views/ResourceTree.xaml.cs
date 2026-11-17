@@ -49,8 +49,11 @@ public partial class ResourceTree : UserControl
         set => SetValue(ShowChecksProperty, value);
     }
 
-    /// <summary>Только хосты Linux (SSH Files, Terminal): vCenter и папки без хостов не показываются.</summary>
-    public bool LinuxOnly { get; set; }
+    /// <summary>
+    /// Какие ресурсы показывать: All — всё (Inventory); Actions — хосты Linux и vCenter; Linux — только хосты Linux (SSH Files);
+    /// Connect — хосты Linux и Windows («Подключения»). Кроме All папки без подходящих ресурсов не показываются.
+    /// </summary>
+    public string Scope { get; set; } = "All";
 
     /// <summary>Поиск: что показывать. Пока задан — все папки раскрыты (без записи).</summary>
     public Func<IInventoryItem, bool>? Filter { get; set; }
@@ -81,6 +84,7 @@ public partial class ResourceTree : UserControl
         session.TreeChanged += Rebuild;
         session.Hosts.CollectionChanged += OnCollectionChanged;
         session.VCenters.CollectionChanged += OnCollectionChanged;
+        session.WindowsHosts.CollectionChanged += OnCollectionChanged;
         session.Folders.CollectionChanged += OnCollectionChanged;
         Rebuild();
     }
@@ -88,7 +92,15 @@ public partial class ResourceTree : UserControl
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Rebuild();
 
     private IEnumerable<IInventoryItem> AllItems()
-        => _session is null ? Enumerable.Empty<IInventoryItem>() : LinuxOnly ? _session.Hosts : _session.Items;
+        => _session is null
+            ? Enumerable.Empty<IInventoryItem>()
+            : Scope switch
+            {
+                "Linux" => _session.Hosts,
+                "Actions" => _session.Items,
+                "Connect" => _session.ConnectItems,
+                _ => _session.AllItems
+            };
 
     public void Rebuild()
     {
@@ -107,7 +119,7 @@ public partial class ResourceTree : UserControl
         TotalCount = all.Count;
         var items = Filter is { } filter ? all.Where(filter).ToList() : all;
         var filtering = Filter is not null;
-        var hideEmpty = filtering || LinuxOnly;
+        var hideEmpty = filtering || Scope is "Linux" or "Connect";
         var known = _session.Folders.Select(f => f.Id).ToHashSet();
 
         _silent = true;

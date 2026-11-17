@@ -94,7 +94,8 @@ public static class DefaultsStore
     }
 
     /// <summary>Inventory целиком: хосты, vCenter и папки — одной записью.</summary>
-    public static void SaveInventory(IEnumerable<HostConfig> hosts, IEnumerable<VCenterProfile> vcenters, IEnumerable<HostFolder> folders)
+    public static void SaveInventory(IEnumerable<HostConfig> hosts, IEnumerable<VCenterProfile> vcenters, IEnumerable<HostFolder> folders,
+        IEnumerable<WindowsHost> windows)
     {
         var defaults = Load();
         defaults.Hosts = hosts.Select(CloneHostForSave).ToList();
@@ -106,6 +107,12 @@ public static class DefaultsStore
         defaults.Folders = folders.Select(f => new HostFolder
         {
             Id = f.Id, Name = f.Name.Trim(), ParentId = f.ParentId, IsExpanded = f.IsExpanded
+        }).ToList();
+        defaults.WindowsHosts = windows.Select(w => new WindowsHost
+        {
+            Name = w.Name.Trim(), Host = w.Host.Trim(), Port = w.Port is > 0 and < 65536 ? w.Port : 3389, User = w.User.Trim(),
+            Auth = w.Auth is "restricted" or "password" ? w.Auth : "rcg", AdminConsole = w.AdminConsole,
+            RedirectDrives = w.RedirectDrives, RedirectPrinters = w.RedirectPrinters, FolderId = w.FolderId, IsSelected = w.IsSelected
         }).ToList();
         Write(defaults);
     }

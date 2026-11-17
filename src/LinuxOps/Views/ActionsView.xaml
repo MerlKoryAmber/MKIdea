@@ -46,7 +46,7 @@
             <CheckBox x:Name="SelectAllHosts" Content="Выбрать все / снять все"
                       IsChecked="{Binding SelectAllChecked, Mode=OneWay}" Click="SelectAllHosts_Click"/>
           </Border>
-          <local:ResourceTree x:Name="HostsTree" ShowChecks="True" Margin="8,6,8,4"
+          <local:ResourceTree x:Name="HostsTree" ShowChecks="True" Scope="Actions" Margin="8,6,8,4"
                               EmptyMessage="Ресурсов нет. Добавьте хосты Linux и vCenter на вкладке Inventory."/>
         </DockPanel>
       </Border>

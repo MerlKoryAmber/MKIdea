@@ -1,0 +1,51 @@
+<Window x:Class="LinuxOps.WindowsHostEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Хост Windows" Width="500" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+  <StackPanel Margin="20,16">
+    <TextBlock Text="Имя" FontWeight="SemiBold" Margin="0,0,0,2"/>
+    <TextBox x:Name="NameBox" AutomationProperties.AutomationId="WinName"/>
+    <TextBlock Text="Как хост называется в дереве. Пусто — адрес." Foreground="{DynamicResource MutedBrush}"
+               FontSize="11.5" Margin="0,2,0,8"/>
+    <Grid Margin="0,0,0,2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="10"/>
+        <ColumnDefinition Width="90"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock Text="Адрес" FontWeight="SemiBold"/>
+      <TextBlock Grid.Column="2" Text="Порт" FontWeight="SemiBold"/>
+    </Grid>
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="10"/>
+        <ColumnDefinition Width="90"/>
+      </Grid.ColumnDefinitions>
+      <TextBox x:Name="HostBox" AutomationProperties.AutomationId="WinHost"/>
+      <TextBox x:Name="PortBox" Grid.Column="2" Text="3389" AutomationProperties.AutomationId="WinPort"/>
+    </Grid>
+    <TextBlock Text="Полное имя, например dc-01.merl.loc. Remote Credential Guard и Restricted Admin работают только по имени (Kerberos), не по IP."
+               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,8"/>
+    <TextBlock Text="Учётная запись" FontWeight="SemiBold" Margin="0,0,0,2"/>
+    <TextBox x:Name="UserBox" AutomationProperties.AutomationId="WinUser"/>
+    <TextBlock Text="ДОМЕН\логин или логин@домен. Подставляется в окно подключения; пароль не хранится — спрашивается при каждом подключении."
+               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,8"/>
+    <TextBlock Text="По умолчанию в окне подключения" FontWeight="SemiBold" Margin="0,0,0,4"/>
+    <CheckBox x:Name="RcgBox" Content="Remote Credential Guard — пароль не уходит на сервер" Margin="0,0,0,4"
+              Checked="Rcg_Checked" AutomationProperties.AutomationId="WinRcg"/>
+    <CheckBox x:Name="RestrictedBox" Content="Restricted Admin — без учётных данных на сервере" Margin="0,0,0,2"
+              Checked="Restricted_Checked" AutomationProperties.AutomationId="WinRestricted"/>
+    <TextBlock Text="Обе — только через Kerberos (контроллер домена доступен, адрес — имя) и при разрешении на сервере (DisableRestrictedAdmin = 0). Вошли в Windows доменной учёткой — без пароля. Ни одной — обычный вход, пароль передаётся на сервер."
+               Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+    <CheckBox x:Name="AdminBox" Content="Консольная сессия (/admin)" Margin="0,0,0,4" AutomationProperties.AutomationId="WinAdmin"/>
+    <CheckBox x:Name="DrivesBox" Content="Локальные диски" Margin="0,0,0,4" AutomationProperties.AutomationId="WinDrives"/>
+    <CheckBox x:Name="PrintersBox" Content="Принтеры" AutomationProperties.AutomationId="WinPrinters"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+      <Button Content="Отмена" Style="{StaticResource Btn}" Width="100" Margin="0,0,8,0" IsCancel="True"/>
+      <Button Content="Сохранить" Style="{StaticResource BtnPrimary}" Width="120" IsDefault="True" Click="Save_Click"
+              AutomationProperties.AutomationId="WinSave"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
