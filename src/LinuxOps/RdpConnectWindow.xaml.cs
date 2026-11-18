@@ -29,14 +29,18 @@ public partial class RdpConnectWindow : Window
         PrintersBox.IsChecked = host.RedirectPrinters;
         RcgBox.IsChecked = host.Auth == "rcg";
         RestrictedBox.IsChecked = host.Auth == "restricted";
-        UpdateHint();
         TestCredential.Apply(UserBox, PassBox);
-        Loaded += (_, _) =>
-        {
-            if (UserBox.Text.Length == 0) UserBox.Focus();
-            else PassBox.Focus();
-        };
+        _loaded = true;
+        UpdateMode();
     }
+
+    private bool _loaded;
+
+    /// <summary>Учётка, под которой запущена программа: ДОМЕН\логин.</summary>
+    public static string CurrentAccount => $@"{Environment.UserDomainName}\{Environment.UserName}";
+
+    /// <summary>Вошли в Windows локальной учёткой (домен = имя этого ПК) — Kerberos к серверу не будет.</summary>
+    private static bool LocalAccount => string.Equals(Environment.UserDomainName, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
 
     public RdpOptions Result { get; private set; } = new();
 
@@ -46,46 +50,60 @@ public partial class RdpConnectWindow : Window
     private void Rcg_Checked(object sender, RoutedEventArgs e)
     {
         RestrictedBox.IsChecked = false;
-        UpdateHint();
+        UpdateMode();
     }
 
     private void Restricted_Checked(object sender, RoutedEventArgs e)
     {
         RcgBox.IsChecked = false;
-        UpdateHint();
+        UpdateMode();
     }
 
-    private void Auth_Changed(object sender, RoutedEventArgs e) => UpdateHint();
+    private void Auth_Changed(object sender, RoutedEventArgs e) => UpdateMode();
 
-    private void UpdateHint()
+    /// <summary>
+    /// RCG и Restricted Admin входят на сервер текущей учёткой Windows через Kerberos — логин и пароль не нужны,
+    /// поля скрываются. Обычный вход — логин и пароль.
+    /// </summary>
+    private void UpdateMode()
     {
-        if (PassHint is null || RcgBox is null || RestrictedBox is null) return;
-        PassHint.Text = Auth == "password"
-            ? "Пароль уходит на сервер (CredSSP), как в обычном mstsc."
-            : "Пусто — текущая учётка Windows (только если вы вошли в Windows доменной учёткой). Пароль на сервер не уходит: вход через Kerberos.";
+        if (!_loaded) return;
+        var sso = Auth != "password";
+        CredPanel.Visibility = sso ? Visibility.Collapsed : Visibility.Visible;
+        SsoPanel.Visibility = sso ? Visibility.Visible : Visibility.Collapsed;
+        if (sso)
+        {
+            SsoText.Text = $"Вход вашей учёткой Windows: {CurrentAccount}. Пароль не нужен и на сервер не уходит " +
+                           (Auth == "rcg" ? "(Kerberos, учётные данные остаются на этом ПК)." : "(Kerberos, на сервере — сеанс без учётных данных).");
+            SsoWarn.Text = LocalAccount
+                ? "Вы вошли в Windows локальной учёткой — так войти не получится. Снимите галочку, чтобы войти по паролю."
+                : "";
+            SsoWarn.Visibility = SsoWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (sso) ConnectBtn.Focus();
+            else if (UserBox.Text.Length == 0) UserBox.Focus();
+            else PassBox.Focus();
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void Connect_Click(object sender, RoutedEventArgs e)
     {
-        var user = UserBox.Text.Trim();
-        if (Auth == "password" && (user.Length == 0 || PassBox.Password.Length == 0))
+        var sso = Auth != "password";
+        var user = sso ? "" : UserBox.Text.Trim();
+        if (!sso && (user.Length == 0 || PassBox.Password.Length == 0))
         {
-            AppDialog.Info(this, "Для обычного входа нужны учётная запись и пароль.", "Подключение RDP");
+            AppDialog.Info(this, "Для входа по паролю нужны учётная запись и пароль.", "Подключение RDP");
             (user.Length == 0 ? (Control)UserBox : PassBox).Focus();
-            return;
-        }
-
-        if (PassBox.Password.Length > 0 && user.Length == 0)
-        {
-            AppDialog.Info(this, "Укажите учётную запись для этого пароля.", "Подключение RDP");
-            UserBox.Focus();
             return;
         }
 
         Result = new RdpOptions
         {
             User = user,
-            Password = PassBox.Password,
+            Password = sso ? "" : PassBox.Password,
             Auth = Auth,
             AdminConsole = AdminBox.IsChecked == true,
             RedirectDrives = DrivesBox.IsChecked == true,

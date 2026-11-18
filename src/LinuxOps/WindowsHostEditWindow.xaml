@@ -28,16 +28,16 @@
     </Grid>
     <TextBlock Text="Полное имя, например dc-01.merl.loc. Remote Credential Guard и Restricted Admin работают только по имени (Kerberos), не по IP."
                Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,8"/>
-    <TextBlock Text="Учётная запись" FontWeight="SemiBold" Margin="0,0,0,2"/>
+    <TextBlock Text="Учётная запись для входа по паролю" FontWeight="SemiBold" Margin="0,0,0,2"/>
     <TextBox x:Name="UserBox" AutomationProperties.AutomationId="WinUser"/>
-    <TextBlock Text="ДОМЕН\логин или логин@домен. Подставляется в окно подключения; пароль не хранится — спрашивается при каждом подключении."
+    <TextBlock Text="ДОМЕН\логин или логин@домен. Только для входа по паролю (без RCG и Restricted Admin): подставляется в окно подключения, пароль не хранится."
                Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,8"/>
     <TextBlock Text="По умолчанию в окне подключения" FontWeight="SemiBold" Margin="0,0,0,4"/>
     <CheckBox x:Name="RcgBox" Content="Remote Credential Guard — пароль не уходит на сервер" Margin="0,0,0,4"
               Checked="Rcg_Checked" AutomationProperties.AutomationId="WinRcg"/>
     <CheckBox x:Name="RestrictedBox" Content="Restricted Admin — без учётных данных на сервере" Margin="0,0,0,2"
               Checked="Restricted_Checked" AutomationProperties.AutomationId="WinRestricted"/>
-    <TextBlock Text="Обе — только через Kerberos (контроллер домена доступен, адрес — имя) и при разрешении на сервере (DisableRestrictedAdmin = 0). Вошли в Windows доменной учёткой — без пароля. Ни одной — обычный вход, пароль передаётся на сервер."
+    <TextBlock Text="Обе — только через Kerberos (контроллер домена доступен, адрес — имя) и при разрешении на сервере (DisableRestrictedAdmin = 0). Вход — вашей учёткой Windows, без логина и пароля. Ни одной — вход по паролю, пароль передаётся на сервер."
                Foreground="{DynamicResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
     <CheckBox x:Name="AdminBox" Content="Консольная сессия (/admin)" Margin="0,0,0,4" AutomationProperties.AutomationId="WinAdmin"/>
     <CheckBox x:Name="DrivesBox" Content="Локальные диски" Margin="0,0,0,4" AutomationProperties.AutomationId="WinDrives"/>

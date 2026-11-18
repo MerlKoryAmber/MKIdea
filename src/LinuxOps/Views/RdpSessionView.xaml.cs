@@ -62,7 +62,7 @@ public partial class RdpSessionView : UserControl, IDisposable
         {
             Vm.Connecting = false;
             Vm.Connected = true;
-            Vm.Status = $"{Vm.Host.Title} · {(Vm.Options.User.Length > 0 ? Vm.Options.User : "текущая учётка Windows")} · {Vm.ModeText}";
+            Vm.Status = $"{Vm.Host.Title} · {(Vm.Options.User.Length > 0 ? Vm.Options.User : RdpConnectWindow.CurrentAccount)} · {Vm.ModeText}";
             FocusSession();
         };
         rdp.Sink.Disconnected += reason => OnDisconnected(rdp, reason);
@@ -183,6 +183,7 @@ public partial class RdpSessionView : UserControl, IDisposable
             var network = NetworkReasons.Contains(reason);
             text = reason switch
             {
+                2 or 3 when !wasConnected => "Сервер закрыл подключение до входа",
                 2 => "Сеанс на сервере завершён",
                 3 => "Сервер разорвал подключение",
                 260 => $"Имя {Vm.Host.Host} не найдено (DNS)",
@@ -192,7 +193,7 @@ public partial class RdpSessionView : UserControl, IDisposable
                 _ => desc.Length > 0 ? desc : $"Подключение не удалось (код {reason})"
             };
             // Подсказка про Kerberos — только когда до сервера достучались, а вход не прошёл.
-            if (!wasConnected && !network && Vm.Options.Auth != "password" && reason != 2 && reason != 3)
+            if (!wasConnected && !network && Vm.Options.Auth != "password")
                 text += $" · {Models.WindowsHost.AuthLabel(Vm.Options.Auth)} работает только через Kerberos: нужен доступ к контроллеру домена и вход по имени хоста.";
         }
 
