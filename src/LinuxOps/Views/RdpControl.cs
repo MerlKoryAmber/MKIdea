@@ -61,7 +61,7 @@ public sealed class RdpControl : AxHost
 {
     /// <summary>
     /// Версии класса клиента, от новой к старой. Нужное программе (AdvancedSettings9, UpdateSessionDisplaySettings)
-    /// есть с MsRdpClient9 (Windows 8.1); набор классов зависит от сборки Windows, поэтому берём первый зарегистрированный.
+    /// есть с MsRdpClient9 (Windows 8.1). Набор классов зависит от сборки Windows.
     /// </summary>
     private static readonly (string Name, string Clsid)[] Classes =
     {
@@ -74,26 +74,44 @@ public sealed class RdpControl : AxHost
     /// <summary>Какой класс клиента выбран на этой машине (для строки ошибки и отчёта).</summary>
     public static string ClassName => Pick().Name;
 
+    /// <summary>
+    /// Первый класс, который реально создаётся. Одной записи в реестре мало: в Windows 10 1809 CLSID MsRdpClient10
+    /// зарегистрирован, а mstscax.dll его не знает (CLASS_E_CLASSNOTAVAILABLE). Пробный объект сразу освобождается.
+    /// </summary>
     private static (string Name, string Clsid) Pick()
     {
         if (_picked is { } p) return p;
+        var candidates = Classes;
 #if DEBUG
-        // Проверка на машине разработчика: LINUXOPS_RDP_CLASS=9 — как в Windows без MsRdpClient10, =none — клиента нет вовсе.
+        // Проверка на машине разработчика: LINUXOPS_RDP_CLASS=9 — сразу MsRdpClient9; broken — «MsRdpClient10» не создаётся,
+        // должен быть выбран MsRdpClient9 (как в Windows 10 1809); none — не создаётся ни один.
         switch (Environment.GetEnvironmentVariable("LINUXOPS_RDP_CLASS"))
         {
-            case "9": return (_picked = Classes[1]).Value;
-            case "none": throw new InvalidOperationException(
-                "В этой Windows нет подходящего клиента удалённого рабочего стола (нужен mstscax с MsRdpClient9 или новее). Используйте «Открыть в mstsc».");
-            case "broken": return ("MsRdpClient10", "00000000-0000-0000-0000-00000000dead");
+            case "9": candidates = new[] { Classes[1] }; break;
+            case "broken": candidates = new[] { ("MsRdpClient10", "00000000-0000-0000-0000-00000000dead"), Classes[1] }; break;
+            case "none": candidates = new[] { ("MsRdpClient10", "00000000-0000-0000-0000-00000000dead") }; break;
         }
 #endif
-        foreach (var c in Classes)
+        var failures = new List<string>();
+        foreach (var c in candidates)
         {
-            using var key = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey($@"CLSID\{{{c.Clsid}}}\InprocServer32");
-            if (key is not null) return (_picked = c).Value;
+            try
+            {
+                var type = Type.GetTypeFromCLSID(new Guid(c.Clsid), throwOnError: true)!;
+                var probe = Activator.CreateInstance(type);
+                if (probe is not null && Marshal.IsComObject(probe)) Marshal.FinalReleaseComObject(probe);
+                if (failures.Count > 0)
+                    Services.CrashLog.Write($"RDP: выбран {c.Name}; не создаются: {string.Join("; ", failures)}", null);
+                return (_picked = c).Value;
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{c.Name} (0x{ex.HResult:X8})");
+            }
         }
+        Services.CrashLog.Write($"RDP: ни один клиент не создаётся: {string.Join("; ", failures)}", null);
         throw new InvalidOperationException(
-            "В этой Windows нет подходящего клиента удалённого рабочего стола (нужен mstscax с MsRdpClient9 или новее). Используйте «Открыть в mstsc».");
+            $"В этой Windows не создаётся клиент удалённого рабочего стола ({string.Join(", ", failures)}). Используйте «Открыть в mstsc».");
     }
 
     private ConnectionPointCookie? _cookie;

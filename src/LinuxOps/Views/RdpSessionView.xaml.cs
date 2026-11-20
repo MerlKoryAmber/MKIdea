@@ -106,8 +106,8 @@ public partial class RdpSessionView : UserControl, IDisposable
             // Неудачный клиент убрать из вкладки: иначе WindowsFormsHost при следующей раскладке снова создаёт его и падает.
             try { Desk.Child = null; } catch { /* уже не встроен */ }
             try { rdp.Dispose(); } catch { /* окна нет */ }
-            Fail(ex is System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040154) }
-                ? $"В этой Windows не зарегистрирован клиент RDP {RdpControl.ClassName} (mstscax). Используйте «Открыть в mstsc»."
+            Fail(ex is System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040154) or unchecked((int)0x80040111) }
+                ? $"В этой Windows не создаётся клиент RDP {RdpControl.ClassName} (mstscax, 0x{ex.HResult:X8}). Используйте «Открыть в mstsc»."
                 : "Не удалось встроить клиент RDP: " + ex.Message);
             return;
         }
