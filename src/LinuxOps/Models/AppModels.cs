@@ -269,6 +269,12 @@ public sealed class ActionParam
     public string Name { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
     public string Default { get; set; } = string.Empty;
+    /// <summary>"bool" — галка (значение «да» / «нет»); пусто — текстовое поле.</summary>
+    public string Kind { get; set; } = string.Empty;
+    /// <summary>Пояснение под полем; пусто — «В скрипте — $Name…».</summary>
+    public string Hint { get; set; } = string.Empty;
+
+    public static bool IsYes(string? v) => v?.Trim().ToLowerInvariant() is "да" or "yes" or "1" or "true" or "on";
 }
 
 public sealed class ActionDefinition

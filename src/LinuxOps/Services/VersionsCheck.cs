@@ -98,15 +98,43 @@ public sealed class VersionReport
         }
     }
 
-    public string UpdatesText => PackageManager == "none"
-        ? "Менеджер пакетов не найден — обновления не проверялись."
-        : UpdateError.Length > 0
-            ? $"Обновления пакетов не проверены: {UpdateError}"
-            : SecurityInfo
-                ? $"Обновления пакетов — по репозиториям ({PackageManagerText}), с пометками безопасности."
-                : $"Обновления пакетов — по репозиториям ({PackageManagerText}); дистрибутив не публикует пометки безопасности, показано любое обновление.";
+    /// <summary>Как получены списки обновлений: net (хост сам), tunnel (через ПК оператора), cache (кэш хоста), none.</summary>
+    public string UpdatePath { get; set; } = "";
+    public DateTime? CacheTime { get; set; }
+    /// <summary>Почему не ответили репозитории (при откате на кэш или неудаче).</summary>
+    public string NetError { get; set; } = "";
+    /// <summary>Туннель через ПК просили, но он не поднялся — почему (заполняет PlanRunner).</summary>
+    public string TunnelNote { get; set; } = "";
+    /// <summary>Сколько соединений прошло через ПК (-1 — туннель не поднимался) и куда.</summary>
+    public int TunnelConnections { get; set; } = -1;
+    public string TunnelLog { get; set; } = "";
 
-    private string PackageManagerText => PackageManager == "yum" ? "dnf / yum" : PackageManager;
+    public string UpdatesText
+    {
+        get
+        {
+            var tunnel = TunnelNote.Length > 0 ? $"Туннель через этот ПК не поднят: {TunnelNote}. " : "";
+            if (UpdatePath == "tunnel" && TunnelConnections == 0)
+                return $"Через этот ПК соединений не было — менеджер пакетов ответил по своим спискам ({PackageManagerText}{Lists}).";
+            if (PackageManager == "none") return tunnel + "Менеджер пакетов не найден — обновления не проверялись.";
+            if (UpdateError.Length > 0)
+                return tunnel + (NetError.Length > 0
+                    ? $"Обновления пакетов не проверены: репозитории не ответили ({NetError}), кэша на хосте нет."
+                    : $"Обновления пакетов не проверены: {UpdateError}");
+            var sec = SecurityInfo ? ", с пометками безопасности." : "; дистрибутив не публикует пометки безопасности, показано любое обновление.";
+            return tunnel + UpdatePath switch
+            {
+                "cache" => $"Репозитории не ответили{(NetError.Length > 0 ? $" ({NetError})" : "")} — обновления по кэшу хоста"
+                           + (CacheTime is { } t ? $" от {t:dd.MM.yyyy HH:mm}" : "") + $" ({PackageManagerText}){sec}",
+                "tunnel" => $"Обновления пакетов — по репозиториям через этот ПК (туннель SSH, {PackageManagerText}{Lists}){sec}",
+                _ => $"Обновления пакетов — по репозиториям ({PackageManagerText}{Lists}){sec}"
+            };
+        }
+    }
+
+    private string Lists => CacheTime is { } t ? $", списки от {t:dd.MM.yyyy HH:mm}" : "";
+
+    private string PackageManagerText =>PackageManager == "yum" ? "dnf / yum" : PackageManager;
 }
 
 /// <summary>
@@ -117,6 +145,8 @@ public sealed class VersionReport
 public static class VersionsCheck
 {
     public const string ActionId = "versions-check";
+    /// <summary>Параметр-галка: списки обновлений через ПК оператора (туннель SSH). По умолчанию «нет».</summary>
+    public const string ViaPcParam = "UPD_VIA_PC";
 
     public static string ProductName(string p) => p switch
     {
@@ -140,7 +170,8 @@ public static class VersionsCheck
     /// Скрипт. Тело — в функции main с stdin из /dev/null: скрипт сам приходит через stdin (bash -s), и команда,
     /// читающая stdin, иначе съела бы его остаток. Проба версий (PROBE) — POSIX sh: та же выполняется в контейнерах
     /// (там часто busybox). Ничего не устанавливает и не меняет; dnf/apt обновляют только списки пакетов.
-    /// Строки вывода (TAB): PM, V (версия), U (обновление пакета), SEC, UERR, CT (контейнер), CTSTOP, CTERR.
+    /// Строки вывода (TAB): PM, V (версия), U (обновление пакета), SEC, UPATH (откуда списки), UERR, CT (контейнер), CTSTOP, CTERR.
+    /// Окружение: UPD_BUDGET — секунд на сеть (60), UPD_PROXY — прокси только для этой проверки (туннель через ПК).
     /// </summary>
     public const string Script = """
         main() {
@@ -219,29 +250,80 @@ public static class VersionsCheck
         PKGS=$(printf '%s\n' "$HOSTV" | awk -F'\t' '$1=="V" && $6!="" {print $6}' | sort -u | tr '\n' ' ')
 
         # --- обновления пакетов хоста: только списки, ничего не ставится ---
-        if [ -n "$PKGS" ]; then
+        # Сеть — не дольше UPD_BUDGET с (недоступный прокси иначе держит dnf минутами); не вышло — кэш хоста.
+        # UPD_PROXY — прокси на время этой команды (туннель через ПК); настройки хоста не меняются.
+        # UPATH: путь (net | tunnel | cache | none), время кэша (epoch), причина, если сеть не ответила.
+        if [ -n "$PKGS" ] && [ "$PM" != none ]; then
+          UB=${UPD_BUDGET:-60}; T=""; command -v timeout >/dev/null 2>&1 && T="timeout -k 5 $UB"
+          TC=""; command -v timeout >/dev/null 2>&1 && TC="timeout -k 5 60"
+          via=net; [ -n "$UPD_PROXY" ] && via=tunnel
+          why=""
+          last() { printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | tail -n1; }
+          newest() { find "$@" -name "$NEWEST" -printf '%T@\n' 2>/dev/null | sort -n | tail -n1 | cut -d. -f1; }
           case "$PM" in
             dnf|yum)
-              out=$($PM -q check-update $PKGS 2>&1); rc=$?
-              if [ $rc -eq 1 ]; then
-                printf 'UERR\t%s\n' "$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -n1)"
+              set -- -q --setopt=timeout=10 --setopt=retries=1
+              # через ПК — списки заново (иначе dnf ответит по неустаревшему кэшу, мимо туннеля)
+              [ -n "$UPD_PROXY" ] && set -- "$@" --setopt=proxy="$UPD_PROXY" --refresh
+              NEWEST=repomd.xml
+              out=$($T $PM "$@" check-update $PKGS 2>&1); rc=$?
+              if [ $rc -ne 0 ] && [ $rc -ne 100 ]; then
+                if [ $rc -ge 124 ]; then why="нет ответа за $UB с"; else why=$(last "$out"); fi
+                out=$($TC $PM -q -C check-update $PKGS 2>&1); rc=$?
+                if [ $rc -eq 0 ] || [ $rc -eq 100 ]; then
+                  printf 'UPATH\tcache\t%s\t%s\n' "$(newest /var/cache/dnf /var/cache/yum /var/cache/libdnf5)" "$why"
+                fi
+              else
+                printf 'UPATH\t%s\t%s\t\n' "$via" "$(newest /var/cache/dnf /var/cache/yum /var/cache/libdnf5)"
+              fi
+              if [ $rc -ne 0 ] && [ $rc -ne 100 ]; then
+                printf 'UPATH\tnone\t\t%s\n' "$why"
+                printf 'UERR\t%s\n' "$(last "$out")"
               else
                 printf '%s\n' "$out" | awk 'NF==3 && $1 ~ /\./ {n=$1; sub(/\.[^.]+$/,"",n); printf "U\t%s\t%s\n", n, $2}'
-                sec=$($PM -q updateinfo list --updates --security 2>/dev/null | awk 'NF>=3 {print $3}')
-                if [ -n "$($PM -q updateinfo list --all --security 2>/dev/null | head -n1)" ]; then printf 'SEC\t1\n'; else printf 'SEC\t0\n'; fi
+                # метаданные уже получены (или есть только кэш) — сеть больше не трогаем
+                sec=$($TC $PM -q -C updateinfo list --updates --security 2>/dev/null | awk 'NF>=3 {print $3}')
+                if [ -n "$($TC $PM -q -C updateinfo list --all --security 2>/dev/null | head -n1)" ]; then printf 'SEC\t1\n'; else printf 'SEC\t0\n'; fi
                 printf '%s\n' "$sec" | sed -E 's/\.[^.]+$//; s/-[^-]+-[^-]+$//' | sort -u | while read -r n; do
                   [ -n "$n" ] && printf 'S\t%s\n' "$n"
                 done
               fi ;;
             apt)
-              if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get -qq update 2>&1); then
-                printf 'UERR\t%s\n' "$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -n1)"
+              set -- -qq -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 -o Acquire::Retries=0
+              [ -n "$UPD_PROXY" ] && set -- "$@" -o Acquire::http::Proxy="$UPD_PROXY" -o Acquire::https::Proxy="$UPD_PROXY"
+              NEWEST='*_Packages'
+              out=$(DEBIAN_FRONTEND=noninteractive $T apt-get "$@" update 2>&1); rc=$?
+              if [ $rc -eq 0 ]; then
+                printf 'UPATH\t%s\t%s\t\n' "$via" "$(newest /var/lib/apt/lists)"
+              else
+                if [ $rc -ge 124 ]; then why="нет ответа за $UB с"; else why=$(last "$out"); fi
+                if ls /var/lib/apt/lists/*_Packages >/dev/null 2>&1; then
+                  printf 'UPATH\tcache\t%s\t%s\n' "$(newest /var/lib/apt/lists)" "$why"
+                else
+                  printf 'UPATH\tnone\t\t%s\n' "$why"; printf 'UERR\t%s\n' "$why"
+                fi
               fi
               printf 'SEC\t1\n'
               apt list --upgradable 2>/dev/null | awk -F'[/ ]' -v pk=" $PKGS " '$1 != "" && index(pk, " " $1 " ") {
                 printf "U\t%s\t%s\n", $1, $3; if ($2 ~ /-security/) printf "S\t%s\n", $1 }' ;;
             zypper)
-              out=$(zypper -n -q lu 2>&1) || printf 'UERR\t%s\n' "$(printf '%s\n' "$out" | tail -n1)"
+              if [ -n "$UPD_PROXY" ]; then
+                out=$(http_proxy="$UPD_PROXY" https_proxy="$UPD_PROXY" HTTP_PROXY="$UPD_PROXY" HTTPS_PROXY="$UPD_PROXY" $T zypper -n -q lu 2>&1); rc=$?
+              else
+                out=$($T zypper -n -q lu 2>&1); rc=$?
+              fi
+              NEWEST=repomd.xml
+              if [ $rc -eq 0 ]; then
+                printf 'UPATH\t%s\t%s\t\n' "$via" "$(newest /var/cache/zypp/raw)"
+              else
+                if [ $rc -ge 124 ]; then why="нет ответа за $UB с"; else why=$(last "$out"); fi
+                out=$($TC zypper -n -q --no-refresh lu 2>&1); rc=$?
+                if [ $rc -eq 0 ]; then
+                  printf 'UPATH\tcache\t%s\t%s\n' "$(newest /var/cache/zypp/raw)" "$why"
+                else
+                  printf 'UPATH\tnone\t\t%s\n' "$why"; printf 'UERR\t%s\n' "$(last "$out")"
+                fi
+              fi
               printf 'SEC\t0\n'
               printf '%s\n' "$out" | awk -F'|' -v pk=" $PKGS " '{gsub(/ /,"",$3); gsub(/ /,"",$5); if ($3 != "" && index(pk, " " $3 " ")) printf "U\t%s\t%s\n", $3, $5}' ;;
           esac
@@ -333,6 +415,12 @@ public static class VersionsCheck
                 case "SEC" when r is not null && p.Length >= 2:
                     r.SecurityInfo = p[1] == "1";
                     break;
+                case "UPATH" when r is not null && p.Length >= 2:
+                    r.UpdatePath = p[1];
+                    if (p.Length > 2 && long.TryParse(p[2].Trim(), out var epoch) && epoch > 0)
+                        r.CacheTime = DateTimeOffset.FromUnixTimeSeconds(epoch).LocalDateTime;
+                    if (p.Length > 3 && p[3].Trim().Length > 0) r.NetError = p[3].Trim();
+                    break;
                 case "UERR" when r is not null && p.Length >= 2:
                     r.UpdateError = p[1].Length > 0 ? p[1] : "менеджер пакетов вернул ошибку";
                     break;
@@ -417,6 +505,7 @@ public static class VersionsCheck
         var sb = new StringBuilder();
         sb.AppendLine($"host: {host}");
         sb.AppendLine(r.UpdatesText);
+        if (r.TunnelLog.Length > 0) sb.AppendLine(r.TunnelLog);
         sb.AppendLine();
         foreach (var g in r.Items.GroupBy(i => i.Container))
         {

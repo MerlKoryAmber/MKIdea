@@ -335,6 +335,45 @@ public sealed class SshRunner : IDisposable
         return d;
     }
 
+    /// <summary>
+    /// Обратный проброс: 127.0.0.1:remotePort на хосте → 127.0.0.1:localPort на этом ПК, пока объект не закрыт.
+    /// Порт хоста — случайный (занят — следующий). Сервер запретил (AllowTcpForwarding no) — исключение.
+    /// </summary>
+    public IDisposable OpenRemoteForward(uint localPort, out uint remotePort)
+    {
+        Exception? last = null;
+        for (var i = 0; i < 5; i++)
+        {
+            var port = (uint)Random.Shared.Next(20000, 60000);
+            var fp = new ForwardedPortRemote(System.Net.IPAddress.Loopback, port, System.Net.IPAddress.Loopback, localPort);
+            _client.AddForwardedPort(fp);
+            try
+            {
+                fp.Start();
+                remotePort = port;
+                return new RemoteForward(_client, fp);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                try { _client.RemoveForwardedPort(fp); } catch { }
+                fp.Dispose();
+            }
+        }
+
+        throw new InvalidOperationException("сервер SSH не разрешил обратный проброс порта (AllowTcpForwarding?)", last);
+    }
+
+    private sealed class RemoteForward(SshClient client, ForwardedPortRemote port) : IDisposable
+    {
+        public void Dispose()
+        {
+            try { if (port.IsStarted) port.Stop(); } catch { }
+            try { client.RemoveForwardedPort(port); } catch { }
+            port.Dispose();
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

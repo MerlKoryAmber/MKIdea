@@ -180,11 +180,52 @@ public sealed class PlanRunner
                 var timeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
                 var sudo = SshRunner.NeedsSudo(host, action);
                 var key = Started(progress, host.Name, action.Name, apply && action.Destructive ? "применяется" : "выполняется");
-                var result = ssh.Run(action.Id, script, timeout, sudo, host, Env(action, args, dry: false), cancellationToken: cancellationToken,
-                    onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = key }));
+                var env = Env(action, args, dry: false);
+
+                // «Версии ПО» с галкой: списки обновлений — через этот ПК (прокси на ПК + обратный проброс SSH).
+                PcProxy? pcProxy = null;
+                IDisposable? forward = null;
+                var tunnelNote = "";
+                if (env is not null && string.Equals(action.Id, VersionsCheck.ActionId, StringComparison.OrdinalIgnoreCase)
+                    && env.TryGetValue(VersionsCheck.ViaPcParam, out var via) && ActionParam.IsYes(via))
+                {
+                    try
+                    {
+                        pcProxy = PcProxy.Start();
+                        forward = ssh.OpenRemoteForward((uint)pcProxy.Port, out var remotePort);
+                        env["UPD_PROXY"] = $"http://127.0.0.1:{remotePort}";
+                    }
+                    catch (Exception ex)
+                    {
+                        tunnelNote = ex.Message;
+                        pcProxy?.Dispose();
+                        pcProxy = null;
+                    }
+                }
+
+                ActionResult result;
+                int tunnelConnections;
+                string tunnelLog;
+                try
+                {
+                    result = ssh.Run(action.Id, script, timeout, sudo, host, env, cancellationToken: cancellationToken,
+                        onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = key }));
+                }
+                finally
+                {
+                    forward?.Dispose();
+                    tunnelConnections = pcProxy?.Connections ?? -1;
+                    tunnelLog = pcProxy?.Log ?? "";
+                    pcProxy?.Dispose();
+                }
                 result.HostName = host.Name;
                 result.ActionName = action.Name;
-                var row = FromActionResult(host.Name, action.Name, result);
+                var row = FromActionResult(host.Name, action.Name, result, v =>
+                {
+                    v.TunnelNote = tunnelNote;
+                    v.TunnelConnections = tunnelConnections;
+                    v.TunnelLog = tunnelLog;
+                });
                 progress.Report(new PlanProgress { Row = row });
                 Remember(history, ToHistory(mode, host.Name, action.Name, row));
             }
@@ -261,7 +302,7 @@ public sealed class PlanRunner
         Detail = string.IsNullOrWhiteSpace(row.Detail) ? row.Preview : row.Detail
     };
 
-    private static ResultRow FromActionResult(string host, string actionName, ActionResult r)
+    private static ResultRow FromActionResult(string host, string actionName, ActionResult r, Action<VersionReport>? versionsExtra = null)
     {
         if (r.Ok && string.Equals(r.ActionId, UserAudit.ActionId, StringComparison.OrdinalIgnoreCase)
             && UserAudit.Parse(r.StdOut) is { } audit)
@@ -298,6 +339,7 @@ public sealed class PlanRunner
             && VersionsCheck.Parse(r.StdOut) is { } versions)
         {
             versions.Host = host;
+            versionsExtra?.Invoke(versions);
             return new ResultRow
             {
                 // Обновление безопасности, ветка без поддержки или просто доступное обновление — внимание, не сбой.

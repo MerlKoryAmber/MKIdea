@@ -394,7 +394,21 @@
                 <StackPanel DockPanel.Dock="Top" Margin="12,8,12,6">
                   <TextBlock Text="{Binding DetailVersions.Summary}" Foreground="#E8F1F7" FontSize="12.5" FontWeight="SemiBold"
                              TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="VersionsSummary"/>
-                  <TextBlock Text="{Binding DetailVersions.UpdatesText}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                  <TextBlock Text="{Binding DetailVersions.UpdatesText}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,3,0,0" TextWrapping="Wrap"
+                             AutomationProperties.AutomationId="VersionsUpdates"/>
+                  <!-- журнал туннеля через ПК (только при галке): сколько соединений и куда -->
+                  <TextBlock Text="{Binding DetailVersions.TunnelLog}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,2,0,0" TextWrapping="Wrap"
+                             AutomationProperties.AutomationId="VersionsTunnel">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock">
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding DetailVersions.TunnelLog}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Bottom" Text="{Binding DetailVersions.ContainersText}" Foreground="#8EB8B0" FontSize="11.5"
                            Margin="12,6,12,8" TextWrapping="Wrap" AutomationProperties.AutomationId="VersionsContainers"/>

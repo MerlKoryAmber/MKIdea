@@ -50,7 +50,18 @@ public static class BuiltinActions
             Description = "nginx, Apache, PHP, OpenSSL, OpenSSH, MySQL/MariaDB, PostgreSQL, Redis, Node.js, Java, Python — на хосте и в контейнерах docker / podman; пакеты — есть ли обновление (в т. ч. безопасности), остальное — поддерживается ли ветка. Ничего не меняет",
             BuiltIn = true,
             TimeoutSeconds = 300,
-            Distros = new List<string> { "any" }
+            Distros = new List<string> { "any" },
+            Parameters = new List<ActionParam>
+            {
+                new()
+                {
+                    Name = VersionsCheck.ViaPcParam, Kind = "bool", Default = "нет",
+                    Label = "Списки обновлений — через этот ПК (туннель SSH)",
+                    Hint = "Для хостов без интернета. На время проверки хост получает выход в интернет через этот ПК и его прокси (только порты 80 и 443), " +
+                           "в журналах прокси трафик будет от вашей учётки. Такой туннель могут заметить SIEM / EDR — включайте по согласованию с ИБ. " +
+                           "Без галки: репозитории — напрямую с хоста, не ответили за 60 с — кэш хоста."
+                }
+            }
         },
         new ActionDefinition
         {
