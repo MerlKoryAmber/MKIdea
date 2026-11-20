@@ -1,0 +1,15 @@
+<div class="page">
+    <div class="surface placeholder">
+        <div class="surface-header"><span class="section-title">@Title</span></div>
+        <div class="placeholder-body">
+            <div class="badge">этап @Stage</div>
+            <div class="muted">@Text</div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Stage { get; set; } = "";
+    [Parameter] public string Text { get; set; } = "";
+}

@@ -1,0 +1,41 @@
+@* Вопросы ядра во время запуска: пароль sudo / ключа, доверие ключу хоста (как SudoPasswordWindow и HostKeyWindow). *@
+
+@if (S.Prompts.Current is { } p)
+{
+    <div class="overlay top">
+        <div class="window" @key="p">
+            <div class="window-title">@p.Title</div>
+            <div class="window-body">
+                <div class="message @(p.Kind == "hostkey" ? "mono-msg" : "")">@p.Message</div>
+                @if (p.Kind == "password")
+                {
+                    <input class="input" type="password" autocomplete="off" @bind="_value" @bind:event="oninput"
+                           @onkeydown='e => { if (e.Key == "Enter") p.Answer.TrySetResult(_value); }' />
+                }
+            </div>
+            <div class="window-buttons">
+                @if (p.Kind == "hostkey")
+                {
+                    <button class="btn" style="width:110px" @onclick="() => p.Answer.TrySetResult(null)">Отмена</button>
+                    <button class="btn primary" style="width:160px" @onclick='() => p.Answer.TrySetResult("1")'>@(p.Changed ? "Заменить ключ" : "Доверять")</button>
+                }
+                else
+                {
+                    <button class="btn" style="width:100px" @onclick="() => p.Answer.TrySetResult(null)">Отмена</button>
+                    <button class="btn primary" style="width:120px" @onclick="() => p.Answer.TrySetResult(_value)">OK</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    private string _value = "";
+    private PromptRequest? _last;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_last, S.Prompts.Current)) { _last = S.Prompts.Current; _value = ""; }
+    }
+}

@@ -34,11 +34,22 @@ public static class SshAuth
             return new PasswordAuthenticationMethod(host.Username, host.Password);
         }
 
+        // Ключ текстом (LinuxOps.Web: хранится зашифрованным в базе сервиса, на диск не пишется)
+        if (!string.IsNullOrWhiteSpace(host.PrivateKeyText))
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(host.PrivateKeyText.Replace("\r\n", "\n"));
+            return new PrivateKeyAuthenticationMethod(host.Username,
+                KeyPassphrases.Load(host, $"ключ хоста {host.Title}", "mem:" + host.Username + "@" + host.Host,
+                    pass => pass is null ? new PrivateKeyFile(new MemoryStream(bytes)) : new PrivateKeyFile(new MemoryStream(bytes), pass)));
+        }
+
         var keyPath = Environment.ExpandEnvironmentVariables(host.PrivateKeyPath ?? string.Empty);
         if (string.IsNullOrWhiteSpace(keyPath) || !File.Exists(keyPath))
             throw new InvalidOperationException($"Хост {host.Display}: ключ не найден: {keyPath}");
 
-        return new PrivateKeyAuthenticationMethod(host.Username, KeyPassphrases.Load(host, keyPath));
+        var path = Path.GetFullPath(keyPath);
+        return new PrivateKeyAuthenticationMethod(host.Username,
+            KeyPassphrases.Load(host, path, path, pass => pass is null ? new PrivateKeyFile(path) : new PrivateKeyFile(path, pass)));
     }
 
     /// <summary>Пароли зашифрованных ключей: спрашиваются при подключении, живут в памяти до закрытия приложения.</summary>
@@ -48,12 +59,14 @@ public static class SshAuth
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly object AskGate = new();
 
-        public static PrivateKeyFile Load(HostConfig host, string keyPath)
+        /// <param name="path">Что показать в вопросе (путь к файлу или «ключ хоста …»).</param>
+        /// <param name="cacheKey">Ключ кэша пароля.</param>
+        /// <param name="open">Открыть ключ без пароля (null) или с паролем.</param>
+        public static PrivateKeyFile Load(HostConfig host, string path, string cacheKey, Func<string?, PrivateKeyFile> open)
         {
-            var path = Path.GetFullPath(keyPath);
             try
             {
-                return new PrivateKeyFile(path);
+                return open(null);
             }
             catch (SshPassPhraseNullOrEmptyException)
             {
@@ -65,7 +78,7 @@ public static class SshAuth
                 string? error = null;
                 for (var i = 0; i <= Attempts; i++)
                 {
-                    if (!Cache.TryGetValue(path, out var pass))
+                    if (!Cache.TryGetValue(cacheKey, out var pass))
                     {
                         if (i == Attempts) break;
                         pass = Ask(host, path, error);
@@ -75,13 +88,13 @@ public static class SshAuth
 
                     try
                     {
-                        var key = new PrivateKeyFile(path, pass);
-                        Cache[path] = pass;
+                        var key = open(pass);
+                        Cache[cacheKey] = pass;
                         return key;
                     }
                     catch (Exception ex) when (ex is not IOException and not UnauthorizedAccessException)
                     {
-                        Cache.TryRemove(path, out _);
+                        Cache.TryRemove(cacheKey, out _);
                         error = "Неверный пароль ключа.";
                     }
                 }
@@ -92,24 +105,7 @@ public static class SshAuth
 
         private static string? Ask(HostConfig host, string path, string? error)
         {
-            var app = System.Windows.Application.Current;
-            if (app is null) return null;
-            string? entered = null;
-            void Show()
-            {
-                var hint = (error is null ? "" : error + "\n")
-                    + $"Ключ {Path.GetFileName(path)} для {host.Username}@{host.Host} зашифрован. "
-                    + "Пароль хранится только в памяти до закрытия LinuxOps.";
-                var dlg = new SudoPasswordWindow("Пароль ключа SSH", hint)
-                {
-                    Owner = app.Windows.OfType<System.Windows.Window>().FirstOrDefault(w => w.IsActive) ?? app.MainWindow
-                };
-                if (dlg.ShowDialog() == true)
-                    entered = dlg.Password;
-            }
-
-            if (app.Dispatcher.CheckAccess()) Show();
-            else app.Dispatcher.Invoke(Show);
+            var entered = UserPrompts.Current?.KeyPassphrase(host, path, error);
             return string.IsNullOrEmpty(entered) ? null : entered;
         }
     }
@@ -128,7 +124,7 @@ public static class SshAuth
             var known = KnownHostsStore.Find(host.Host, port);
             if (known is null)
             {
-                var trust = AskKey($"{host.Display}\nОтпечаток {fp}\nДоверять?", changed: false);
+                var trust = AskKey(host, $"{host.Display}\nОтпечаток {fp}\nДоверять?", changed: false);
                 e.CanTrust = trust;
                 if (trust) KnownHostsStore.Remember(host.Host, port, fp);
                 return;
@@ -140,7 +136,7 @@ public static class SshAuth
                 return;
             }
 
-            var accept = AskKey(
+            var accept = AskKey(host,
                 $"{host.Display}\nКлюч хоста изменился.\nБыло: {known}\nСтало: {fp}\nПодключение отклонено, пока явно не подтвердите.",
                 changed: true);
             e.CanTrust = accept;
@@ -148,18 +144,6 @@ public static class SshAuth
         };
     }
 
-    private static bool AskKey(string message, bool changed)
-    {
-        var app = System.Windows.Application.Current;
-        if (app is null) return false;
-        if (app.Dispatcher.CheckAccess())
-            return Show();
-        return app.Dispatcher.Invoke(Show);
-
-        bool Show()
-        {
-            var dlg = new HostKeyWindow(message, changed) { Owner = app.MainWindow };
-            return dlg.ShowDialog() == true;
-        }
-    }
+    private static bool AskKey(HostConfig host, string message, bool changed)
+        => UserPrompts.Current?.TrustHostKey(host, message, changed) ?? false;
 }

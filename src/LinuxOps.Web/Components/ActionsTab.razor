@@ -1,0 +1,156 @@
+@inject IJSRuntime JS
+
+<div class="page actions-grid">
+    @* ---------- хосты ---------- *@
+    <section class="surface">
+        <div class="surface-header">
+            <div class="row">
+                <span class="section-title grow">Хосты и vCenter</span>
+                <button class="btn sm" style="margin:0 10px 0 8px" title="Хосты — SSH: дистрибутив и статус" @onclick="Probe" disabled="@_probing">Опросить</button>
+                <span class="muted small">@S.HostsSelectedText</span>
+            </div>
+            <div class="wrap" style="margin-top:8px">
+                <button class="btn sm" @onclick="AddUser" disabled="@S.IsRunning">Добавить пользователя</button>
+                <button class="btn sm" disabled title="Следующая версия веба">Закрыть доступ</button>
+                <button class="btn sm" disabled title="Следующая версия веба">Базовые пользователи (0)</button>
+            </div>
+        </div>
+        <div class="scroll tree-wrap">
+            <HostTree S="S" Checks="true" Changed="Changed" Empty="Ресурсов нет. Добавьте хосты Linux на вкладке Inventory." />
+        </div>
+        <div class="surface-footer">
+            <label class="check"><input type="checkbox" checked="@AllChecked" @onchange="e => SelectAll((bool)e.Value!)" /> Выбрать все / снять все</label>
+        </div>
+    </section>
+
+    @* ---------- каталог ---------- *@
+    <section class="surface">
+        <div class="surface-header slim">
+            <div class="row">
+                <span class="section-title grow" title="Щелчок — в план или из плана">Каталог действий</span>
+                <button class="btn sm" style="min-width:72px" disabled title="Свои действия — следующая версия веба">Новое</button>
+            </div>
+        </div>
+        <div class="scroll cards">
+            @foreach (var a in S.Actions)
+            {
+                <div class="card-chrome @(a.IsSelected ? "planned" : "")" @onclick="() => Toggle(a)">
+                    <div class="card">
+                        <input type="checkbox" checked="@a.IsSelected" title="В плане" @onclick:stopPropagation="true" @onchange="() => Toggle(a)" />
+                        <div class="card-body">
+                            <div class="card-title">@a.Title</div>
+                            <div class="card-desc">@a.Description</div>
+                            <div class="tags">
+                                @foreach (var t in a.DistroTags)
+                                {
+                                    <span class="tag">@t</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="card-side">
+                            <span class="badge">@a.Badge</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+
+    @* ---------- запуск плана (всегда тёмная) ---------- *@
+    <section class="surface run">
+        <div class="run-header">
+            <span class="run-title">Запуск плана</span>
+            <span class="run-status" title="@S.RunStatus">@S.RunStatus</span>
+            @if (S.IsRunning)
+            {
+                <div class="progress"></div>
+            }
+        </div>
+        <div class="results scroll">
+            @foreach (var r in S.Results)
+            {
+                <div class="result @(ReferenceEquals(r, S.Selected) ? "selected" : "")" @onclick="() => S.UserSelect(r)">
+                    <span class="status st-@r.Status.ToLowerInvariant()">@r.Status</span>
+                    <div class="result-text">
+                        <div class="result-title">@r.Title</div>
+                        <div class="result-preview">@r.Preview</div>
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="run-split"></div>
+        <div class="detail">
+            <div class="detail-bar">
+                <span class="detail-label">Детали</span>
+                <span class="grow"></span>
+                @if (S.HasTable)
+                {
+                    <button class="btn sm dark" style="min-width:80px" title="Таблица или исходный текст" @onclick="() => S.ShowRawDetail = !S.ShowRawDetail">@(S.ShowRawDetail ? "Таблица" : "Текст")</button>
+                }
+                <button class="btn sm dark" style="min-width:110px" @onclick="Copy">@_copyText</button>
+            </div>
+            <DetailView S="S" />
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private bool _probing;
+    private string _copyText = "Копировать";
+
+    private bool AllChecked => S.Hosts.Count > 0 && S.Hosts.All(h => h.Config.IsSelected);
+
+    private void Changed()
+    {
+        S.RefreshPreview();
+        S.Notify();
+    }
+
+    private void SelectAll(bool on)
+    {
+        foreach (var h in S.Hosts) h.Config.IsSelected = on;
+        Changed();
+    }
+
+    private void Toggle(ActionItemView a)
+    {
+        a.IsSelected = !a.IsSelected;
+        Changed();
+    }
+
+    private async Task Probe()
+    {
+        _probing = true;
+        try { await S.Probe(); }
+        finally { _probing = false; }
+        S.RefreshPreview();
+    }
+
+    private async Task AddUser()
+    {
+        var hosts = S.SelectedHosts.ToList();
+        var d = new UiDialog { Kind = "adduser", Title = "Добавить пользователя", Hosts = hosts.Select(h => h.Config).ToList() };
+        if (await S.Dialogs.Show(d) is not AddUserRequest req) return;
+        await S.AddUser(req, hosts);
+    }
+
+    private async Task Copy()
+    {
+        var text = S.Detail;
+        if (text.Length == 0) return;
+        try
+        {
+            await JS.InvokeVoidAsync("lo.copy", text);
+            _copyText = "Скопировано";
+        }
+        catch
+        {
+            _copyText = "Не удалось";
+        }
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copyText = "Копировать";
+    }
+}

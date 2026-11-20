@@ -1,0 +1,27 @@
+# LinuxOps Web — служба на стенде (CentOS Stream 9/10, без контейнеров).
+# Установка: файлы релиза в /opt/linuxops-web, этот файл в /etc/systemd/system/, затем
+#   useradd -r -s /sbin/nologin linuxops-web
+#   install -d -o linuxops-web -m 700 /var/lib/linuxops-web /etc/linuxops-web
+#   systemctl daemon-reload && systemctl enable --now linuxops-web
+# Адрес — только локально; наружу через обратный прокси с TLS (этап Ф0).
+[Unit]
+Description=LinuxOps Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=linuxops-web
+WorkingDirectory=/opt/linuxops-web
+ExecStart=/opt/linuxops-web/LinuxOps.Web --urls http://127.0.0.1:5080
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_gcServer=0
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/linuxops-web /etc/linuxops-web
+
+[Install]
+WantedBy=multi-user.target

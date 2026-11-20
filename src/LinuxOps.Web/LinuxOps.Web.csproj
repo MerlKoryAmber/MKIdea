@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- LinuxOps Web: веб-сервис (Blazor Server) на ядре LinuxOps.Core. План — docs/linuxops/PLAN-web.md. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LinuxOps.Web</RootNamespace>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+    <Company>Merl</Company>
+    <Product>LinuxOps Web</Product>
+    <Copyright>Copyright © Merl 2026</Copyright>
+    <!-- без пакета Microsoft.AspNetCore.App.Internal.Assets для отладочных скриптов: не нужен -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LinuxOps.Core\LinuxOps.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="deploy/linuxops-web.service" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

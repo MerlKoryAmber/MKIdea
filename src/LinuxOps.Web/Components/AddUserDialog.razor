@@ -1,0 +1,76 @@
+@* Окно «Добавить пользователя» — как AddUserWindow настольной версии. *@
+
+<div class="window-body">
+    <div class="lbl muted small">Логин</div>
+    <input class="input" @bind="_login" @bind:event="oninput" />
+    <label class="check" style="margin:10px 0"><input type="checkbox" @bind="_sudo" /> sudo (с ключом — без пароля; без ключа — по паролю учётки)</label>
+    <div class="row" style="margin-bottom:4px">
+        <span class="muted small grow">Открытый ключ SSH</span>
+        <label class="btn sm file-btn" style="min-width:80px">Файл…<InputFile OnChange="PickKey" accept=".pub" style="display:none" /></label>
+    </div>
+    <textarea class="input mono" rows="4" @bind="_keys" @bind:after="Fp"></textarea>
+    @if (_fp.Length > 0)
+    {
+        <div class="mono small muted" style="white-space:pre-wrap;margin-top:2px">@_fp</div>
+    }
+    <div class="lbl muted small">Пароль (пусто — только ключ)</div>
+    <input class="input" type="password" autocomplete="new-password" @bind="_password" />
+    <div class="lbl muted small">Хосты</div>
+    <div class="hostlist">
+        @if (D.Hosts.Count == 0)
+        {
+            <span class="muted">Хосты не отмечены — отметьте их слева.</span>
+        }
+        @foreach (var h in D.Hosts)
+        {
+            <div>@h.Title <span class="muted small">· @h.Subtitle</span></div>
+        }
+    </div>
+    @if (_error.Length > 0)
+    {
+        <div class="error">@_error</div>
+    }
+</div>
+<div class="window-buttons">
+    <button class="btn" style="width:110px" @onclick="() => D.Result.TrySetResult(null)">Отмена</button>
+    <button class="btn primary" style="width:120px" @onclick="Ok" disabled="@(D.Hosts.Count == 0)">Добавить</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public UiDialog D { get; set; } = null!;
+
+    private string _login = "", _keys = "", _password = "", _fp = "", _error = "";
+    private bool _sudo;
+
+    private async Task PickKey(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var r = new StreamReader(e.File.OpenReadStream(64 * 1024));
+            _keys = await r.ReadToEndAsync();
+            Fp();
+        }
+        catch (Exception ex)
+        {
+            _error = "Файл не прочитан: " + ex.Message;
+        }
+    }
+
+    private void Fp()
+    {
+        var err = UserProvisioning.Validate(_login, _keys, _password, out var fp);
+        _fp = fp;
+        _error = err is not null && !string.IsNullOrWhiteSpace(_keys) && !err.StartsWith("Логин", StringComparison.Ordinal) ? err : "";
+    }
+
+    private void Ok()
+    {
+        var err = UserProvisioning.Validate(_login, _keys, _password, out var fp);
+        _fp = fp;
+        if (err is not null) { _error = err; return; }
+        D.Result.TrySetResult(new AddUserRequest
+        {
+            Login = _login.Trim(), Sudo = _sudo, Keys = _keys.Replace("\r\n", "\n").Trim(), Password = _password, Fingerprint = fp
+        });
+    }
+}

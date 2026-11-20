@@ -1,0 +1,153 @@
+@* Нижняя панель «Детали»: текст или таблица (аудит пользователей, прокси, версии ПО) — как в настольной версии. *@
+
+@if (S.DetailVersions is { } v)
+{
+    <div class="dtable versions">
+        <div class="v-head">
+            <div class="v-summary" title="@v.Summary">@v.Summary</div>
+            <div class="v-updates">@v.UpdatesText</div>
+            @if (v.CveSummary.Length > 0)
+            {
+                <div class="v-cve">@v.CveSummary</div>
+            }
+            @if (v.TunnelLog.Length > 0)
+            {
+                <div class="v-updates">@v.TunnelLog</div>
+            }
+        </div>
+        <div class="v-list scroll">
+            <table>
+                <thead>
+                    <tr><th style="width:34px"></th><th style="width:150px">Где</th><th style="width:110px">Продукт</th><th style="width:90px">Версия</th><th style="width:290px">Состояние</th><th style="width:150px">CVE</th><th style="width:240px">Откуда</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var i in v.Items)
+                    {
+                        <tr>
+                            <td>
+                                @if (i.CanUpdate)
+                                {
+                                    <input type="checkbox" checked="@i.IsChecked" title="Отметить к обновлению" @onchange="e => i.IsChecked = (bool)e.Value!" />
+                                }
+                            </td>
+                            <td class="ell" title="@i.Image">@i.WhereText</td>
+                            <td class="strong">@i.ProductText</td>
+                            <td class="mono strong">@i.Version</td>
+                            <td>
+                                <span class="sbadge sev-@i.Severity" title="@i.StateText">@i.StateText</span>
+                                @if (i.Note.Length > 0)
+                                {
+                                    <div class="note" title="@i.Note">@i.Note</div>
+                                }
+                            </td>
+                            <td>
+                                @if (i.CveLevel == "now")
+                                {
+                                    <div class="cve-cell" title="@i.CveTooltip">
+                                        <span class="sbadge sev-bad strong">@i.CveText</span>
+                                        <div class="cve-id">@i.CveTop</div>
+                                    </div>
+                                }
+                            </td>
+                            <td class="ell muted-d" title="@i.Path">@i.SourceText</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (v.Items.Any(i => i.CanUpdate))
+        {
+            <div class="v-actions">
+                <button class="btn sm dark" style="min-width:150px" title="Отметить пакеты с обновлениями безопасности или незакрытыми CVE (если таких нет — все с обновлениями)"
+                        @onclick="S.PickSecurity" disabled="@S.IsRunning">Отметить безопасности</button>
+                <button class="btn sm primary" style="min-width:190px" title="Сначала покажет, что поставится, и спросит подтверждение"
+                        @onclick="S.UpdateSelected" disabled="@(S.IsRunning || S.CheckedCount == 0)">@S.UpdateSelectedText</button>
+                <label class="check dark" title="Пакеты скачиваются через сервер LinuxOps и его прокси. Туннель могут заметить SIEM / EDR — по согласованию с ИБ">
+                    <input type="checkbox" checked="@S.UpdateViaPc" @onchange="e => S.UpdateViaPc = (bool)e.Value!" /> через сервер (туннель SSH)
+                </label>
+            </div>
+        }
+        <div class="v-foot">@v.ContainersText</div>
+    </div>
+}
+else if (S.DetailAudit is { } a)
+{
+    <div class="dtable scroll">
+        <div class="d-summary">@a.Summary</div>
+        @foreach (var u in a.Users)
+        {
+            <div class="dcard">
+                <div class="row">
+                    <span class="d-login grow">@u.Login</span>
+                    @if (u.HasSudo)
+                    {
+                        <span class="sbadge sev-ok">@u.SudoText</span>
+                    }
+                    @if (u.IsLocked)
+                    {
+                        <span class="sbadge sev-bad">@u.LockText</span>
+                    }
+                </div>
+                <div class="d-line ell" title="@u.Info">@u.Info</div>
+                @if (u.Groups.Length > 0)
+                {
+                    <div class="d-line">группы: @u.Groups</div>
+                }
+                <div class="d-line">@u.PasswordText</div>
+                <div class="d-label">@u.KeysTitle</div>
+                @if (u.HasReadableKeys)
+                {
+                    @foreach (var k in u.Keys)
+                    {
+                        <div class="d-key" title="@k.File">
+                            <span class="k-type">@(k.Unreadable ? "?" : k.Type)</span>
+                            <div class="grow ell">
+                                <div class="mono ell" title="@k.Fingerprint">@k.Fingerprint</div>
+                                @if (k.Comment.Length > 0)
+                                {
+                                    <div class="d-line ell">@k.Comment</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+        <div class="d-line">@a.SudoersText</div>
+    </div>
+}
+else if (S.DetailProxy is { } p)
+{
+    <div class="dtable scroll">
+        <div class="dcard">
+            <div class="row">
+                <span class="d-label grow" style="margin:0">Прокси для обновлений</span>
+                <span class="d-line">@p.ManagerText</span>
+            </div>
+            <div class="p-value mono ell">@p.ProxyText</div>
+            <div class="row">
+                <span class="sbadge @(p.RepoOk switch { true => "sev-ok", false => "sev-bad", _ => "sev-none" })">@(p.RepoOk switch { true => "доступен", false => "недоступен", _ => "не проверен" })</span>
+                <span class="d-line ell" style="margin:0 0 0 8px" title="@p.RepoText">@p.RepoText</span>
+            </div>
+        </div>
+        <div class="d-label">@p.RowsTitle</div>
+        @foreach (var r in p.Rows)
+        {
+            <div class="dcard slim row">
+                <div class="grow ell">
+                    <div class="mono ell" title="@r.Value">@r.Value</div>
+                    <div class="d-line ell" title="@r.Where">@r.Where</div>
+                </div>
+                <span class="sbadge @(r.Owner switch { "lo" => "sev-ok", "off" or "over" => "sev-warn", _ => "sev-none" })">@r.OwnerText</span>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <pre class="logbox">@S.Detail</pre>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+}

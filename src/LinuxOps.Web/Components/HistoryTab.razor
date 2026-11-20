@@ -1,0 +1,81 @@
+@inject WebStore Store
+
+<div class="page single">
+    <section class="surface">
+        <div class="surface-header">
+            <div class="row">
+                <div class="grow">
+                    <div class="section-title">@(_audit ? "Аудит" : "History")</div>
+                    <div class="muted small" style="margin-top:2px">@(_audit
+                        ? "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog."
+                        : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса.")</div>
+                </div>
+                <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="() => { _audit = !_audit; Reload(); }">@(_audit ? "History" : "Аудит")</button>
+                <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="Reload">Обновить</button>
+                <button class="btn sm" style="min-width:90px" disabled title="История сервиса не стирается — это след для аудита">Очистить</button>
+            </div>
+        </div>
+        <div class="history">
+            <div class="scroll grid-wrap">
+                <table class="grid">
+                    @if (_audit)
+                    {
+                        <thead><tr><th style="width:140px">Когда</th><th style="width:120px">Кто</th><th style="width:200px">Что</th><th>Подробно</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _auditRows)
+                            {
+                                <tr class="@(ReferenceEquals(a, _selAudit) ? "selected" : "")" @onclick="() => _selAudit = a">
+                                    <td>@a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td><td>@a.Who</td><td>@a.What</td><td class="ell">@a.Detail</td>
+                                </tr>
+                            }
+                        </tbody>
+                    }
+                    else
+                    {
+                        <thead><tr><th style="width:140px">Когда</th><th style="width:70px">Режим</th><th style="width:120px">Хост</th><th>Действие</th><th style="width:70px">Статус</th><th style="width:110px">Кто</th></tr></thead>
+                        <tbody>
+                            @foreach (var (e, who) in _rows)
+                            {
+                                <tr class="@(ReferenceEquals(e, _sel) ? "selected" : "")" @onclick="() => _sel = e">
+                                    <td>@e.AtLocalText</td><td>@e.Mode</td><td class="ell">@e.Host</td><td class="ell">@e.Action</td><td>@e.Status</td><td>@who</td>
+                                </tr>
+                            }
+                        </tbody>
+                    }
+                </table>
+            </div>
+            <div class="history-detail">
+                <div class="section-title" style="margin-bottom:8px">Детали</div>
+                <pre class="logbox light">@(_audit ? (_selAudit is { } s ? $"{s.At.ToLocalTime():yyyy-MM-dd HH:mm:ss}  {s.Who}\n{s.What}\n\n{s.Detail}" : "") : _sel?.Detail)</pre>
+            </div>
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private bool _audit;
+    private List<(HistoryEntry Entry, string Who)> _rows = new();
+    private HistoryEntry? _sel;
+    private List<AuditRow> _auditRows = new();
+    private AuditRow? _selAudit;
+
+    private sealed record AuditRow(DateTime At, string Who, string What, string Detail);
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload()
+    {
+        if (_audit)
+        {
+            _auditRows = Store.LoadAudit().Select(a => new AuditRow(a.At, a.Who, a.What, a.Detail)).ToList();
+            _selAudit = null;
+        }
+        else
+        {
+            _rows = Store.LoadHistory();
+            _sel = null;
+        }
+    }
+}

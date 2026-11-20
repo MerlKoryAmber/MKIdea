@@ -8,7 +8,8 @@
 | Продукт | Путь | Статус | Назначение |
 |---------|------|--------|------------|
 | **AdServerGroups** | `src/AdServerGroups` | боевой контур | AD-группы → локальные Administrators (+ SQL sysadmin provider) |
-| **LinuxOps** | `src/LinuxOps` (+ `src/LinuxOps.PsHost`) | 0.3.53 | Actions + SSH Files + Подключения (SSH + RDP) + PowerShell + History |
+| **LinuxOps** | `src/LinuxOps` (+ `src/LinuxOps.PsHost`, ядро `src/LinuxOps.Core`) | 0.3.54 | Actions + SSH Files + Подключения (SSH + RDP) + PowerShell + History |
+| **LinuxOps Web** | `src/LinuxOps.Web` (ядро `src/LinuxOps.Core`) | 0.1.0, ветка `feature/linuxops-web` | веб-сервис на CentOS: Inventory, Actions, «Версии ПО» с CVE, аудит |
 
 Пакет/инсталлятор «всех утилит» — позже; пока отдельные `dist\<App>-<ver>\`.
 
@@ -16,14 +17,14 @@
 
 1. **Site-данные не вшивать в код** — только `*.defaults.json` рядом с exe (и DPAPI settings/state).
 2. **Версию bump’ать** на каждый publish (`Version` / `FileVersion` в csproj).
-3. **Publish** → `dist\<Name>-<version>\` (self-contained win-x64). `dist/` в git не коммитить.
+3. **Publish** → `dist\<Name>-<version>\` (self-contained win-x64; LinuxOps.Web — linux-x64). `dist/` в git не коммитить.
 4. **Секреты** (`.settings`, `.state`, пароли, ключи) — не в git.
 5. **После фичи** — обновить этот SKELETON и `docs/<app>/` (см. `.cursor/rules/mkidea-docs.mdc`).
 6. Вопрос ≠ команда кодить; после реализации — publish в dist, если работа закончена.
 
 ## Solution
 
-- `AdServerGroups.sln` — пока общий solution (имя историческое). Проекты: AdServerGroups*, LinuxOps, LinuxOps.PsHost (движок PowerShell).
+- `AdServerGroups.sln` — пока общий solution (имя историческое). Проекты: AdServerGroups*, LinuxOps, LinuxOps.Core (ядро), LinuxOps.Web (веб), LinuxOps.PsHost (движок PowerShell).
 - Точечный `git add` файлов; push — только по команде.
 
 ## Инструменты

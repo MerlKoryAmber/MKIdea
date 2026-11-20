@@ -1,0 +1,140 @@
+@* Окно «Хост» — как HostEditWindow; ключ не путь на ПК, а файл, загруженный в хранилище сервиса. *@
+
+<div class="window-body">
+    <div class="lbl">Имя</div>
+    <input class="input" @bind="_name" />
+    <div class="lbl">Host / IP</div>
+    <input class="input" @bind="_host" />
+    <div class="row" style="gap:12px">
+        <div style="width:120px">
+            <div class="lbl">Port</div>
+            <input class="input" @bind="_port" />
+        </div>
+        <div class="grow">
+            <div class="lbl">User</div>
+            <input class="input" @bind="_user" />
+        </div>
+    </div>
+    <div class="lbl">Auth</div>
+    <select class="input" @bind="_auth">
+        <option value="Key">Key</option>
+        <option value="Password">Password</option>
+    </select>
+    <div class="lbl">Ключ SSH (Key)</div>
+    <div class="row" style="gap:8px">
+        <div class="input grow readonly ell" title="Закрытый ключ хранится в сервисе зашифрованным">@KeyText</div>
+        <label class="btn file-btn" style="width:90px">Файл…<InputFile OnChange="PickKey" style="display:none" /></label>
+        @if (_keyState == "has" || _key is { Length: > 0 })
+        {
+            <button class="btn" style="width:90px" @onclick="RemoveKey">Убрать</button>
+        }
+    </div>
+    <div class="lbl">Пароль (Password)</div>
+    <input class="input" type="password" autocomplete="new-password" placeholder="@(_hasPassword ? "задан — пусто оставит как есть" : "")" @bind="_password" />
+    @if (_hasPassword)
+    {
+        <label class="check small" style="margin-top:4px"><input type="checkbox" @bind="_dropPassword" /> убрать сохранённый пароль</label>
+    }
+    <label class="check" style="margin:10px 0"><input type="checkbox" @bind="_sudo" /> Выполнять через sudo</label>
+    <div class="row" style="gap:10px">
+        <button class="btn" @onclick="Test" disabled="@_testing">Проверить подключение</button>
+        <span class="small @(_testOk ? "ok-text" : "muted")">@_testText</span>
+    </div>
+    @if (_error.Length > 0)
+    {
+        <div class="error">@_error</div>
+    }
+</div>
+<div class="window-buttons">
+    <button class="btn" style="width:100px" @onclick="() => D.Result.TrySetResult(null)">Отмена</button>
+    <button class="btn primary" style="width:120px" @onclick="Ok">Сохранить</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter, EditorRequired] public UiDialog D { get; set; } = null!;
+
+    private string _name = "", _host = "", _port = "22", _user = "root", _auth = "Key", _password = "", _error = "", _testText = "";
+    private bool _sudo = true, _hasPassword, _dropPassword, _testing, _testOk;
+    private string? _key, _keyName;
+    private string _keyState = "none"; // none | has | removed
+
+    protected override void OnInitialized()
+    {
+        var h = D.Host!;
+        var c = h.Config;
+        _name = c.Name; _host = c.Host; _port = (c.Port <= 0 ? 22 : c.Port).ToString(); _user = c.Username;
+        _auth = c.Auth == "Password" ? "Password" : "Key";
+        _sudo = c.UseSudo;
+        _hasPassword = h.HasPassword;
+        if (h.HasKey) { _keyState = "has"; _keyName = h.KeyName; }
+    }
+
+    private string KeyText => _key is { Length: > 0 } ? $"загружен: {_keyName}"
+        : _keyState == "has" ? $"в хранилище: {(_keyName is { Length: > 0 } n ? n : "ключ")}"
+        : _keyState == "removed" ? "будет убран" : "нет — загрузите закрытый ключ";
+
+    private async Task PickKey(InputFileChangeEventArgs e)
+    {
+        _error = "";
+        try
+        {
+            using var r = new StreamReader(e.File.OpenReadStream(64 * 1024));
+            var text = await r.ReadToEndAsync();
+            if (!text.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            {
+                _error = text.StartsWith("ssh-", StringComparison.Ordinal) ? "Это открытый ключ. Нужен закрытый (-----BEGIN … PRIVATE KEY-----)." : "Не похоже на закрытый ключ SSH.";
+                return;
+            }
+            _key = text;
+            _keyName = e.File.Name;
+            _auth = "Key";
+        }
+        catch (Exception ex)
+        {
+            _error = "Файл не прочитан: " + ex.Message;
+        }
+    }
+
+    private bool TryRead(out HostConfig cfg)
+    {
+        cfg = new HostConfig();
+        _error = "";
+        if (string.IsNullOrWhiteSpace(_host) || string.IsNullOrWhiteSpace(_user)) { _error = "Нужны Host и User."; return false; }
+        if (!int.TryParse(_port.Trim(), out var port) || port is <= 0 or > 65535) { _error = "Port — число 1…65535."; return false; }
+        cfg = new HostConfig
+        {
+            Name = _name.Trim(), Host = _host.Trim(), Port = port, Username = _user.Trim(),
+            Auth = _auth == "Password" ? "Password" : "PrivateKey", UseSudo = _sudo, IsSelected = false
+        };
+        return true;
+    }
+
+    private void RemoveKey()
+    {
+        _key = "";
+        _keyName = "";
+        _keyState = "removed";
+    }
+
+    private string? PasswordChange => _password.Length > 0 ? _password : _dropPassword ? "" : null;
+    private string? KeyChange => _key is { Length: > 0 } ? _key : _keyState == "removed" ? "" : null;
+
+    private async Task Test()
+    {
+        if (!TryRead(out var cfg)) return;
+        _testing = true;
+        _testText = "подключение…";
+        StateHasChanged();
+        var (ok, text) = await S.TestConnect(D.Host!, cfg, PasswordChange, KeyChange);
+        _testOk = ok;
+        _testText = text;
+        _testing = false;
+    }
+
+    private void Ok()
+    {
+        if (!TryRead(out var cfg)) return;
+        D.Result.TrySetResult(new HostEdit { Config = cfg, Password = PasswordChange, Key = KeyChange, KeyName = _keyName });
+    }
+}

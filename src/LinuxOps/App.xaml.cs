@@ -7,7 +7,8 @@ public partial class App : Application
 {
     protected override void OnStartup(StartupEventArgs e)
     {
-        CrashLog.Install(this);
+        CrashReporter.Install(this);
+        UserPrompts.Current = new WpfPrompts();
         ThemeManager.Init();
         base.OnStartup(e);
     }

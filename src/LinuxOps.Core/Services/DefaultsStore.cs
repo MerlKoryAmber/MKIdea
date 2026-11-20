@@ -207,6 +207,8 @@ public static class DefaultsStore
     {
         if (string.IsNullOrEmpty(password) || password.StartsWith(PasswordPrefix, StringComparison.Ordinal))
             return password ?? string.Empty;
+        // DPAPI есть только в Windows; LinuxOps.Web хранит секреты своим хранилищем и сюда их не передаёт
+        if (!OperatingSystem.IsWindows()) return password;
         var bytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.CurrentUser);
         return PasswordPrefix + Convert.ToBase64String(bytes);
     }
@@ -215,6 +217,7 @@ public static class DefaultsStore
     {
         if (string.IsNullOrEmpty(stored) || !stored.StartsWith(PasswordPrefix, StringComparison.Ordinal))
             return stored ?? string.Empty;
+        if (!OperatingSystem.IsWindows()) return stored;
         try
         {
             var raw = Convert.FromBase64String(stored[PasswordPrefix.Length..]);
@@ -246,6 +249,9 @@ public static class DefaultsStore
 
     private static string GetAppDirectory()
     {
+        // LinuxOps.Web: данные (настройки ядра, known_hosts, кэш CVE, свои действия, журнал ошибок) — в своём каталоге, не рядом с программой
+        var dataDir = Environment.GetEnvironmentVariable("LINUXOPS_DATA_DIR");
+        if (!string.IsNullOrWhiteSpace(dataDir)) return dataDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var processPath = Environment.ProcessPath;
         if (!string.IsNullOrWhiteSpace(processPath))
         {

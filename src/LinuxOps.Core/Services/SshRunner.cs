@@ -268,18 +268,7 @@ public sealed class SshRunner : IDisposable
                 cached = Get(host);
                 if (!string.IsNullOrEmpty(cached)) return cached;
 
-                string? entered = null;
-                var app = System.Windows.Application.Current;
-                if (app is null) return null;
-                void Show()
-                {
-                    var dlg = new SudoPasswordWindow(host) { Owner = app.MainWindow };
-                    if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.Password))
-                        entered = dlg.Password;
-                }
-
-                if (app.Dispatcher.CheckAccess()) Show();
-                else app.Dispatcher.Invoke(Show);
+                var entered = UserPrompts.Current?.SudoPassword(host);
                 if (!string.IsNullOrEmpty(entered))
                     Cache[Key(host)] = entered;
                 return entered;

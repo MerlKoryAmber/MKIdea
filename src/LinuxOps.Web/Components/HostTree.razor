@@ -1,0 +1,103 @@
+@* Дерево хостов с папками — как ResourceTree настольной версии: в Actions с галками, в Inventory с выделением. *@
+
+@if (S.Hosts.Count == 0 && S.Folders.Count == 0)
+{
+    <div class="tree-empty">@Empty</div>
+}
+else
+{
+    <div class="tree">@Level("", 0)</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter] public bool Checks { get; set; }
+    [Parameter] public string Empty { get; set; } = "Хостов нет. Добавьте хосты Linux на вкладке Inventory.";
+    /// <summary>Inventory: выделенный хост или папка.</summary>
+    [Parameter] public object? Selected { get; set; }
+    [Parameter] public EventCallback<object?> SelectedChanged { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+    [Parameter] public EventCallback<object?> Activated { get; set; }
+
+    private RenderFragment Level(string parent, int depth) => __builder =>
+    {
+        foreach (var f in S.Folders.Where(f => f.ParentId == parent).OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var hosts = HostsIn(f.Id).ToList();
+            var all = hosts.Count > 0 && hosts.All(h => h.Config.IsSelected);
+            var some = hosts.Any(h => h.Config.IsSelected);
+            <div class="tree-row @(ReferenceEquals(Selected, f) ? "selected" : "")" style="padding-left:@(depth * 19 + 2)px"
+                 @onclick="() => Pick(f)" @ondblclick="() => Activated.InvokeAsync(f)">
+                <span class="tree-toggle" @onclick="() => Toggle(f)" @onclick:stopPropagation="true">@(f.IsExpanded ? "▾" : "▸")</span>
+                @if (Checks)
+                {
+                    <input type="checkbox" checked="@all" class="@(some && !all ? "partial" : "")"
+                           @onclick:stopPropagation="true" @onchange="e => CheckFolder(f, (bool)e.Value!)" />
+                }
+                <svg class="folder-icon" width="20" height="16" viewBox="0 0 20 16">
+                    <path d="M0,2 Q0,0 2,0 L7,0 L9,2.5 L18,2.5 Q20,2.5 20,4.5 L20,14 Q20,16 18,16 L2,16 Q0,16 0,14 Z" class="f-back" />
+                    <path d="M0,6 Q0,4.5 1.5,4.5 L18.5,4.5 Q20,4.5 20,6 L20,14 Q20,16 18,16 L2,16 Q0,16 0,14 Z" class="f-front" />
+                </svg>
+                <span class="tree-title">@f.Name</span>
+                <span class="tree-count">@hosts.Count</span>
+            </div>
+            if (f.IsExpanded)
+            {
+                @Level(f.Id, depth + 1)
+            }
+        }
+        foreach (var h in S.Hosts.Where(h => FolderOf(h) == parent))
+        {
+            var c = h.Config;
+            <div class="tree-row host @(ReferenceEquals(Selected, h) ? "selected" : "")" style="padding-left:@(depth * 19 + 20)px" title="@c.Display"
+                 @onclick="() => Pick(h)" @ondblclick="() => Activated.InvokeAsync(h)">
+                @if (Checks)
+                {
+                    <input type="checkbox" checked="@c.IsSelected" @onclick:stopPropagation="true"
+                           @onchange="e => CheckHost(h, (bool)e.Value!)" />
+                }
+                <span class="distro" style="background:@c.IconColor" title="@c.IconTip">@c.IconLetter</span>
+                <span class="tree-text">
+                    <span class="tree-title">@c.Title</span>
+                    <span class="tree-sub">@c.Subtitle</span>
+                </span>
+                <span class="dot" style="background:@c.StatusColor" title="@c.Status"></span>
+            </div>
+        }
+    };
+
+    /// <summary>Папка хоста; несуществующая — корень.</summary>
+    private string FolderOf(StoredHost h) =>
+        h.Config.FolderId.Length > 0 && S.Folders.Any(f => f.Id == h.Config.FolderId) ? h.Config.FolderId : "";
+
+    private IEnumerable<StoredHost> HostsIn(string folderId)
+    {
+        foreach (var h in S.Hosts.Where(h => FolderOf(h) == folderId)) yield return h;
+        foreach (var sub in S.Folders.Where(f => f.ParentId == folderId))
+            foreach (var h in HostsIn(sub.Id)) yield return h;
+    }
+
+    private async Task Pick(object item)
+    {
+        if (Checks)
+        {
+            if (item is StoredHost h) await CheckHost(h, !h.Config.IsSelected);
+            return;
+        }
+        await SelectedChanged.InvokeAsync(item);
+    }
+
+    private void Toggle(HostFolder f) => S.ToggleFolder(f);
+
+    private async Task CheckHost(StoredHost h, bool on)
+    {
+        h.Config.IsSelected = on;
+        await Changed.InvokeAsync();
+    }
+
+    private async Task CheckFolder(HostFolder f, bool on)
+    {
+        foreach (var h in HostsIn(f.Id)) h.Config.IsSelected = on;
+        await Changed.InvokeAsync();
+    }
+}

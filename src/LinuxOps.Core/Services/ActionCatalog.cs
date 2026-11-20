@@ -145,6 +145,9 @@ public static class ActionCatalog
 
     private static string GetAppDirectory()
     {
+        // LinuxOps.Web: данные (настройки ядра, known_hosts, кэш CVE, свои действия, журнал ошибок) — в своём каталоге, не рядом с программой
+        var dataDir = Environment.GetEnvironmentVariable("LINUXOPS_DATA_DIR");
+        if (!string.IsNullOrWhiteSpace(dataDir)) return dataDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var processPath = Environment.ProcessPath;
         if (!string.IsNullOrWhiteSpace(processPath))
         {

@@ -1,0 +1,90 @@
+@implements IDisposable
+@inject WebSession S
+@inject IJSRuntime JS
+
+<div class="app">
+    <header class="header">
+        <div class="brand">LinuxOps</div>
+        @foreach (var (key, text) in Tabs)
+        {
+            <button class="chip @(S.Tab == key ? "on" : "")" @onclick="() => Go(key)">@text</button>
+        }
+        <div class="spacer"></div>
+        <button class="btn-header" title="Настройки: тема" @onclick="Settings">&#9881;</button>
+        <span class="ver">v@(Version) · web</span>
+    </header>
+
+    <main class="body">
+        @switch (S.Tab)
+        {
+            case "inventory": <InventoryTab S="S" />; break;
+            case "actions": <ActionsTab S="S" />; break;
+            case "history": <HistoryTab S="S" />; break;
+            case "ssh": <Placeholder Title="SSH Files" Stage="Ф5" Text="Файлы по SFTP с двумя панелями — следующий этап веб-версии." />; break;
+            case "terminal": <Placeholder Title="Подключения" Stage="Ф3" Text="Терминал SSH и RDP через шлюз Guacamole — после стенда." />; break;
+            case "powershell": <Placeholder Title="PowerShell" Stage="Ф5" Text="PowerCLI против vCenter — следующий этап веб-версии." />; break;
+        }
+    </main>
+
+    @if (S.Tab == "actions")
+    {
+        <footer class="footer">
+            <div class="plan-summary">@S.PlanSummary</div>
+            <div class="footer-buttons">
+                <button class="btn" @onclick="S.ClearResults" disabled="@S.IsRunning">Очистить план</button>
+                <button class="btn" style="width:90px" @onclick="S.Cancel" disabled="@(!S.IsRunning)">Стоп</button>
+                <button class="btn" style="width:120px" @onclick="() => S.RunPlan(false)" disabled="@S.IsRunning">Dry-run</button>
+                <button class="btn primary" style="width:130px" @onclick="() => S.RunPlan(true)" disabled="@S.IsRunning">Применить</button>
+            </div>
+        </footer>
+    }
+
+    <DialogHost S="S" />
+    <PromptHost S="S" />
+</div>
+
+@code {
+    [Parameter] public string ClientIp { get; set; } = "?";
+
+    private static readonly (string Key, string Text)[] Tabs =
+    {
+        ("inventory", "Inventory"), ("actions", "Actions"), ("ssh", "SSH Files"),
+        ("terminal", "Подключения"), ("powershell", "PowerShell"), ("history", "History")
+    };
+
+    private static readonly string Version = typeof(WebSession).Assembly.GetName().Version?.ToString(3) ?? "?";
+
+    protected override void OnInitialized()
+    {
+        S.Who = ClientIp;
+        S.Dispatch = a => InvokeAsync(a);
+        S.Changed += Redraw;
+        S.Dialogs.Changed += Redraw;
+        S.Prompts.Changed += Redraw;
+        S.Load();
+        S.RefreshPreview();
+    }
+
+    private void Redraw() => _ = InvokeAsync(StateHasChanged);
+
+    private void Go(string tab)
+    {
+        S.Tab = tab;
+        // хосты могли поменять в Inventory другого окна — перечитать (не во время запуска)
+        if (tab is "actions" or "inventory" && !S.IsRunning) { S.Load(); if (tab == "actions" && S.Results.All(r => r.Status is "INFO" or "SKIP")) S.RefreshPreview(); }
+    }
+
+    private async Task Settings()
+    {
+        var current = await JS.InvokeAsync<string>("lo.theme");
+        var pick = await S.Dialogs.Show(new UiDialog { Kind = "settings", Title = "Настройки", Values = { ["theme"] = current } });
+        if (pick is string t) await JS.InvokeVoidAsync("lo.setTheme", t);
+    }
+
+    public void Dispose()
+    {
+        S.Changed -= Redraw;
+        S.Dialogs.Changed -= Redraw;
+        S.Prompts.Changed -= Redraw;
+    }
+}

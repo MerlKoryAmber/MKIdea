@@ -1,0 +1,124 @@
+@* Модальные окна поверх страницы — как окна настольной версии (заголовок окна, поля, «Отмена» / основная кнопка справа). *@
+
+@if (S.Dialogs.Top is { } d)
+{
+    <div class="overlay">
+        <div class="window @(d.Kind is "params" or "adduser" ? "wide" : "")" @key="d">
+            <div class="window-title">@d.Title</div>
+            @switch (d.Kind)
+            {
+                case "info":
+                case "confirm":
+                    <div class="window-body"><div class="message">@d.Message</div></div>
+                    <div class="window-buttons">
+                        @if (d.Kind == "confirm")
+                        {
+                            <button class="btn" style="width:100px" @onclick="() => d.Result.TrySetResult(false)">Нет</button>
+                            <button class="btn primary" style="width:120px" @onclick="() => d.Result.TrySetResult(true)">Да</button>
+                        }
+                        else
+                        {
+                            <button class="btn primary" style="width:100px" @onclick="() => d.Result.TrySetResult(null)">OK</button>
+                        }
+                    </div>
+                    break;
+
+                case "params":
+                    <div class="window-body scroll">
+                        @foreach (var a in d.Actions)
+                        {
+                            <div class="section-title" style="margin-bottom:6px">@a.Name</div>
+                            @foreach (var p in a.Parameters)
+                            {
+                                var key = a.Id + ":" + p.Name;
+                                var label = string.IsNullOrWhiteSpace(p.Label) ? p.Name : p.Label;
+                                if (p.Kind == "bool")
+                                {
+                                    if (p.Group.Length > 0)
+                                    {
+                                        <div class="muted small" style="margin:6px 0">@p.Group</div>
+                                    }
+                                    <label class="check strong" style="margin-bottom:@(p.Hint == "-" ? "6px" : "0")">
+                                        <input type="checkbox" checked="@ActionParam.IsYes(d.Values[key])" @onchange='e => d.Values[key] = (bool)e.Value! ? "да" : "нет"' /> @label
+                                    </label>
+                                    if (p.Hint != "-")
+                                    {
+                                        <div class="muted small" style="margin:2px 0 10px">@(p.Hint.Length > 0 ? p.Hint : $"В скрипте — ${p.Name} (да / нет)")</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="strong" style="margin-bottom:2px">@label</div>
+                                    <input class="input" value="@d.Values[key]" @onchange="e => Set(d, key, e.Value)" />
+                                    <div class="muted small" style="margin:2px 0 10px">В скрипте — $@p.Name. По умолчанию: @(p.Default.Length > 0 ? p.Default : "пусто")</div>
+                                }
+                            }
+                        }
+                        <div class="muted small">@d.Hint</div>
+                    </div>
+                    <div class="window-buttons">
+                        <button class="btn" style="width:100px" @onclick="() => d.Result.TrySetResult(false)">Отмена</button>
+                        <button class="btn primary" style="width:120px" @onclick="() => d.Result.TrySetResult(true)">Запустить</button>
+                    </div>
+                    break;
+
+                case "folder":
+                    <div class="window-body">
+                        <div style="margin-bottom:4px">Имя папки</div>
+                        <input class="input" value='@d.Values["name"]'@oninput='e => d.Values["name"] = (string?)e.Value ?? ""' />
+                        @if (d.Hint.Length > 0)
+                        {
+                            <div class="error">@d.Hint</div>
+                        }
+                    </div>
+                    <div class="window-buttons">
+                        <button class="btn" style="width:100px" @onclick="() => d.Result.TrySetResult(null)">Отмена</button>
+                        <button class="btn primary" style="width:120px" @onclick="() => FolderOk(d)">Сохранить</button>
+                    </div>
+                    break;
+
+                case "settings":
+                    <div class="window-body">
+                        <div style="margin-bottom:6px">Тема</div>
+                        @foreach (var (val, text) in Themes)
+                        {
+                            <label class="check" style="margin-bottom:6px">
+                                <input type="radio" name="theme" checked='@(d.Values["theme"] == val)' @onchange="() => Set(d, ThemeKey, val)" /> @text
+                            </label>
+                        }
+                        <div class="muted small" style="margin-top:6px">Тема запоминается в этом браузере.</div>
+                    </div>
+                    <div class="window-buttons">
+                        <button class="btn" style="width:100px" @onclick="() => d.Result.TrySetResult(null)">Отмена</button>
+                        <button class="btn primary" style="width:120px" @onclick='() => d.Result.TrySetResult(d.Values["theme"])'>Сохранить</button>
+                    </div>
+                    break;
+
+                case "host":
+                    <HostDialog S="S" D="d" />
+                    break;
+
+                case "adduser":
+                    <AddUserDialog D="d" />
+                    break;
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private static readonly (string, string)[] Themes = { ("system", "Как в системе"), ("light", "Светлая"), ("dark", "Тёмная") };
+
+    private const string ThemeKey = "theme";
+
+    private static void Set(UiDialog d, string key, object? value) => d.Values[key] = (value as string ?? "").Trim();
+
+    private static void FolderOk(UiDialog d)
+    {
+        var name = d.Values["name"].Trim();
+        if (name.Length == 0) { d.Hint = "Нужно имя."; return; }
+        d.Result.TrySetResult(name);
+    }
+}

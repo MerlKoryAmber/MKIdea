@@ -1,24 +1,18 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using LinuxOps.Services;
 using System.Windows;
 using System.Windows.Threading;
 
-namespace LinuxOps.Services;
+namespace LinuxOps;
 
 /// <summary>
-/// Журнал ошибок LinuxOps.crash.log рядом с exe. Ошибка .NET в окне — запись в журнал и сообщение, программа
-/// продолжает работать. Падение в чужом нативном коде (ActiveX RDP и т. п.) не остановить, но в журнал попадут
-/// код исключения, модуль и, для отложенной загрузки DLL, какой функции не хватило.
+/// Ошибка .NET в окне — запись в журнал (CrashLog) и сообщение, программа продолжает работать. Падение в чужом нативном коде
+/// (ActiveX RDP и т. п.) не остановить, но в журнал попадут код исключения, модуль и, для отложенной загрузки DLL, какой функции не хватило.
 /// </summary>
-public static class CrashLog
+public static class CrashReporter
 {
-    public static string LogPath { get; } = Path.Combine(
-        Path.GetDirectoryName(DefaultsStore.DefaultsPath) ?? AppContext.BaseDirectory, "LinuxOps.crash.log");
-
-    private const long MaxBytes = 1024 * 1024;
-    private static readonly object Gate = new();
-
     public static void Install(Application app)
     {
         app.DispatcherUnhandledException += OnDispatcherException;
@@ -26,12 +20,13 @@ public static class CrashLog
         System.Windows.Forms.Application.SetUnhandledExceptionMode(System.Windows.Forms.UnhandledExceptionMode.CatchException);
         System.Windows.Forms.Application.ThreadException += (_, e) => Report("Ошибка во встроенном компоненте", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-            Write("Необработанная ошибка, программа закрывается", e.ExceptionObject as Exception, includeNative: true);
+            CrashLog.Write("Необработанная ошибка, программа закрывается", e.ExceptionObject as Exception, includeNative: true);
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
-            Write("Ошибка фоновой задачи", e.Exception);
+            CrashLog.Write("Ошибка фоновой задачи", e.Exception);
             e.SetObserved();
         };
+        CrashLog.NativeInfo = () => NativeTrap.Last;
         NativeTrap.Install();
     }
 
@@ -45,13 +40,13 @@ public static class CrashLog
 
     private static void Report(string what, Exception ex)
     {
-        Write(what, ex);
+        CrashLog.Write(what, ex);
         if (_showing) return;
         _showing = true;
         try
         {
             var owner = Application.Current?.MainWindow;
-            var text = $"Произошла ошибка: {ex.Message}\n\nПрограмма продолжает работать. Подробности — в журнале:\n{LogPath}";
+            var text = $"Произошла ошибка: {ex.Message}\n\nПрограмма продолжает работать. Подробности — в журнале:\n{CrashLog.LogPath}";
             if (owner is { IsLoaded: true }) AppDialog.Info(owner, text, "Ошибка");
             else MessageBox.Show(text, "LinuxOps — ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -62,28 +57,6 @@ public static class CrashLog
         finally
         {
             _showing = false;
-        }
-    }
-
-    public static void Write(string what, Exception? ex, bool includeNative = false)
-    {
-        try
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine($"==== {DateTime.Now:yyyy-MM-dd HH:mm:ss} · {what}");
-            sb.AppendLine($"LinuxOps {typeof(CrashLog).Assembly.GetName().Version} · {RuntimeInformation.OSDescription} · {Environment.OSVersion.Version} · .NET {Environment.Version}");
-            if (includeNative && NativeTrap.Last is { } native) sb.AppendLine("Нативное исключение: " + native);
-            if (ex is not null) sb.AppendLine(ex.ToString());
-            lock (Gate)
-            {
-                if (File.Exists(LogPath) && new FileInfo(LogPath).Length > MaxBytes)
-                    File.Move(LogPath, LogPath + ".old", overwrite: true);
-                File.AppendAllText(LogPath, sb.ToString() + Environment.NewLine);
-            }
-        }
-        catch
-        {
-            // журнал не записался — молча: ошибка журнала не должна ронять программу
         }
     }
 

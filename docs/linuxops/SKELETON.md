@@ -13,7 +13,7 @@
 
 ## Процессы
 
-- `LinuxOps.exe` — WPF, .NET 8, single-file.
+- `LinuxOps.exe` — WPF, .NET 8, single-file. Логика (SSH, план, каталог, «Версии ПО», CVE, обновление, учётки, прокси, история) — в проекте `src/LinuxOps.Core` (net8.0), общем с веб-версией (`docs/linuxops.web/SKELETON.md`); вопросы ядра к пользователю — `IUserPrompts` → `WpfPrompts`.
 - `pwsh\LinuxOps.PsHost.exe` — движок PowerShell 7.4 (`Microsoft.PowerShell.SDK`), отдельный процесс: модули (PowerCLI) не делят сборки с LinuxOps, зависший вызов снимается вместе с процессом. Связь — анонимные каналы, строки JSON (`PsProtocol`). Встроенные модули PowerShell — `pwsh\Modules` ($PSHOME).
 - `LinuxOps.PsHost.exe --console --suggest <канал>` — консоль вкладки PowerShell: `ConsoleShell.Start` (как pwsh.exe) с PSReadLine 2.3.6 (`pwsh\Modules\PSReadLine`, вложен в репозиторий) внутри псевдоконсоли Windows (ConPTY). Предиктор `CompletionPredictor` шлёт дополнения набранной строки по именованному каналу, список рисует LinuxOps.
 - `Modules\` рядом с LinuxOps.exe — модули пользователя (PowerCLI), первыми в PSModulePath. Переносится вместе с папкой LinuxOps на машины без интернета.
@@ -43,7 +43,7 @@
 - `VsphereWindow` (модули PowerCLI), `PsRunWindow` («Параметры действий» — Bash и PowerShell, перед запуском, если они есть)
 - `DistroLabel` + цветные монограмм-иконки в списке хостов
 - `HistoryStore`
-- `CrashLog` — `LinuxOps.crash.log` рядом с exe: ошибки .NET (WPF и встроенного WinForms) — запись и окно, программа работает; нативное падение (ActiveX) — код, модуль, для отложенной загрузки — DLL и функция
+- `CrashLog` (ядро) + `CrashReporter` (окно, нативная ловушка) — `LinuxOps.crash.log` рядом с exe: ошибки .NET (WPF и встроенного WinForms) — запись и окно, программа работает; нативное падение (ActiveX) — код, модуль, для отложенной загрузки — DLL и функция
 
 ## Publish
 

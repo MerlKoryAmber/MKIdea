@@ -105,7 +105,7 @@
                   Focusable="False"
                   Visibility="{Binding ShowChecks, RelativeSource={RelativeSource AncestorType=local:ResourceTree}, Converter={StaticResource BoolVis}}"/>
         <Grid DockPanel.Dock="Left" Width="26" Height="26" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="{Binding Item.IconTip}">
-          <Ellipse Fill="{Binding Item.IconBrush}"/>
+          <Ellipse Fill="{Binding Item.IconColor}"/>
           <TextBlock Text="{Binding Item.IconLetter}" Foreground="White" FontWeight="Bold" FontSize="11"
                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Grid>

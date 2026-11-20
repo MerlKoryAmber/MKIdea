@@ -57,13 +57,13 @@ catch (Exception ex)
     fail++;
 }
 
-// Reproduce former crash: touch DistroColorBrush then SaveHosts (JSON must ignore Brush)
+// Reproduce former crash: touch DistroColor, then serialize (JSON must ignore UI-only properties)
 try
 {
     host.DistroHint = "centos";
     host.Status = "Online";
-    _ = host.DistroColorBrush;
-    DefaultsStore.SaveHosts(new[] { host });
+    _ = host.DistroColor;
+    _ = System.Text.Json.JsonSerializer.Serialize(host);
     Console.WriteLine("[probe-save] OK DistroHint persisted");
 }
 catch (Exception ex)

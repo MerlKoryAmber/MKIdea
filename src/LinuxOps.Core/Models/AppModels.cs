@@ -2,7 +2,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
-using System.Windows.Media;
 
 namespace LinuxOps.Models;
 
@@ -13,7 +12,8 @@ public interface IInventoryItem : INotifyPropertyChanged
     string Subtitle { get; }
     string Display { get; }
     string IconLetter { get; }
-    Brush IconBrush { get; }
+    /// <summary>Цвет значка — «#RRGGBB» (WPF превращает строку в кисть сам).</summary>
+    string IconColor { get; }
     string IconTip { get; }
     string Status { get; }
     string StatusColor { get; }
@@ -45,6 +45,8 @@ public sealed class HostConfig : IInventoryItem
     public string Auth { get; set; } = "PrivateKey";
     public string PrivateKeyPath { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    /// <summary>Ключ текстом (LinuxOps.Web: из хранилища секретов). Не в JSON, на диск не пишется.</summary>
+    [JsonIgnore] public string PrivateKeyText { get; set; } = string.Empty;
     /// <summary>Выполнять действия с привилегией sudo/root через sudo. Для root не используется.</summary>
     public bool UseSudo { get; set; } = true;
     public string FolderId { get; set; } = string.Empty;
@@ -58,7 +60,7 @@ public sealed class HostConfig : IInventoryItem
             OnPropertyChanged();
             OnPropertyChanged(nameof(DistroBadge));
             OnPropertyChanged(nameof(DistroLetter));
-            OnPropertyChanged(nameof(DistroColorBrush));
+            OnPropertyChanged(nameof(DistroColor));
         }
     }
 
@@ -80,16 +82,7 @@ public sealed class HostConfig : IInventoryItem
     [JsonIgnore] public string Subtitle => $"{Username}@{Host}" + (Port > 0 && Port != 22 ? $":{Port}" : "");
     [JsonIgnore] public string DistroBadge => DistroLabel.FromHint(DistroHint);
     [JsonIgnore] public string DistroLetter => DistroLabel.Letter(DistroHint);
-    [JsonIgnore]
-    public Brush DistroColorBrush
-    {
-        get
-        {
-            var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(DistroLabel.ColorHex(DistroHint))!;
-            if (brush.CanFreeze) brush.Freeze();
-            return brush;
-        }
-    }
+    [JsonIgnore] public string DistroColor => DistroLabel.ColorHex(DistroHint);
     [JsonIgnore]
     public string StatusColor => Status switch
     {
@@ -101,7 +94,7 @@ public sealed class HostConfig : IInventoryItem
 
     [JsonIgnore] public string Display => $"{Title} · {Subtitle}";
     [JsonIgnore] public string IconLetter => DistroLetter;
-    [JsonIgnore] public Brush IconBrush => DistroColorBrush;
+    [JsonIgnore] public string IconColor => DistroColor;
     [JsonIgnore] public string IconTip => DistroBadge;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -110,7 +103,7 @@ public sealed class HostConfig : IInventoryItem
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         if (name != nameof(DistroHint)) return;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconLetter)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconBrush)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconColor)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IconTip)));
     }
 }
@@ -135,7 +128,6 @@ public sealed class AppDefaults
 /// <summary>Хост Windows в Inventory — подключение по RDP во вкладке «Подключения». Пароль не хранится.</summary>
 public sealed class WindowsHost : IInventoryItem
 {
-    private static readonly Brush WinBrush = Frozen("#0078D4");
     private bool _isSelected = true;
     private string _status = "—";
 
@@ -172,7 +164,7 @@ public sealed class WindowsHost : IInventoryItem
     [JsonIgnore] public string Subtitle => (string.IsNullOrWhiteSpace(User) ? "" : User + " · ") + Host + (Port > 0 && Port != 3389 ? $":{Port}" : "");
     [JsonIgnore] public string Display => $"Windows {Title} · {Host}";
     [JsonIgnore] public string IconLetter => "W";
-    [JsonIgnore] public Brush IconBrush => WinBrush;
+    [JsonIgnore] public string IconColor => "#0078D4";
     [JsonIgnore] public string IconTip => "Windows · RDP";
     [JsonIgnore]
     public string StatusColor => Status switch
@@ -195,13 +187,6 @@ public sealed class WindowsHost : IInventoryItem
 
     public override string ToString() => Title;
 
-    private static Brush Frozen(string hex)
-    {
-        var b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
-        b.Freeze();
-        return b;
-    }
-
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -210,7 +195,6 @@ public sealed class WindowsHost : IInventoryItem
 /// <summary>vCenter в Inventory. Пароль не хранится — спрашивается при подключении и живёт до закрытия программы.</summary>
 public sealed class VCenterProfile : IInventoryItem
 {
-    private static readonly Brush VcBrush = Frozen("#3B7DD8");
     private bool _isSelected = true;
     private string _status = "—";
 
@@ -239,7 +223,7 @@ public sealed class VCenterProfile : IInventoryItem
     [JsonIgnore] public string Subtitle => string.IsNullOrWhiteSpace(User) ? Server : $"{User} · {Server}";
     [JsonIgnore] public string Display => $"vCenter {Title} · {Server}";
     [JsonIgnore] public string IconLetter => "vC";
-    [JsonIgnore] public Brush IconBrush => VcBrush;
+    [JsonIgnore] public string IconColor => "#3B7DD8";
     [JsonIgnore] public string IconTip => "vCenter";
     [JsonIgnore]
     public string StatusColor => Status switch
@@ -250,13 +234,6 @@ public sealed class VCenterProfile : IInventoryItem
     };
 
     public override string ToString() => Title;
-
-    private static Brush Frozen(string hex)
-    {
-        var b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
-        b.Freeze();
-        return b;
-    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
@@ -300,6 +277,22 @@ public sealed class ActionDefinition
 
 public sealed class DistroInfo
 {
+    /// <summary>Дистрибутив по подсказке хоста (до подключения): семейство rhel / debian / suse.</summary>
+    public static DistroInfo FromHint(string? hint)
+    {
+        var id = string.IsNullOrWhiteSpace(hint) ? "unknown" : hint.Trim();
+        var blob = id.ToLowerInvariant();
+        var family = "unknown";
+        if (blob.Contains("rhel") || blob.Contains("centos") || blob.Contains("fedora") ||
+            blob.Contains("rocky") || blob.Contains("alma") || blob.Contains("oracle") || blob == "ol")
+            family = "rhel";
+        else if (blob.Contains("debian") || blob.Contains("ubuntu"))
+            family = "debian";
+        else if (blob.Contains("suse") || blob.Contains("sles"))
+            family = "suse";
+        return new DistroInfo { Id = id, Like = id, PrettyName = id, Family = family };
+    }
+
     public string Id { get; init; } = "unknown";
     public string Like { get; init; } = string.Empty;
     public string PrettyName { get; init; } = string.Empty;

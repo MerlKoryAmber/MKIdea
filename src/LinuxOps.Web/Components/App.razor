@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <title>LinuxOps</title>
+    <link rel="stylesheet" href="app.css" />
+    <script>
+        // тема: light / dark / system — как в настольной версии; выбор помнит браузер
+        (function () {
+            var t = 'system';
+            try { t = localStorage.getItem('lo-theme') || 'system'; } catch (e) { }
+            document.documentElement.dataset.theme = t;
+        })();
+        window.lo = {
+            theme: function () { return document.documentElement.dataset.theme || 'system'; },
+            setTheme: function (t) {
+                document.documentElement.dataset.theme = t;
+                try { localStorage.setItem('lo-theme', t); } catch (e) { }
+            },
+            copy: function (text) { return navigator.clipboard ? navigator.clipboard.writeText(text) : null; }
+        };
+    </script>
+</head>
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
