@@ -396,6 +396,19 @@
                              TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="VersionsSummary"/>
                   <TextBlock Text="{Binding DetailVersions.UpdatesText}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,3,0,0" TextWrapping="Wrap"
                              AutomationProperties.AutomationId="VersionsUpdates"/>
+                  <!-- сверка CVE с ПК: что закрыть сейчас -->
+                  <TextBlock Text="{Binding DetailVersions.CveSummary}" Foreground="#F0A0A0" FontSize="12" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap"
+                             AutomationProperties.AutomationId="VersionsCve">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock">
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding DetailVersions.CveSummary}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
                   <!-- журнал туннеля через ПК (только при галке): сколько соединений и куда -->
                   <TextBlock Text="{Binding DetailVersions.TunnelLog}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,2,0,0" TextWrapping="Wrap"
                              AutomationProperties.AutomationId="VersionsTunnel">
@@ -417,7 +430,7 @@
                            Visibility="{Binding HasUpdatable, Converter={StaticResource BoolVis}}">
                   <Button DockPanel.Dock="Left" Content="Отметить безопасности" Style="{StaticResource Btn}" Height="26" MinWidth="150"
                           Command="{Binding PickSecurityCommand}" AutomationProperties.AutomationId="VersionsPickSecurity"
-                          ToolTip="Отметить пакеты с обновлениями безопасности (если их нет — все с обновлениями)"/>
+                          ToolTip="Отметить пакеты с обновлениями безопасности или незакрытыми CVE (если таких нет — все с обновлениями)"/>
                   <Button DockPanel.Dock="Left" Content="{Binding UpdateSelectedText}" Style="{StaticResource BtnPrimary}" Height="26" MinWidth="190"
                           Margin="6,0,0,0" Command="{Binding UpdateSelectedCommand}" AutomationProperties.AutomationId="VersionsUpdateSelected"
                           ToolTip="Сначала покажет, что поставится (вместе с пакетами той же сборки), и спросит подтверждение"/>
@@ -484,6 +497,27 @@
                               </DataTrigger>
                               <DataTrigger Binding="{Binding Note}" Value="">
                                 <Setter TargetName="NoteLine" Property="Visibility" Value="Collapsed"/>
+                              </DataTrigger>
+                            </DataTemplate.Triggers>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
+                      <!-- CVE: только «закрыть сейчас» (KEV, EPSS ≥ 10%, CVSS ≥ 9 по сети); нет такого — пусто -->
+                      <GridViewColumn Header="CVE" Width="150">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <StackPanel x:Name="CveCell" Visibility="Collapsed" ToolTipService.ShowDuration="60000">
+                              <Border Background="#8C3A3A" CornerRadius="3" Padding="6,1" HorizontalAlignment="Left">
+                                <TextBlock Text="{Binding CveText}" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                           AutomationProperties.Name="{Binding CveText}"/>
+                              </Border>
+                              <TextBlock Text="{Binding CveTop}" Foreground="#E0B8B8" FontSize="11" Margin="0,2,0,0"
+                                         FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <DataTemplate.Triggers>
+                              <DataTrigger Binding="{Binding CveLevel}" Value="now">
+                                <Setter TargetName="CveCell" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="CveCell" Property="ToolTip" Value="{Binding CveTooltip}"/>
                               </DataTrigger>
                             </DataTemplate.Triggers>
                           </DataTemplate>

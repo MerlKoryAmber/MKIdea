@@ -207,6 +207,7 @@ public sealed class PlanRunner
                 result.HostName = host.Name;
                 result.ActionName = action.Name;
                 var row = FromActionResult(host.Name, action.Name, result, tunnel);
+                row = WithCve(row, host.Name, action.Name, env, progress, key, cancellationToken);
                 progress.Report(new PlanProgress { Row = row });
                 Remember(history, ToHistory(mode, host.Name, action.Name, row));
             }
@@ -329,6 +330,34 @@ public sealed class PlanRunner
         }
     }
 
+    private static ResultRow VersionsRow(string host, string actionName, VersionReport versions) => new()
+    {
+        // Обновление безопасности, CVE, ветка без поддержки или просто доступное обновление — внимание, не сбой.
+        Status = versions.BadCount + versions.WarnCount > 0 ? "WARN" : "OK",
+        Title = $"{host} · {actionName}",
+        Preview = versions.Summary,
+        Detail = VersionsCheck.Format(host, versions),
+        IsOk = true,
+        Versions = versions
+    };
+
+    /// <summary>«Версии ПО» → сверка CVE с ПК (галка UPD_CVE, по умолчанию да); строка пересобирается.</summary>
+    private static ResultRow WithCve(ResultRow row, string host, string actionName, Dictionary<string, string>? env,
+        IProgress<PlanProgress> progress, string key, CancellationToken ct)
+    {
+        if (row.Versions is not { } vr) return row;
+        if (env is not null && env.TryGetValue(CveCheck.Param, out var on) && !ActionParam.IsYes(on))
+        {
+            vr.CveOff = true;
+            return VersionsRow(host, actionName, vr);
+        }
+        if (vr.Items.Count == 0) return row;
+        // та же строка RUN (по ключу): новая строка RUN с тем же заголовком осталась бы висеть над итогом
+        progress.Report(new PlanProgress { Live = "\nсверка CVE с базами уязвимостей (с этого ПК)…\n", LiveKey = key, Status = $"{row.Title} · сверка CVE" });
+        CveCheck.Run(vr, ct);
+        return VersionsRow(host, actionName, vr);
+    }
+
     private static ResultRow FromActionResult(string host, string actionName, ActionResult r, Tunnel? tunnel = null, bool isPreview = false)
     {
         if (string.Equals(r.ActionId, PackageUpdate.ActionId, StringComparison.OrdinalIgnoreCase)
@@ -407,16 +436,7 @@ public sealed class PlanRunner
                 versions.TunnelConnections = tunnel.Connections;
                 versions.TunnelLog = tunnel.Log;
             }
-            return new ResultRow
-            {
-                // Обновление безопасности, ветка без поддержки или просто доступное обновление — внимание, не сбой.
-                Status = versions.BadCount + versions.WarnCount > 0 ? "WARN" : "OK",
-                Title = $"{host} · {actionName}",
-                Preview = versions.Summary,
-                Detail = VersionsCheck.Format(host, versions),
-                IsOk = true,
-                Versions = versions
-            };
+            return VersionsRow(host, actionName, versions);
         }
 
         var preview = string.Equals(r.ActionId, "check-updates", StringComparison.OrdinalIgnoreCase)

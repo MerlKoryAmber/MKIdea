@@ -57,6 +57,42 @@ public sealed class VersionItem : System.ComponentModel.INotifyPropertyChanged
     };
 
     public bool FromPackage => Package.Length > 0;
+
+    /// <summary>rpm: эпоха («(none)» — нет), исходный пакет (*.src.rpm), производитель; dpkg: исходный пакет.</summary>
+    public string PackageEpoch { get; init; } = "";
+    public string SourcePackage { get; init; } = "";
+    public string Vendor { get; init; } = "";
+
+    // ---------- сверка CVE (CveCheck) ----------
+
+    /// <summary>now — закрыть сейчас, plan — в план, ok — срочных нет, none — не сверялось; пусто — сверку не запускали.</summary>
+    public string CveLevel { get; private set; } = "";
+    public List<CveHit> Cves { get; private set; } = new();
+    /// <summary>Почему не сверялось или что не удалось.</summary>
+    public string CveNote { get; private set; } = "";
+    /// <summary>С какой базой сверялось.</summary>
+    public string CveSource { get; set; } = "";
+
+    public void SetCve(string level, List<CveHit> hits, string note)
+    {
+        CveLevel = level;
+        Cves = hits;
+        CveNote = note;
+    }
+
+    /// <summary>Плашка — только когда есть что закрыть сейчас.</summary>
+    public string CveText => CveLevel == "now" ? $"{Cves.Count} CVE" : "";
+
+    /// <summary>Под плашкой — самая опасная.</summary>
+    public string CveTop => CveLevel == "now" && Cves.Count > 0 ? Cves[0].Id : "";
+
+    /// <summary>По строке на CVE; не сверялось — почему.</summary>
+    public string CveTooltip => CveLevel switch
+    {
+        "now" => string.Join("\n", Cves.Select(c => c.Line)),
+        "none" when CveNote.Length > 0 => "CVE не сверялись: " + CveNote,
+        _ => ""
+    };
 }
 
 public sealed class ContainerInfo
@@ -81,8 +117,34 @@ public sealed class VersionReport
     public int StoppedContainers { get; set; }
     public List<string> ContainerErrors { get; } = new();
 
-    public int BadCount => Items.Count(i => i.Severity == "bad");
+    public int BadCount => Items.Count(i => i.Severity == "bad" || i.CveLevel == "now");
     public int WarnCount => Items.Count(i => i.Severity == "warn");
+
+    /// <summary>Дистрибутив по месту: "" — хост, иначе имя контейнера → «centos 9».</summary>
+    public Dictionary<string, string> Os { get; } = new(StringComparer.Ordinal);
+
+    public bool CveDone { get; set; }
+    public string CveErrors { get; set; } = "";
+    public DateTime? CveStale { get; set; }
+    public int CveSeconds { get; set; }
+    /// <summary>Сверку CVE отключили галкой.</summary>
+    public bool CveOff { get; set; }
+
+    public string CveSummary
+    {
+        get
+        {
+            if (CveOff || !CveDone) return "";
+            // «Закрыть сейчас: nginx — 1, PHP — 4, nginx в web — 4»; php и php-fpm из одной сборки — одной записью
+            var now = Items.Where(i => i.CveLevel == "now")
+                .GroupBy(i => (i.Container, Cves: string.Join(",", i.Cves.Select(c => c.Id))))
+                .Select(g => $"{string.Join("/", g.Select(i => i.ProductText).Distinct())}{(g.Key.Container.Length > 0 ? $" в {g.Key.Container}" : "")} — {g.First().Cves.Count}")
+                .ToList();
+            var text = now.Count > 0 ? "Закрыть сейчас: " + string.Join(", ", now) : "CVE: срочного нет";
+            if (CveErrors.Length > 0 || CveStale is not null) text += " (не все базы ответили)";
+            return text;
+        }
+    }
 
     public string Summary
     {
@@ -92,6 +154,8 @@ public sealed class VersionReport
             var host = Items.Where(i => i.Container.Length == 0).Select(i => $"{i.ProductText} {i.Version}").Distinct().ToList();
             parts.Add(host.Count > 0 ? string.Join(", ", host.Take(4)) + (host.Count > 4 ? $" и ещё {host.Count - 4}" : "") : "на хосте ничего из списка");
             if (Containers.Count > 0) parts.Add($"контейнеров {Containers.Count}");
+            var cveNow = Items.Count(i => i.CveLevel == "now");
+            if (cveNow > 0) parts.Add($"CVE закрыть сейчас: {cveNow}");
             if (BadCount > 0) parts.Add($"внимание: {BadCount}");
             else if (WarnCount > 0) parts.Add($"обновлений: {WarnCount}");
             else parts.Add("замечаний нет");
@@ -199,13 +263,13 @@ public static class VersionsCheck
         own() {
           f=$(readlink -f "$1" 2>/dev/null || echo "$1")
           if command -v rpm >/dev/null 2>&1; then
-            r=$(rpm -qf --qf '%{NAME}\t%{VERSION}-%{RELEASE}\n' "$f" 2>/dev/null | head -n1)
+            r=$(rpm -qf --qf '%{NAME}\t%{VERSION}-%{RELEASE}\t%{EPOCH}\t%{SOURCERPM}\t%{VENDOR}\n' "$f" 2>/dev/null | head -n1)
             case "$r" in *"not owned"*|"") ;; *) printf '%s' "$r"; return ;; esac
           fi
           if command -v dpkg-query >/dev/null 2>&1; then
             p=$(dpkg -S "$f" 2>/dev/null | head -n1 | cut -d: -f1)
             if [ -z "$p" ] && [ "$f" != "$1" ]; then p=$(dpkg -S "$1" 2>/dev/null | head -n1 | cut -d: -f1); fi
-            if [ -n "$p" ]; then printf '%s\t%s' "$p" "$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null)"; return; fi
+            if [ -n "$p" ]; then printf '%s\t%s\t\t%s' "$p" "$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null)" "$(dpkg-query -W -f='${source:Package}' "$p" 2>/dev/null)"; return; fi
           fi
           if command -v apk >/dev/null 2>&1; then
             o=$(apk info -W "$f" 2>/dev/null | sed -n 's/.* is owned by //p' | head -n1)
@@ -221,6 +285,7 @@ public static class VersionsCheck
           printf 'V\t\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(own "$3")"
         }
         b() { command -v "$1" 2>/dev/null; }
+        [ -r /etc/os-release ] && ( . /etc/os-release 2>/dev/null; printf 'O\t\t%s %s\n' "$ID" "$VERSION_ID" )
         if f=$(b nginx); then emit nginx "$("$f" -v 2>&1 | sed -n 's#.*nginx/\([0-9][0-9.]*\).*#\1#p' | head -n1)" "$f"; fi
         for n in httpd apache2; do
           if f=$(b $n); then emit apache "$("$f" -v 2>/dev/null | sed -n 's#.*Apache/\([0-9][0-9.]*\).*#\1#p' | head -n1)" "$f"; fi
@@ -363,7 +428,7 @@ public static class VersionsCheck
             out=$($TO $rt exec "$id" sh -c "$PROBE" 2>/dev/null </dev/null); rc=$?
             if [ $rc -eq 0 ]; then
               printf 'CT\t%s\t%s\t%s\texec\n' "$name" "$image" "$rt"
-              printf '%s\n' "$out" | awk -F'\t' -v OFS='\t' -v n="$name" '$1=="V" {$2=n; print}'
+              printf '%s\n' "$out" | awk -F'\t' -v OFS='\t' -v n="$name" '$1=="V" || $1=="O" {$2=n; print}'
               continue
             fi
             # нет оболочки (distroless, scratch) — версии из переменных образа, затем из тега
@@ -421,8 +486,14 @@ public static class VersionsCheck
                         Version = p[3],
                         Path = p.Length > 4 ? p[4] : "",
                         Package = p.Length > 5 ? p[5] : "",
-                        PackageVersion = p.Length > 6 ? p[6] : ""
+                        PackageVersion = p.Length > 6 ? p[6] : "",
+                        PackageEpoch = p.Length > 7 ? p[7] : "",
+                        SourcePackage = p.Length > 8 ? p[8] : "",
+                        Vendor = p.Length > 9 ? p[9] : ""
                     });
+                    break;
+                case "O" when r is not null && p.Length >= 3:
+                    r.Os[p[1]] = p[2].Trim();
                     break;
                 case "U" when p.Length >= 3 && p[1].Length > 0:
                     updates[p[1]] = p[2];
@@ -524,6 +595,7 @@ public static class VersionsCheck
         sb.AppendLine($"host: {host}");
         sb.AppendLine(r.UpdatesText);
         if (r.TunnelLog.Length > 0) sb.AppendLine(r.TunnelLog);
+        if (r.CveSummary.Length > 0) sb.AppendLine(r.CveSummary);
         sb.AppendLine();
         foreach (var g in r.Items.GroupBy(i => i.Container))
         {
@@ -533,6 +605,8 @@ public static class VersionsCheck
             {
                 sb.AppendLine($"  {i.ProductText} {i.Version} — {i.StateText}");
                 sb.AppendLine($"      {i.SourceText}" + (i.Note.Length > 0 ? $"; {i.Note}" : ""));
+                if (i.CveLevel == "now")
+                    foreach (var c in i.Cves) sb.AppendLine("      ! " + c.Line);
             }
             sb.AppendLine();
         }

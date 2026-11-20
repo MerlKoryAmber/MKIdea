@@ -265,8 +265,10 @@ public partial class ActionsViewModel : ObservableObject
     {
         if (DetailVersions is not { } r) return;
         var items = r.Items.Where(i => i.CanUpdate).ToList();
-        var sec = items.Where(i => i.SecurityUpdate).ToList();
-        foreach (var i in items) i.IsChecked = sec.Count > 0 ? i.SecurityUpdate : true;
+        // обновление безопасности или незакрытая CVE; ничего такого — все с обновлениями
+        static bool Sec(LinuxOps.Services.VersionItem i) => i.SecurityUpdate || i.CveLevel == "now";
+        var sec = items.Where(Sec).ToList();
+        foreach (var i in items) i.IsChecked = sec.Count > 0 ? Sec(i) : true;
     }
 
     /// <summary>

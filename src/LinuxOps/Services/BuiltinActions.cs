@@ -47,7 +47,7 @@ public static class BuiltinActions
         {
             Id = "versions-check",
             Name = "Версии ПО: nginx, PHP… и контейнеры",
-            Description = "nginx, Apache, PHP, OpenSSL, OpenSSH, MySQL/MariaDB, PostgreSQL, Redis, Node.js, Java, Python — на хосте и в контейнерах docker / podman; пакеты — есть ли обновление (в т. ч. безопасности), остальное — поддерживается ли ветка. Ничего не меняет",
+            Description = "nginx, Apache, PHP, OpenSSL, OpenSSH, MySQL/MariaDB, PostgreSQL, Redis, Node.js, Java, Python — на хосте и в контейнерах docker / podman; пакеты — есть ли обновление (в т. ч. безопасности), остальное — поддерживается ли ветка; незакрытые CVE — что закрыть сейчас. Ничего не меняет",
             BuiltIn = true,
             TimeoutSeconds = 300,
             Distros = new List<string> { "any" },
@@ -60,6 +60,14 @@ public static class BuiltinActions
                     Hint = "Для хостов без интернета. На время проверки хост получает выход в интернет через этот ПК и его прокси (только порты 80 и 443), " +
                            "в журналах прокси трафик будет от вашей учётки. Такой туннель могут заметить SIEM / EDR — включайте по согласованию с ИБ. " +
                            "Без галки: репозитории — напрямую с хоста, не ответили за 60 с — кэш хоста."
+                },
+                new()
+                {
+                    Name = CveCheck.Param, Kind = "bool", Default = "да",
+                    Label = "Сверить с базами уязвимостей (CVE) — с этого ПК",
+                    Hint = "Пакеты CentOS / RHEL / Rocky / Alma — по базе Red Hat (с учётом перенесённых исправлений), сборки разработчика и контейнеры — по NVD; " +
+                           "срочность — CISA KEV и EPSS. Нужен интернет на этом ПК (через его прокси). Наружу уходят только имена пакетов, версии и номера CVE — " +
+                           "не адреса и не имена хостов. Ответы баз хранятся сутки."
                 }
             }
         },
