@@ -53,13 +53,15 @@ public partial class ActionsViewModel : ObservableObject
     [ObservableProperty] private string detail = "Выберите строку плана.";
     [ObservableProperty] private ResultRow? selectedResult;
     /// <summary>Аудит пользователей: таблица (по умолчанию) или текст.</summary>
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowAuditTable))] [NotifyPropertyChangedFor(nameof(ShowProxyTable))] [NotifyPropertyChangedFor(nameof(DetailViewText))] private bool showRawDetail;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowAuditTable))] [NotifyPropertyChangedFor(nameof(ShowProxyTable))] [NotifyPropertyChangedFor(nameof(ShowVersionsTable))] [NotifyPropertyChangedFor(nameof(DetailViewText))] private bool showRawDetail;
     public LinuxOps.Services.UserAuditReport? DetailAudit => SelectedResult?.Audit;
     public LinuxOps.Services.ProxyReport? DetailProxy => SelectedResult?.Proxy;
-    /// <summary>У строки есть табличный вид (аудит или прокси) — показываем переключатель «Таблица / Текст».</summary>
-    public bool HasDetailAudit => DetailAudit is not null || DetailProxy is not null;
+    public LinuxOps.Services.VersionReport? DetailVersions => SelectedResult?.Versions;
+    /// <summary>У строки есть табличный вид (аудит, прокси, версии) — показываем переключатель «Таблица / Текст».</summary>
+    public bool HasDetailAudit => DetailAudit is not null || DetailProxy is not null || DetailVersions is not null;
     public bool ShowAuditTable => DetailAudit is not null && !ShowRawDetail;
     public bool ShowProxyTable => DetailProxy is not null && !ShowRawDetail;
+    public bool ShowVersionsTable => DetailVersions is not null && !ShowRawDetail;
     public string DetailViewText => ShowRawDetail ? "Таблица" : "Текст";
     [ObservableProperty] private bool isRunning;
     /// <summary>Что запустят Dry-run и «Применить» — строка внизу окна.</summary>
@@ -200,9 +202,11 @@ public partial class ActionsViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(DetailAudit));
         OnPropertyChanged(nameof(DetailProxy));
+        OnPropertyChanged(nameof(DetailVersions));
         OnPropertyChanged(nameof(HasDetailAudit));
         OnPropertyChanged(nameof(ShowAuditTable));
         OnPropertyChanged(nameof(ShowProxyTable));
+        OnPropertyChanged(nameof(ShowVersionsTable));
         // Пользователь сам выбрал строку во время запуска — не перескакиваем на новые RUN.
         if (!_programmatic && IsRunning) _autoFollow = false;
         if (value is { Status: "RUN" } && _running.TryGetValue(value.Title, out var run))

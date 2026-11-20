@@ -388,6 +388,82 @@
                   </ItemsControl>
                 </StackPanel>
               </ScrollViewer>
+              <!-- Версии ПО: хост и контейнеры, состояние — обновление / поддержка ветки -->
+              <DockPanel Background="#0F1C2B" Visibility="{Binding ShowVersionsTable, Converter={StaticResource BoolVis}}"
+                         AutomationProperties.AutomationId="VersionsTable">
+                <StackPanel DockPanel.Dock="Top" Margin="12,8,12,6">
+                  <TextBlock Text="{Binding DetailVersions.Summary}" Foreground="#E8F1F7" FontSize="12.5" FontWeight="SemiBold"
+                             TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="VersionsSummary"/>
+                  <TextBlock Text="{Binding DetailVersions.UpdatesText}" Foreground="#8EB8B0" FontSize="11.5" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Bottom" Text="{Binding DetailVersions.ContainersText}" Foreground="#8EB8B0" FontSize="11.5"
+                           Margin="12,6,12,8" TextWrapping="Wrap" AutomationProperties.AutomationId="VersionsContainers"/>
+                <ListView ItemsSource="{Binding DetailVersions.Items}" Background="#0F1C2B" BorderThickness="0" Margin="6,0"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.AutomationId="VersionsList">
+                  <ListView.View>
+                    <GridView>
+                      <GridViewColumn Header="Где" Width="150">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <TextBlock Text="{Binding WhereText}" Foreground="#D5E4EF" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding Image}"/>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
+                      <GridViewColumn Header="Продукт" Width="110">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <TextBlock Text="{Binding ProductText}" Foreground="#E8F1F7" FontWeight="SemiBold"/>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
+                      <GridViewColumn Header="Версия" Width="90">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <TextBlock Text="{Binding Version}" Foreground="#E8F1F7" FontFamily="{StaticResource MonoFont}"/>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
+                      <GridViewColumn Header="Состояние" Width="290">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <StackPanel>
+                              <Border x:Name="StateBadge" Background="#4A5A6B" CornerRadius="3" Padding="6,1" HorizontalAlignment="Left">
+                                <TextBlock Text="{Binding StateText}" Foreground="White" FontSize="11" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding StateText}"/>
+                              </Border>
+                              <TextBlock x:Name="NoteLine" Text="{Binding Note}" Foreground="#8EB8B0" FontSize="11" Margin="0,2,0,0"
+                                         TextTrimming="CharacterEllipsis" ToolTip="{Binding Note}"/>
+                            </StackPanel>
+                            <DataTemplate.Triggers>
+                              <DataTrigger Binding="{Binding Severity}" Value="ok">
+                                <Setter TargetName="StateBadge" Property="Background" Value="#1A6B62"/>
+                              </DataTrigger>
+                              <DataTrigger Binding="{Binding Severity}" Value="warn">
+                                <Setter TargetName="StateBadge" Property="Background" Value="#7A5A1E"/>
+                              </DataTrigger>
+                              <DataTrigger Binding="{Binding Severity}" Value="bad">
+                                <Setter TargetName="StateBadge" Property="Background" Value="#8C3A3A"/>
+                              </DataTrigger>
+                              <DataTrigger Binding="{Binding Note}" Value="">
+                                <Setter TargetName="NoteLine" Property="Visibility" Value="Collapsed"/>
+                              </DataTrigger>
+                            </DataTemplate.Triggers>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
+                      <GridViewColumn Header="Откуда" Width="240">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <TextBlock Text="{Binding SourceText}" Foreground="#8EB8B0" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding Path}"/>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
+                    </GridView>
+                  </ListView.View>
+                </ListView>
+              </DockPanel>
             </Grid>
           </DockPanel>
         </Grid>

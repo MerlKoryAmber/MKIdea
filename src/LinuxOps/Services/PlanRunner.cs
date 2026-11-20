@@ -294,6 +294,22 @@ public sealed class PlanRunner
             };
         }
 
+        if (r.Ok && string.Equals(r.ActionId, VersionsCheck.ActionId, StringComparison.OrdinalIgnoreCase)
+            && VersionsCheck.Parse(r.StdOut) is { } versions)
+        {
+            versions.Host = host;
+            return new ResultRow
+            {
+                // Обновление безопасности, ветка без поддержки или просто доступное обновление — внимание, не сбой.
+                Status = versions.BadCount + versions.WarnCount > 0 ? "WARN" : "OK",
+                Title = $"{host} · {actionName}",
+                Preview = versions.Summary,
+                Detail = VersionsCheck.Format(host, versions),
+                IsOk = true,
+                Versions = versions
+            };
+        }
+
         var preview = string.Equals(r.ActionId, "check-updates", StringComparison.OrdinalIgnoreCase)
             ? SummarizeUpdates(r.StdOut + "\n" + r.StdErr)
             : string.Equals(r.ActionId, "install-updates", StringComparison.OrdinalIgnoreCase) && SummarizeInstall(r.StdOut + "\n" + r.StdErr) is { } installed

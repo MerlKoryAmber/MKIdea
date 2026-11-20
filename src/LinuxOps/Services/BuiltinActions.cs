@@ -45,6 +45,15 @@ public static class BuiltinActions
         },
         new ActionDefinition
         {
+            Id = "versions-check",
+            Name = "Версии ПО: nginx, PHP… и контейнеры",
+            Description = "nginx, Apache, PHP, OpenSSL, OpenSSH, MySQL/MariaDB, PostgreSQL, Redis, Node.js, Java, Python — на хосте и в контейнерах docker / podman; пакеты — есть ли обновление (в т. ч. безопасности), остальное — поддерживается ли ветка. Ничего не меняет",
+            BuiltIn = true,
+            TimeoutSeconds = 300,
+            Distros = new List<string> { "any" }
+        },
+        new ActionDefinition
+        {
             Id = "proxy-set",
             Name = "Прокси: прописать",
             Description = "Для обновлений (apt / dnf / zypper) и при желании для окружения, вместо чужого (например, из шаблона ВМ); затем проверка через обновление списков пакетов",
@@ -82,6 +91,7 @@ public static class BuiltinActions
             "install-updates" => InstallUpdates(distro),
             "list-users" => ListUsers(distro),
             "proxy-check" => ProxyScripts.Check,
+            "versions-check" => VersionsCheck.Script,
             "proxy-set" => ProxyScripts.Set,
             "proxy-unset" => ProxyScripts.Unset,
             _ => throw new InvalidOperationException($"Неизвестное built-in действие: {id}")

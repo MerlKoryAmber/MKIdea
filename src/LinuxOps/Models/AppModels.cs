@@ -339,6 +339,8 @@ public sealed class ResultRow : INotifyPropertyChanged
     public LinuxOps.Services.UserAuditReport? Audit { get; init; }
     /// <summary>Разобранная проверка прокси (proxy-check) — для табличного вида.</summary>
     public LinuxOps.Services.ProxyReport? Proxy { get; init; }
+    /// <summary>Разобранная проверка версий ПО (versions-check) — для табличного вида.</summary>
+    public LinuxOps.Services.VersionReport? Versions { get; init; }
 }
 
 public sealed class ActionItemView : INotifyPropertyChanged
