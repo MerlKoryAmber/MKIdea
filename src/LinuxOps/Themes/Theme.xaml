@@ -323,11 +323,24 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="GridViewColumnHeader">
-          <Border Background="{DynamicResource HeaderCellBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1"
-                  Padding="8,5">
-            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                              VerticalAlignment="Center"/>
-          </Border>
+          <Grid>
+            <Border Background="{DynamicResource HeaderCellBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1"
+                    Padding="8,5">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="Center"/>
+            </Border>
+            <!-- Разделитель: WPF меняет ширину столбца, если в шаблоне есть Thumb с этим именем.
+                 Тянуть — ширина, двойной щелчок — по содержимому. -->
+            <Thumb x:Name="PART_HeaderGripper" HorizontalAlignment="Right" Width="9" Margin="0,0,-5,0" Cursor="SizeWE">
+              <Thumb.Template>
+                <ControlTemplate TargetType="Thumb">
+                  <Border Background="Transparent">
+                    <Rectangle Width="1" Margin="0,5" HorizontalAlignment="Center" Fill="{DynamicResource LineBrush}"/>
+                  </Border>
+                </ControlTemplate>
+              </Thumb.Template>
+            </Thumb>
+          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

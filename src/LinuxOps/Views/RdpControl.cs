@@ -53,21 +53,58 @@ public sealed class RdpEventSink : IMsTscAxEvents
 }
 
 /// <summary>
-/// Встроенный клиент RDP Windows (mstscax.dll, MsRdpClient10NotSafeForScripting) — тот же движок, что у mstsc.
+/// Встроенный клиент RDP Windows (mstscax.dll) — тот же движок, что у mstsc, из той Windows, где запущена программа.
 /// Свойства — поздним связыванием (dual-интерфейсы IMsRdpClient*), события — через точку подключения.
 /// </summary>
 [System.ComponentModel.DesignerCategory("code")]
 public sealed class RdpControl : AxHost
 {
+    /// <summary>
+    /// Версии класса клиента, от новой к старой. Нужное программе (AdvancedSettings9, UpdateSessionDisplaySettings)
+    /// есть с MsRdpClient9 (Windows 8.1); набор классов зависит от сборки Windows, поэтому берём первый зарегистрированный.
+    /// </summary>
+    private static readonly (string Name, string Clsid)[] Classes =
+    {
+        ("MsRdpClient10", "a0c63c30-f08d-4ab4-907c-34905d770c7d"),
+        ("MsRdpClient9", "8b918b82-7985-4c24-89df-c33ad2bbfbcd")
+    };
+
+    private static (string Name, string Clsid)? _picked;
+
+    /// <summary>Какой класс клиента выбран на этой машине (для строки ошибки и отчёта).</summary>
+    public static string ClassName => Pick().Name;
+
+    private static (string Name, string Clsid) Pick()
+    {
+        if (_picked is { } p) return p;
+#if DEBUG
+        // Проверка на машине разработчика: LINUXOPS_RDP_CLASS=9 — как в Windows без MsRdpClient10, =none — клиента нет вовсе.
+        switch (Environment.GetEnvironmentVariable("LINUXOPS_RDP_CLASS"))
+        {
+            case "9": return (_picked = Classes[1]).Value;
+            case "none": throw new InvalidOperationException(
+                "В этой Windows нет подходящего клиента удалённого рабочего стола (нужен mstscax с MsRdpClient9 или новее). Используйте «Открыть в mstsc».");
+            case "broken": return ("MsRdpClient10", "00000000-0000-0000-0000-00000000dead");
+        }
+#endif
+        foreach (var c in Classes)
+        {
+            using var key = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey($@"CLSID\{{{c.Clsid}}}\InprocServer32");
+            if (key is not null) return (_picked = c).Value;
+        }
+        throw new InvalidOperationException(
+            "В этой Windows нет подходящего клиента удалённого рабочего стола (нужен mstscax с MsRdpClient9 или новее). Используйте «Открыть в mstsc».");
+    }
+
     private ConnectionPointCookie? _cookie;
 
-    public RdpControl() : base("a0c63c30-f08d-4ab4-907c-34905d770c7d")
+    public RdpControl() : base(Pick().Clsid)
     {
     }
 
     public RdpEventSink Sink { get; } = new();
 
-    /// <summary>Объект клиента (IMsRdpClient10) для позднего связывания. Есть после создания окна.</summary>
+    /// <summary>Объект клиента (IMsRdpClient9/10) для позднего связывания. Есть после создания окна.</summary>
     public dynamic Client => GetOcx() ?? throw new InvalidOperationException("Клиент RDP ещё не создан.");
 
     public void SetExtended(string name, object value)

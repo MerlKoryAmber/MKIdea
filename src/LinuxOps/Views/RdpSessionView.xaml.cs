@@ -55,7 +55,18 @@ public partial class RdpSessionView : UserControl, IDisposable
         Vm.Status = $"Подключение к {Vm.Host.Host}…";
         Placeholder.Visibility = Visibility.Collapsed;
         Desk.Visibility = Visibility.Visible;
-        var rdp = new RdpControl { Dock = System.Windows.Forms.DockStyle.Fill };
+        RdpControl rdp;
+        try
+        {
+            // Создание ActiveX: нет класса клиента, политика запрещает — ошибка во вкладке, программа работает.
+            rdp = new RdpControl { Dock = System.Windows.Forms.DockStyle.Fill };
+        }
+        catch (Exception ex)
+        {
+            Services.CrashLog.Write("RDP: создание клиента", ex);
+            Fail("Не удалось создать клиент RDP: " + ex.Message);
+            return;
+        }
         _rdp = rdp;
         rdp.Sink.Connecting += () => Vm.Status = $"Подключение к {Vm.Host.Host}…";
         rdp.Sink.LoginComplete += () =>
@@ -84,7 +95,22 @@ public partial class RdpSessionView : UserControl, IDisposable
             };
             t.Start();
         };
-        Desk.Child = rdp;
+        try
+        {
+            Desk.Child = rdp;
+        }
+        catch (Exception ex)
+        {
+            Services.CrashLog.Write("RDP: встраивание клиента", ex);
+            _rdp = null;
+            // Неудачный клиент убрать из вкладки: иначе WindowsFormsHost при следующей раскладке снова создаёт его и падает.
+            try { Desk.Child = null; } catch { /* уже не встроен */ }
+            try { rdp.Dispose(); } catch { /* окна нет */ }
+            Fail(ex is System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040154) }
+                ? $"В этой Windows не зарегистрирован клиент RDP {RdpControl.ClassName} (mstscax). Используйте «Открыть в mstsc»."
+                : "Не удалось встроить клиент RDP: " + ex.Message);
+            return;
+        }
         // Окно клиента создаётся, когда WindowsFormsHost в дереве и видим; настройки — после этого.
         Dispatcher.BeginInvoke(() => Start(rdp), DispatcherPriority.Loaded);
     }
@@ -100,6 +126,7 @@ public partial class RdpSessionView : UserControl, IDisposable
         }
         catch (Exception ex)
         {
+            Services.CrashLog.Write($"RDP: подключение ({RdpControl.ClassName})", ex);
             Fail("Не удалось начать подключение: " + ex.Message);
         }
     }
