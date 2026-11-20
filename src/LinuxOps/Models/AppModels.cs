@@ -273,6 +273,8 @@ public sealed class ActionParam
     public string Kind { get; set; } = string.Empty;
     /// <summary>Пояснение под полем; пусто — «В скрипте — $Name…».</summary>
     public string Hint { get; set; } = string.Empty;
+    /// <summary>Подзаголовок перед полем (группа галок); «-» в Hint — без пояснения.</summary>
+    public string Group { get; set; } = string.Empty;
 
     public static bool IsYes(string? v) => v?.Trim().ToLowerInvariant() is "да" or "yes" or "1" or "true" or "on";
 }
@@ -347,6 +349,8 @@ public sealed class ResultRow : INotifyPropertyChanged
     public LinuxOps.Services.ProxyReport? Proxy { get; init; }
     /// <summary>Разобранная проверка версий ПО (versions-check) — для табличного вида.</summary>
     public LinuxOps.Services.VersionReport? Versions { get; init; }
+    /// <summary>«Обновить отмеченное»: предпросмотр или итог (службы на перезапуск).</summary>
+    public LinuxOps.Services.PackageUpdateReport? PackageUpdate { get; init; }
 }
 
 public sealed class ActionItemView : INotifyPropertyChanged

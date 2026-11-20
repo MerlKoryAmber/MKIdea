@@ -25,16 +25,27 @@ public partial class PsRunWindow : Window
                 var value = LastValues.TryGetValue(key, out var last) ? last : p.Default;
                 if (p.Kind == "bool")
                 {
+                    if (p.Group.Length > 0)
+                        ParamsPanel.Children.Add(new TextBlock
+                        {
+                            Text = p.Group, TextWrapping = TextWrapping.Wrap, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 6),
+                            Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush")
+                        });
                     var check = new CheckBox { Content = string.IsNullOrWhiteSpace(p.Label) ? p.Name : p.Label, IsChecked = ActionParam.IsYes(value), FontWeight = FontWeights.SemiBold };
                     System.Windows.Automation.AutomationProperties.SetAutomationId(check, "PsParam_" + p.Name);
                     ParamsPanel.Children.Add(check);
+                    _checks.Add((key, check));
+                    if (p.Hint == "-")
+                    {
+                        check.Margin = new Thickness(0, 0, 0, 6);
+                        continue;
+                    }
                     ParamsPanel.Children.Add(new TextBlock
                     {
                         Text = p.Hint.Length > 0 ? p.Hint : $"В скрипте — ${p.Name} (да / нет)",
                         TextWrapping = TextWrapping.Wrap,
                         Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush"), FontSize = 11.5, Margin = new Thickness(0, 2, 0, 10)
                     });
-                    _checks.Add((key, check));
                     continue;
                 }
                 ParamsPanel.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(p.Label) ? p.Name : p.Label, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 2) });

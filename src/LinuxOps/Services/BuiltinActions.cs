@@ -92,7 +92,7 @@ public static class BuiltinActions
     };
 
     /// <summary>Действия, у которых dry-run — тот же скрипт с LINUXOPS_DRY=1: показывает изменения, ничего не пишет.</summary>
-    public static bool UsesDryFlag(string id) => id is "proxy-set" or "proxy-unset";
+    public static bool UsesDryFlag(string id) => id is "proxy-set" or "proxy-unset" or PackageUpdate.ActionId;
 
     public static string ResolveScript(string id, DistroInfo distro)
     {
@@ -103,6 +103,8 @@ public static class BuiltinActions
             "list-users" => ListUsers(distro),
             "proxy-check" => ProxyScripts.Check,
             "versions-check" => VersionsCheck.Script,
+            PackageUpdate.ActionId => PackageUpdate.Script,
+            PackageUpdate.RestartId => PackageUpdate.RestartScript,
             "proxy-set" => ProxyScripts.Set,
             "proxy-unset" => ProxyScripts.Unset,
             _ => throw new InvalidOperationException($"Неизвестное built-in действие: {id}")

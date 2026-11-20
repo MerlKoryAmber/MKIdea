@@ -6,8 +6,26 @@ using System.Text.Json;
 namespace LinuxOps.Services;
 
 /// <summary>Строка таблицы «Версии ПО»: продукт на хосте или в контейнере.</summary>
-public sealed class VersionItem
+public sealed class VersionItem : System.ComponentModel.INotifyPropertyChanged
 {
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+    private bool _isChecked;
+
+    /// <summary>Отмечено к «Обновить отмеченное» (только если <see cref="CanUpdate"/>).</summary>
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set
+        {
+            if (_isChecked == value) return;
+            _isChecked = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsChecked)));
+        }
+    }
+
+    /// <summary>Можно обновить из таблицы: пакет хоста, для которого репозиторий предлагает новую версию.</summary>
+    public bool CanUpdate => Container.Length == 0 && FromPackage && Update.Length > 0;
+
     /// <summary>Пусто — сам хост, иначе имя контейнера.</summary>
     public string Container { get; init; } = "";
     public string Image { get; set; } = "";

@@ -412,10 +412,33 @@
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Bottom" Text="{Binding DetailVersions.ContainersText}" Foreground="#8EB8B0" FontSize="11.5"
                            Margin="12,6,12,8" TextWrapping="Wrap" AutomationProperties.AutomationId="VersionsContainers"/>
+                <!-- обновить отмеченные пакеты хоста: предпросмотр → подтверждение → установка → перезапуск по выбору → повторная проверка -->
+                <DockPanel DockPanel.Dock="Bottom" Margin="12,6,12,0" LastChildFill="False"
+                           Visibility="{Binding HasUpdatable, Converter={StaticResource BoolVis}}">
+                  <Button DockPanel.Dock="Left" Content="Отметить безопасности" Style="{StaticResource Btn}" Height="26" MinWidth="150"
+                          Command="{Binding PickSecurityCommand}" AutomationProperties.AutomationId="VersionsPickSecurity"
+                          ToolTip="Отметить пакеты с обновлениями безопасности (если их нет — все с обновлениями)"/>
+                  <Button DockPanel.Dock="Left" Content="{Binding UpdateSelectedText}" Style="{StaticResource BtnPrimary}" Height="26" MinWidth="190"
+                          Margin="6,0,0,0" Command="{Binding UpdateSelectedCommand}" AutomationProperties.AutomationId="VersionsUpdateSelected"
+                          ToolTip="Сначала покажет, что поставится (вместе с пакетами той же сборки), и спросит подтверждение"/>
+                  <CheckBox DockPanel.Dock="Left" Content="через этот ПК (туннель SSH)" IsChecked="{Binding UpdateViaPc}" Margin="12,0,0,0"
+                            VerticalAlignment="Center" Foreground="#D5E4EF" AutomationProperties.AutomationId="VersionsUpdateViaPc"
+                            ToolTip="Пакеты скачиваются через этот ПК и его прокси. Туннель могут заметить SIEM / EDR — по согласованию с ИБ"/>
+                </DockPanel>
                 <ListView ItemsSource="{Binding DetailVersions.Items}" Background="#0F1C2B" BorderThickness="0" Margin="6,0"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.AutomationId="VersionsList">
                   <ListView.View>
                     <GridView>
+                      <!-- галка — только у пакетов хоста, для которых есть обновление -->
+                      <GridViewColumn Header="" Width="34">
+                        <GridViewColumn.CellTemplate>
+                          <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" ToolTip="Отметить к обновлению"
+                                      AutomationProperties.AutomationId="{Binding Package, StringFormat=VerPick_{0}}"
+                                      Visibility="{Binding CanUpdate, Converter={StaticResource BoolVis}}"/>
+                          </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                      </GridViewColumn>
                       <GridViewColumn Header="Где" Width="150">
                         <GridViewColumn.CellTemplate>
                           <DataTemplate>

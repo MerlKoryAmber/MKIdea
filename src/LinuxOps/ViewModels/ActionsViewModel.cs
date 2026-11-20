@@ -207,6 +207,7 @@ public partial class ActionsViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowAuditTable));
         OnPropertyChanged(nameof(ShowProxyTable));
         OnPropertyChanged(nameof(ShowVersionsTable));
+        WatchVersionItems(value?.Versions);
         // Пользователь сам выбрал строку во время запуска — не перескакиваем на новые RUN.
         if (!_programmatic && IsRunning) _autoFollow = false;
         if (value is { Status: "RUN" } && _running.TryGetValue(value.Title, out var run))
@@ -218,6 +219,189 @@ public partial class ActionsViewModel : ObservableObject
         Detail = value is null
             ? "Выберите строку плана."
             : string.IsNullOrWhiteSpace(value.Detail) ? value.Preview : value.Detail;
+    }
+
+    // ---------- «Версии ПО» → «Обновить отмеченное» ----------
+
+    private VersionReport? _watched;
+    private PackageUpdateReport? _lastUpdate;
+
+    /// <summary>Пакеты к обновлению — через этот ПК (туннель). По умолчанию — как получены списки в этой проверке.</summary>
+    [ObservableProperty] private bool updateViaPc;
+
+    /// <summary>В таблице есть что обновить — показываем кнопки.</summary>
+    public bool HasUpdatable => DetailVersions?.Items.Any(i => i.CanUpdate) == true;
+
+    private int CheckedCount => DetailVersions?.Items.Count(i => i.CanUpdate && i.IsChecked) ?? 0;
+    public string UpdateSelectedText => CheckedCount > 0 ? $"Обновить отмеченное ({CheckedCount})" : "Обновить отмеченное";
+
+    private void WatchVersionItems(VersionReport? report)
+    {
+        if (ReferenceEquals(_watched, report)) return;
+        if (_watched is not null)
+            foreach (var i in _watched.Items) i.PropertyChanged -= VersionItemChanged;
+        _watched = report;
+        if (report is not null)
+        {
+            foreach (var i in report.Items) i.PropertyChanged += VersionItemChanged;
+            UpdateViaPc = report.UpdatePath == "tunnel";
+        }
+        OnPropertyChanged(nameof(HasUpdatable));
+        OnPropertyChanged(nameof(UpdateSelectedText));
+        UpdateSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    private void VersionItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(UpdateSelectedText));
+        UpdateSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanUpdateSelected() => !IsRunning && CheckedCount > 0;
+    private bool CanPickSecurity() => !IsRunning;
+
+    [RelayCommand(CanExecute = nameof(CanPickSecurity))]
+    private void PickSecurity()
+    {
+        if (DetailVersions is not { } r) return;
+        var items = r.Items.Where(i => i.CanUpdate).ToList();
+        var sec = items.Where(i => i.SecurityUpdate).ToList();
+        foreach (var i in items) i.IsChecked = sec.Count > 0 ? i.SecurityUpdate : true;
+    }
+
+    /// <summary>
+    /// Предпросмотр (что поставится вместе с пакетами той же сборки) → подтверждение → установка → службы со старыми
+    /// файлами — перезапуск только отмеченных в окне → повторная «Версии ПО» по этому хосту.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanUpdateSelected))]
+    private async Task UpdateSelected()
+    {
+        if (DetailVersions is not { } report) return;
+        var packages = report.Items.Where(i => i.CanUpdate && i.IsChecked).Select(i => i.Package).Distinct(StringComparer.Ordinal).ToList();
+        if (packages.Count == 0) return;
+        var host = Hosts.FirstOrDefault(h => string.Equals(h.Name, report.Host, StringComparison.OrdinalIgnoreCase));
+        if (host is null)
+        {
+            Warn($"Хост «{report.Host}» не найден в списке — обновите проверку версий.");
+            return;
+        }
+
+        var viaPc = UpdateViaPc;
+        var origin = SelectedResult;
+        var def = PackageUpdate.Definition(packages, viaPc);
+        IsRunning = true;
+        _runCts = new CancellationTokenSource();
+        var progress = new Progress<PlanProgress>(ApplyProgress);
+        var ct = _runCts.Token;
+        try
+        {
+            // 1. Предпросмотр — ничего не ставит.
+            RunStatus = "обновление: предпросмотр…";
+            _lastUpdate = null;
+            var pre = await _runner.RunAsync(new[] { host }, new[] { def }, apply: false, progress, ct);
+            HistoryStore.Append(pre.History);
+            if (pre.Canceled) { RunStatus = "отменено"; return; }
+            if (_lastUpdate is not { Preview: true } preview || preview.Error.Length > 0)
+            {
+                RunStatus = "обновление: предпросмотр не удался";
+                return;
+            }
+            if (preview.NothingToDo || preview.Changes.Count == 0)
+            {
+                RunStatus = "обновление: нечего ставить";
+                Select(origin);
+                AppDialog.Info(OwnerWin(), $"На {host.Title} обновлять нечего: {string.Join(", ", packages)} уже свежие.");
+                return;
+            }
+
+            // 2. Подтверждение со списком.
+            var lines = preview.Changes.Take(25).Select(c => $"  {c.Name} {c.Version}" + (c.SectionText == "обновление" ? "" : $" — {c.SectionText}"));
+            var more = preview.Changes.Count > 25 ? $"\n  … и ещё {preview.Changes.Count - 25}" : "";
+            var removal = preview.RemovalCount > 0 ? $"\n\nВнимание: будет удалено пакетов: {preview.RemovalCount}." : "";
+            var tunnelNote = viaPc ? "\n\nПакеты скачиваются через этот ПК (туннель SSH)." : "";
+            var msg = $"Установить на {host.Title} ({preview.Changes.Count(c => !c.IsRemoval)} пакетов)?\n\n{string.Join("\n", lines)}{more}{removal}{tunnelNote}\n\n" +
+                      "Службы сами не перезапускаются — после установки программа покажет, каким нужен перезапуск.";
+            if (!AppDialog.Confirm(OwnerWin(), msg, "Обновить отмеченное"))
+            {
+                RunStatus = "обновление: отменено";
+                Select(origin);
+                return;
+            }
+
+            // 3. Установка.
+            RunStatus = "обновление: установка…";
+            _lastUpdate = null;
+            var run = await _runner.RunAsync(new[] { host }, new[] { def }, apply: true, progress, ct);
+            HistoryStore.Append(run.History);
+            if (run.Canceled) { RunStatus = "отменено"; return; }
+            var done = _lastUpdate;
+
+            // 4. Перезапуск — только того, что отметят в окне.
+            if (done is { Preview: false, RestartServices.Count: > 0 })
+            {
+                var pick = new ActionDefinition
+                {
+                    Id = "restart-pick",
+                    Name = $"Перезапустить службы на {host.Title} — у них в памяти старые файлы",
+                    // Сначала службы продуктов (отмечены), затем системные — одним блоком с одним пояснением.
+                    Parameters = done.RestartServices
+                        .OrderBy(u => PackageUpdate.IsProductService(u) ? 0 : 1).ThenBy(u => u, StringComparer.Ordinal)
+                        .Select((u, i) => new ActionParam
+                        {
+                            Name = u,
+                            Kind = "bool",
+                            Label = PackageUpdateReport.ShortUnit(u),
+                            Default = PackageUpdate.IsProductService(u) ? "да" : "нет",
+                            Hint = u is "sshd.service" or "ssh.service" ? "Сначала проверка sshd -t; открытые сеансы SSH не рвутся."
+                                : PackageUpdate.IsProductService(u) ? "Короткий перерыв в работе службы."
+                                : "-"
+                        }).ToList()
+                };
+                var firstSystem = pick.Parameters.FirstOrDefault(p => p.Hint == "-");
+                if (firstSystem is not null) firstSystem.Group = "Системные службы — перезапускайте, если понимаете последствия (или перезагрузите хост в окно обслуживания):";
+                var dlg = new PsRunWindow(new[] { pick }) { Owner = OwnerWin(), Title = "Перезапуск служб" };
+                dlg.Hint.Text = "Отмеченные будут перезапущены (systemctl restart). Остальные продолжат работать со старыми файлами до своего перезапуска или перезагрузки.";
+                if (dlg.ShowDialog() == true)
+                {
+                    var units = done.RestartServices.Where(u => dlg.Args.TryGetValue("restart-pick:" + u, out var v) && ActionParam.IsYes(v)).ToList();
+                    if (units.Count > 0)
+                    {
+                        RunStatus = "обновление: перезапуск служб…";
+                        var rs = await _runner.RunAsync(new[] { host }, new[] { PackageUpdate.RestartDefinition(units) }, apply: true, progress, ct);
+                        HistoryStore.Append(rs.History);
+                        if (rs.Canceled) { RunStatus = "отменено"; return; }
+                    }
+                }
+            }
+
+            // 5. Повторная проверка версий по этому хосту.
+            if (ActionCatalog.LoadAll().FirstOrDefault(a => a.Id == VersionsCheck.ActionId) is { } check)
+            {
+                RunStatus = "обновление: повторная проверка…";
+                var args = new Dictionary<string, string> { [VersionsCheck.ActionId + ":" + VersionsCheck.ViaPcParam] = viaPc ? "да" : "нет" };
+                var again = await _runner.RunAsync(new[] { host }, new[] { check }, apply: false, progress, ct, args);
+                HistoryStore.Append(again.History);
+                if (Results.LastOrDefault(r => r.Versions is not null) is { } fresh) Select(fresh);
+            }
+
+            _session.Persist();
+            RunStatus = done is null ? "обновление: нет итога"
+                : done.ExitCode == 0 && done.Error.Length == 0 ? $"обновление: готово · {done.Summary}" : $"обновление: ошибка · {done.Summary}";
+        }
+        catch (OperationCanceledException)
+        {
+            RunStatus = "отменено";
+        }
+        catch (Exception ex)
+        {
+            Warn(ex.Message);
+        }
+        finally
+        {
+            IsRunning = false;
+            _runCts?.Dispose();
+            _runCts = null;
+        }
     }
 
     // ---------- Ход запуска: строки RUN, живой вывод, время ----------
@@ -336,6 +520,8 @@ public partial class ActionsViewModel : ObservableObject
         OpenBaseUsersCommand.NotifyCanExecuteChanged();
         CloseAccessCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
+        UpdateSelectedCommand.NotifyCanExecuteChanged();
+        PickSecurityCommand.NotifyCanExecuteChanged();
     }
 
     public void SetAllHosts(bool all)
@@ -836,6 +1022,7 @@ public partial class ActionsViewModel : ObservableObject
 
         // Аудит пользователей запоминаем по хосту — «Закрыть доступ» подставит найденные учётки и ключи.
         if (p.Row?.Audit is { } audit) _audits[audit.Host] = audit;
+        if (p.Row?.PackageUpdate is { } upd) _lastUpdate = upd;
 
         if (p.Row is { Status: "RUN" } started)
         {

@@ -156,12 +156,22 @@ public sealed class PlanRunner
                     {
                         var simTimeout = action.TimeoutSeconds > 0 ? action.TimeoutSeconds : 180;
                         var simKey = Started(progress, host.Name, action.Name, "симуляция");
-                        var sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, Env(action, args, dry: BuiltinActions.UsesDryFlag(action.Id)), cancellationToken: cancellationToken,
-                            onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = simKey }));
+                        var simEnv = Env(action, args, dry: BuiltinActions.UsesDryFlag(action.Id));
+                        ActionResult sim;
+                        var simTunnel = Tunnel.OpenIfAsked(ssh, action, simEnv);
+                        try
+                        {
+                            sim = ssh.Run(action.Id, simulated, simTimeout, SshRunner.NeedsSudo(host, action), host, simEnv, cancellationToken: cancellationToken,
+                                onOutput: chunk => progress.Report(new PlanProgress { Live = chunk, LiveKey = simKey }));
+                        }
+                        finally
+                        {
+                            simTunnel?.Dispose();
+                        }
                         sim.HostName = host.Name;
                         sim.ActionName = action.Name;
-                        var simRow = FromActionResult(host.Name, action.Name, sim);
-                        simRow = MakeRow("DRY-RUN", simRow.Title, simRow.Preview, simRow.Detail, sim.Ok);
+                        var simRow = FromActionResult(host.Name, action.Name, sim, simTunnel, isPreview: true);
+                        simRow = MakeRow("DRY-RUN", simRow.Title, simRow.Preview, simRow.Detail, sim.Ok, simRow.PackageUpdate);
                         progress.Report(new PlanProgress { Row = simRow });
                         Remember(history, ToHistory(mode, host.Name, action.Name, simRow));
                     }
@@ -182,30 +192,9 @@ public sealed class PlanRunner
                 var key = Started(progress, host.Name, action.Name, apply && action.Destructive ? "применяется" : "выполняется");
                 var env = Env(action, args, dry: false);
 
-                // «Версии ПО» с галкой: списки обновлений — через этот ПК (прокси на ПК + обратный проброс SSH).
-                PcProxy? pcProxy = null;
-                IDisposable? forward = null;
-                var tunnelNote = "";
-                if (env is not null && string.Equals(action.Id, VersionsCheck.ActionId, StringComparison.OrdinalIgnoreCase)
-                    && env.TryGetValue(VersionsCheck.ViaPcParam, out var via) && ActionParam.IsYes(via))
-                {
-                    try
-                    {
-                        pcProxy = PcProxy.Start();
-                        forward = ssh.OpenRemoteForward((uint)pcProxy.Port, out var remotePort);
-                        env["UPD_PROXY"] = $"http://127.0.0.1:{remotePort}";
-                    }
-                    catch (Exception ex)
-                    {
-                        tunnelNote = ex.Message;
-                        pcProxy?.Dispose();
-                        pcProxy = null;
-                    }
-                }
-
+                // Галка «через этот ПК»: прокси на ПК + обратный проброс SSH на время команды.
                 ActionResult result;
-                int tunnelConnections;
-                string tunnelLog;
+                var tunnel = Tunnel.OpenIfAsked(ssh, action, env);
                 try
                 {
                     result = ssh.Run(action.Id, script, timeout, sudo, host, env, cancellationToken: cancellationToken,
@@ -213,19 +202,11 @@ public sealed class PlanRunner
                 }
                 finally
                 {
-                    forward?.Dispose();
-                    tunnelConnections = pcProxy?.Connections ?? -1;
-                    tunnelLog = pcProxy?.Log ?? "";
-                    pcProxy?.Dispose();
+                    tunnel?.Dispose();
                 }
                 result.HostName = host.Name;
                 result.ActionName = action.Name;
-                var row = FromActionResult(host.Name, action.Name, result, v =>
-                {
-                    v.TunnelNote = tunnelNote;
-                    v.TunnelConnections = tunnelConnections;
-                    v.TunnelLog = tunnelLog;
-                });
+                var row = FromActionResult(host.Name, action.Name, result, tunnel);
                 progress.Report(new PlanProgress { Row = row });
                 Remember(history, ToHistory(mode, host.Name, action.Name, row));
             }
@@ -281,14 +262,15 @@ public sealed class PlanRunner
     public static int Count(IEnumerable<ResultRow> rows, string status)
         => rows.Count(r => r.Status == status);
 
-    public static ResultRow MakeRow(string status, string title, string preview, string detail, bool ok)
+    public static ResultRow MakeRow(string status, string title, string preview, string detail, bool ok, PackageUpdateReport? update = null)
         => new()
         {
             Status = status,
             Title = title,
             Preview = preview,
             Detail = detail,
-            IsOk = ok || status is "SKIP" or "DRY-RUN" or "INFO" or "WARN" or "RUN"
+            IsOk = ok || status is "SKIP" or "DRY-RUN" or "INFO" or "WARN" or "RUN",
+            PackageUpdate = update
         };
 
     internal static HistoryEntry ToHistory(string mode, string host, string action, ResultRow row) => new()
@@ -302,8 +284,88 @@ public sealed class PlanRunner
         Detail = string.IsNullOrWhiteSpace(row.Detail) ? row.Preview : row.Detail
     };
 
-    private static ResultRow FromActionResult(string host, string actionName, ActionResult r, Action<VersionReport>? versionsExtra = null)
+    /// <summary>
+    /// Туннель «через этот ПК» для «Версий ПО» и «Обновить отмеченное»: прокси на 127.0.0.1 ПК и обратный проброс SSH,
+    /// адрес — в UPD_PROXY. Не поднялся — Note, команда идёт обычным путём. Журнал снимается при закрытии.
+    /// </summary>
+    internal sealed class Tunnel : IDisposable
     {
+        private PcProxy? _proxy;
+        private IDisposable? _forward;
+        public string Note { get; private set; } = "";
+        public int Connections { get; private set; } = -1;
+        public string Log { get; private set; } = "";
+
+        public static Tunnel? OpenIfAsked(SshRunner ssh, ActionDefinition action, Dictionary<string, string>? env)
+        {
+            if (env is null || !(action.Id is VersionsCheck.ActionId or PackageUpdate.ActionId)
+                || !env.TryGetValue(VersionsCheck.ViaPcParam, out var via) || !ActionParam.IsYes(via))
+                return null;
+            var t = new Tunnel();
+            try
+            {
+                t._proxy = PcProxy.Start();
+                t._forward = ssh.OpenRemoteForward((uint)t._proxy.Port, out var remotePort);
+                env["UPD_PROXY"] = $"http://127.0.0.1:{remotePort}";
+            }
+            catch (Exception ex)
+            {
+                t.Note = ex.Message;
+                t._proxy?.Dispose();
+                t._proxy = null;
+            }
+            return t;
+        }
+
+        public void Dispose()
+        {
+            _forward?.Dispose();
+            _forward = null;
+            if (_proxy is null) return;
+            Connections = _proxy.Connections;
+            Log = _proxy.Log;
+            _proxy.Dispose();
+            _proxy = null;
+        }
+    }
+
+    private static ResultRow FromActionResult(string host, string actionName, ActionResult r, Tunnel? tunnel = null, bool isPreview = false)
+    {
+        if (string.Equals(r.ActionId, PackageUpdate.ActionId, StringComparison.OrdinalIgnoreCase)
+            && PackageUpdate.Parse(r.StdOut, isPreview) is { } upd)
+        {
+            upd.Host = host;
+            upd.TunnelNote = tunnel?.Note ?? "";
+            upd.TunnelLog = tunnel?.Log ?? "";
+            var updDetail = upd.Format() + (upd.TunnelNote.Length > 0 ? $"\nТуннель через этот ПК не поднят: {upd.TunnelNote}\n" : "")
+                         + (upd.TunnelLog.Length > 0 ? "\n" + upd.TunnelLog + "\n" : "")
+                         + "\n--- вывод ---\n" + r.StdOut + (r.StdErr.Length > 0 ? "\n" + r.StdErr : "");
+            var ok = upd.Error.Length == 0 && upd.ExitCode == 0;
+            return new ResultRow
+            {
+                Status = ok ? (upd.RestartServices.Count > 0 ? "WARN" : "OK") : "FAIL",
+                Title = $"{host} · {actionName}",
+                Preview = upd.Summary,
+                Detail = updDetail,
+                IsOk = ok,
+                PackageUpdate = upd
+            };
+        }
+
+        if (string.Equals(r.ActionId, PackageUpdate.RestartId, StringComparison.OrdinalIgnoreCase))
+        {
+            var rs = PackageUpdate.ParseRestart(r.StdOut);
+            rs.Host = host;
+            return new ResultRow
+            {
+                Status = rs.Failed == 0 && r.Ok ? "OK" : "WARN",
+                Title = $"{host} · {actionName}",
+                Preview = rs.Summary,
+                Detail = rs.Format() + (r.StdErr.Length > 0 ? "\n" + r.StdErr : ""),
+                IsOk = r.Ok
+            };
+        }
+
         if (r.Ok && string.Equals(r.ActionId, UserAudit.ActionId, StringComparison.OrdinalIgnoreCase)
             && UserAudit.Parse(r.StdOut) is { } audit)
         {
@@ -339,7 +401,12 @@ public sealed class PlanRunner
             && VersionsCheck.Parse(r.StdOut) is { } versions)
         {
             versions.Host = host;
-            versionsExtra?.Invoke(versions);
+            if (tunnel is not null)
+            {
+                versions.TunnelNote = tunnel.Note;
+                versions.TunnelConnections = tunnel.Connections;
+                versions.TunnelLog = tunnel.Log;
+            }
             return new ResultRow
             {
                 // Обновление безопасности, ветка без поддержки или просто доступное обновление — внимание, не сбой.
