@@ -146,6 +146,8 @@
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
     <Setter Property="BorderThickness" Value="1"/>
     <Setter Property="Padding" Value="8,2"/>
+    <!-- как у TextBox (отступ 8,4): шаблон Padding не учитывает, без этого список ниже соседних полей -->
+    <Setter Property="MinHeight" Value="26"/>
     <Setter Property="SnapsToDevicePixels" Value="True"/>
     <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
     <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
