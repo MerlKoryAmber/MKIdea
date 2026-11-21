@@ -331,3 +331,9 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
     display: block; position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 50;
     padding: 6px 16px; border-radius: 0 0 8px 8px; background: #B26A00; color: #fff; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.3);
 }
+.btn-icon { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 4px; opacity: .65; }
+.btn-icon:hover { opacity: 1; background: var(--hover-soft); }
+
+/* предупреждение сервиса поверх любой вкладки (WebSession.Notice), кроме Actions — там оно в результатах */
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 30; max-width: min(640px, calc(100vw - 32px));
+         padding: 10px 18px; border-radius: 8px; background: #B26A00; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.35); cursor: pointer; }

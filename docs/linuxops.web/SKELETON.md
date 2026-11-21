@@ -27,18 +27,18 @@
 
 ## Вход и права (`Services/Auth`)
 
-- `LoginService` — шаги входа: пароль → (локальный админ) TOTP или привязка; AD → роли по группам. Пауза после 5 неудач. `Resolve` — права при открытии окна и на каждом запросе.
+- `LoginService` — шаги входа: пароль → (локальный админ) TOTP или привязка; AD → группы и назначения (нет назначений — не пускает). Пауза после 5 неудач. `Resolve` — назначения перечитываются при открытии окна и на каждом запросе; группы — из cookie (`grp`, с момента входа).
 - `AuthEndpoints` — POST `/auth/login`, `/auth/totp`, `/auth/logout` (антиподделка), cookie `lo.auth`; «ждём код» и сообщение — защищённые cookie. `Validate` — простой, общий срок, админ включён, роли есть. `/auth/ping` — продление из открытого окна (`App.razor`).
 - `LdapAuth` — bind учёткой пользователя, группы через `member:1.2.840.113556.1.4.1941:`; `Probe` — rootDSE анонимно. На Linux подсказывает загрузчику `libldap.so.2`. `Find` — поиск групп и людей учёткой поиска из настроек (`AdLookupUser`, пароль зашифрован), до 25 строк.
-- `Totp` (RFC 6238), `PasswordHash` (PBKDF2-SHA256, 600 000), `AuthModels` — `Perm`, `Role` (встроенные: admin, operator, auditor; область — `Folders` с вложенными + отдельные `Hosts`, пусто — все), `AuthSettings`, `LocalAdmin`, `UserInfo`.
+- `Totp` (RFC 6238), `PasswordHash` (PBKDF2-SHA256, 600 000), `AuthModels` — модель как в vSphere: `Perm` (11 прав; `Global` — аудит, настройки, vCenter — только из назначения на «всё»; `AdminOnly` — vCenter), `Role` — только набор прав (встроенные: admin, operator, auditor, viewer; не меняются), `Assignment` — кто (группа или человек AD) → роль → объект (`Scope` all / folder / host), `Grant`, `UserInfo` (`Can` — право где-нибудь, `Limited`), `LegacyRole` — для переноса, `AuthSettings`, `LocalAdmin`.
 - `AdminCli` — `LinuxOps.Web admin status | password [--generate] | totp-reset | enable | disable | lab on|off` (лаба: admin/admin без TOTP, плашка «ЛАБА»); меню сервера зовёт его через `runuser -u linuxops-web`.
-- `WebStore.Auth.cs` — настройки `auth`, `local_admin` (секрет TOTP зашифрован `SecretBox`), таблица `roles`.
-- `WebSession.Access.cs` — `User`, `Can`, отказ с аудитом, папки роли (`ApplyFolderScope`, `InScope`).
+- `WebStore.Auth.cs` — настройки `auth`, `local_admin` (секрет TOTP зашифрован `SecretBox`), таблицы `roles` (свои роли) и `assignments`. Перенос ролей до 0.4.0 (группы и папки внутри роли) в назначения — один раз, флаг `auth_model=2`. Удалили папку или хост — их назначения тоже.
+- `WebSession.Access.cs` — `User`, `Can` (где-нибудь), `CanOn` (хост: «всё», сам хост, папка выше), `CanOnFolder` (папка или выше; корень — только «всё»); отказ с аудитом и сообщением (`Notice` — поверх любой вкладки); видимые хосты и папки (`ApplyFolderScope`); `AllHostsAllowed` — запуск только если право есть на каждом отмеченном хосте. Папки: создать — право на родителя, переименовать — на саму, удалить — на родителя.
 - Страницы: `Login.razor` (статическая, без WebSocket), `Home.razor` (`[Authorize]`, форма выхода, `lo-idle`), `SettingsTab.razor` — открывается шестерёнкой в шапке (вкладки нет): тема всем, вход и роли — с правом «Настройки».
 
 ## Компоненты
 
-`App` → `Routes` → `Home` (адрес клиента) → `Shell` (шапка, вкладки, подвал) → `InventoryTab` / `ActionsTab` (+ `DetailView`) / `HistoryTab` / `Placeholder`; `HostTree` — дерево с папками (галка папки — только если отмечена сама папка, иначе «частично»; правая кнопка → `Context`); `InventoryTab` — меню правой кнопки, `AccessPanel` — «Доступ…» к папке или хосту; `AdPicker` — поиск в AD для ролей; `DialogHost` (+ `HostDialog`, `AddUserDialog`), `PromptHost`. Стили — `wwwroot/app.css`: цвета тем `Themes/Light.xaml` и `Dark.xaml` настольной версии. `App.razor` — своя полоска обрыва связи (`#components-reconnect-modal`): служба перезапустилась — страница перезагружается сама.
+`App` → `Routes` → `Home` (адрес клиента) → `Shell` (шапка, вкладки, подвал) → `InventoryTab` / `ActionsTab` (+ `DetailView`) / `HistoryTab` / `Placeholder`; `HostTree` — дерево с папками (галка папки — только если отмечена сама папка, иначе «частично»; правая кнопка → `Context`); `InventoryTab` — кнопки и меню правой кнопки по правам на объект, `AccessPanel` — «Доступ…»: назначения на объекте (свои, от папок выше, «на всё»), назначить группе или человеку; `AdPicker` — поиск в AD для ролей; `DialogHost` (+ `HostDialog`, `AddUserDialog`), `PromptHost`. Стили — `wwwroot/app.css`: цвета тем `Themes/Light.xaml` и `Dark.xaml` настольной версии. `App.razor` — своя полоска обрыва связи (`#components-reconnect-modal`): служба перезапустилась — страница перезагружается сама.
 
 ## Publish
 

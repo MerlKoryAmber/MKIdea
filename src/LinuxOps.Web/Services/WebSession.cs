@@ -169,6 +169,7 @@ public sealed partial class WebSession : IDisposable
         var actions = PlannedActions.ToList();
         if (actions.Count == 0) { Warn("Отметьте действие."); return; }
         if (hosts.Count == 0) { Warn("Отметьте хост Linux слева — для Bash-действий."); return; }
+        if (!AllHostsAllowed(apply ? Auth.Perm.RunApply : Auth.Perm.RunCheck, hosts, apply ? "Применить" : "Dry-run")) return;
 
         var args = new Dictionary<string, string>();
         if (actions.Any(a => a.Parameters.Count > 0))
@@ -278,8 +279,22 @@ public sealed partial class WebSession : IDisposable
         var row = PlanRunner.MakeRow("WARN", "система", text, text, ok: true);
         Results.Add(row);
         Selected = row;
-        Notify();
+        ShowNotice(text);
     }
+
+    /// <summary>Сообщение поверх любой вкладки (не только Actions), гаснет через 7 с.</summary>
+    public string? Notice { get; private set; }
+    private int _noticeSeq;
+
+    private void ShowNotice(string text)
+    {
+        Notice = text;
+        var seq = ++_noticeSeq;
+        Notify();
+        _ = Task.Delay(7000).ContinueWith(_ => { if (seq == _noticeSeq) { Notice = null; Notify(); } });
+    }
+
+    public void HideNotice() { Notice = null; Notify(); }
 
     // ---------- ход запуска: строки RUN, живой вывод, время ----------
 
@@ -423,6 +438,7 @@ public sealed partial class WebSession : IDisposable
         if (!Allowed(Auth.Perm.RunCheck, "Опросить")) return;
         var targets = SelectedHosts.ToList();
         if (targets.Count == 0) targets = Hosts.ToList();
+        targets = targets.Where(h => CanOn(Auth.Perm.RunCheck, h)).ToList();
         if (targets.Count == 0) return;
         WebPrompts.Channel.Value = Prompts;
         var connect = targets.Select(h => (h, c: _store.ForConnect(h))).ToList();
@@ -456,7 +472,7 @@ public sealed partial class WebSession : IDisposable
     public async Task AddUser(AddUserRequest request, List<StoredHost> hosts)
     {
         if (!Allowed(Auth.Perm.RunApply, "Добавить пользователя")) return;
-        hosts = hosts.Where(InScope).ToList();
+        if (!AllHostsAllowed(Auth.Perm.RunApply, hosts, "Добавить пользователя")) return;
         Results.Clear();
         Selected = null;
         StartRunning("пользователь…");
@@ -528,6 +544,7 @@ public sealed partial class WebSession : IDisposable
         var host = Hosts.FirstOrDefault(h => string.Equals(h.Config.Title, report.Host, StringComparison.OrdinalIgnoreCase)
                                              || string.Equals(h.Config.Name, report.Host, StringComparison.OrdinalIgnoreCase));
         if (host is null) { Warn($"Хост «{report.Host}» не найден в списке — обновите проверку версий."); return; }
+        if (!AllowedOn(Auth.Perm.RunApply, host, "Обновить отмеченное")) return;
 
         var viaPc = UpdateViaPc;
         var origin = Selected;
@@ -635,8 +652,9 @@ public sealed partial class WebSession : IDisposable
     public void SaveHost(StoredHost h, string? password, string? key, string? keyName)
     {
         if (!Allowed(Auth.Perm.HostsEdit, "хост: сохранить")) return;
-        if (!InScope(h)) { Warn("Эта папка вам недоступна — выберите свою."); return; }
         var isNew = !Hosts.Contains(h);
+        // новый — в папку, где есть право «Inventory»; существующий — право на сам хост
+        if (isNew ? !AllowedOnFolder(Auth.Perm.HostsEdit, h.Config.FolderId, "хост: добавить в эту папку") : !AllowedOn(Auth.Perm.HostsEdit, h, "хост: изменить")) return;
         _store.SaveHost(h, password, key, keyName);
         if (isNew) Hosts.Add(h);
         _audit.Write(Who, isNew ? "хост: добавлен" : "хост: изменён",
@@ -677,8 +695,9 @@ public sealed partial class WebSession : IDisposable
 
     public void DeleteHost(StoredHost h)
     {
-        if (!Allowed(Auth.Perm.HostsEdit, "хост: удалить") || !InScope(h)) return;
+        if (!AllowedOn(Auth.Perm.HostsEdit, h, "хост: удалить")) return;
         _store.DeleteHost(h.Id);
+        _store.DeleteAssignmentsOn(h.Id);
         Hosts.Remove(h);
         _audit.Write(Who, "хост: удалён", $"{h.Config.Title} ({h.Config.Host})");
         Notify();
@@ -686,21 +705,29 @@ public sealed partial class WebSession : IDisposable
 
     public void SaveFolder(HostFolder f)
     {
-        if (!Allowed(Auth.Perm.HostsEdit, "папка: сохранить")) return;
-        var isNew = !Folders.Contains(f);
+        var isNew = !_allFolders.Any(x => x.Id == f.Id);
+        // новая — внутри папки, где есть право «Inventory» (в корне — только с правом на «всё»); переименовать — право на саму папку
+        if (isNew ? !AllowedOnFolder(Auth.Perm.HostsEdit, f.ParentId, "папка: создать здесь") : !AllowedOnFolder(Auth.Perm.HostsEdit, f.Id, "папка: изменить «" + f.Name + "»")) return;
         _store.SaveFolder(f);
-        if (isNew) Folders.Add(f);
+        if (isNew) { Folders.Add(f); _allFolders.Add(f); }
+        _audit.Write(Who, isNew ? "папка: создана" : "папка: изменена", FolderPath(f.Id));
         Notify();
     }
 
     public void DeleteFolder(HostFolder f)
     {
-        if (!Allowed(Auth.Perm.HostsEdit, "папка: удалить")) return;
-        // хосты и вложенные папки — в родителя
-        foreach (var h in Hosts.Where(h => h.Config.FolderId == f.Id)) { h.Config.FolderId = f.ParentId; _store.SaveHost(h); }
-        foreach (var sub in Folders.Where(x => x.ParentId == f.Id)) { sub.ParentId = f.ParentId; _store.SaveFolder(sub); }
+        // содержимое переезжает в родителя — нужно право «Inventory» на родителя (в корне — на «всё»)
+        if (!AllowedOnFolder(Auth.Perm.HostsEdit, f.ParentId, "папка: удалить «" + f.Name + "»")) return;
+        var path = FolderPath(f.Id);
+        // все хосты и подпапки из базы, не только видимые этому пользователю
+        foreach (var h in _store.LoadHosts().Where(h => h.Config.FolderId == f.Id)) { h.Config.FolderId = f.ParentId; _store.SaveHost(h); }
+        foreach (var h in Hosts.Where(h => h.Config.FolderId == f.Id)) h.Config.FolderId = f.ParentId;
+        foreach (var sub in _allFolders.Where(x => x.ParentId == f.Id)) { sub.ParentId = f.ParentId; _store.SaveFolder(sub); }
         _store.DeleteFolder(f.Id);
+        _store.DeleteAssignmentsOn(f.Id);
         Folders.Remove(f);
+        _allFolders.RemoveAll(x => x.Id == f.Id);
+        _audit.Write(Who, "папка: удалена", path + " (содержимое — уровнем выше)");
         Notify();
     }
 

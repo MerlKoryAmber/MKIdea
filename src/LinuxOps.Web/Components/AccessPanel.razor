@@ -1,32 +1,42 @@
-@* Inventory → правая кнопка → «Доступ…»: какие роли видят папку или хост; выдать доступ группе или человеку AD. *@
+@* Inventory → правая кнопка → «Доступ…»: назначения на папку или хост — свои и унаследованные (от папок выше и «на всё»). *@
 @inject WebStore Store
 @inject AuditLog Audit
 
-<div class="overlay" @onclick="Close">
+<div class="overlay" @onclick="Close" @onkeydown="Key" tabindex="-1">
     <div class="window access-window" @onclick:stopPropagation="true">
         <div class="window-title">Доступ: @(Item is HostFolder ? "📁" : "🖥") @ItemPath</div>
         <div class="window-body">
             <div class="muted small" style="margin-bottom:8px">
-                @(Item is HostFolder ? "Доступ к папке — со всеми вложенными папками и хостами." : "Доступ только к этому хосту.")
-                Галка сохраняется сразу; у вошедших пользователей — после обновления страницы.
+                @(Item is HostFolder ? "Назначение на папку действует на её хосты и вложенные папки." : "Назначение только на этот хост.")
+                Изменения — сразу; у вошедших — после обновления страницы.
             </div>
             <table class="grid">
-                <thead><tr><th style="width:28px"></th><th>Роль</th><th>Права</th><th>Кому</th></tr></thead>
+                <thead><tr><th>Кто</th><th>Роль</th><th>Права</th><th style="width:170px">Откуда</th><th style="width:32px"></th></tr></thead>
                 <tbody>
-                @foreach (var r in _roles)
+                @foreach (var (a, from) in Effective())
                 {
-                    var (has, via) = State(r);
+                    var role = _roles.FirstOrDefault(r => r.Id == a.RoleId);
                     <tr>
-                        <td><input type="checkbox" checked="@(has || via is not null)" disabled="@(via is not null)" @onchange="e => Set(r, (bool)e.Value!)" /></td>
-                        <td>@r.Name @if (via is not null) { <div class="muted small">@via</div> }</td>
-                        <td class="small">@PermsText(r)</td>
-                        <td class="small">@(r.AdGroups.Count + r.AdUsers.Count == 0 ? "—" : string.Join(", ", r.AdGroups.Concat(r.AdUsers)))</td>
+                        <td>@(a.IsGroup ? "👥" : "👤") @a.Who</td>
+                        <td>@(role?.Name ?? "?")</td>
+                        <td class="small">@(role is null ? "" : string.Join(", ", role.Perms.Select(Perm.Short)))</td>
+                        <td class="small @(from is null ? "" : "muted")">@(from ?? "здесь")</td>
+                        <td>
+                            @if (from is null)
+                            {
+                                <button class="btn-icon" title="Убрать назначение" @onclick="() => Remove(a)">×</button>
+                            }
+                        </td>
                     </tr>
+                }
+                @if (!Effective().Any())
+                {
+                    <tr><td colspan="5" class="muted">Никому, кроме локального админа.</td></tr>
                 }
                 </tbody>
             </table>
 
-            <div class="section-title" style="margin-top:14px">Дать доступ</div>
+            <div class="section-title" style="margin-top:14px">Назначить</div>
             <div class="wrap" style="margin-bottom:6px">
                 <label class="check" style="margin-right:12px"><input type="radio" name="who" checked="@_groups" @onchange="() => { _groups = true; _who = null; }" /> группе AD</label>
                 <label class="check"><input type="radio" name="who" checked="@(!_groups)" @onchange="() => { _groups = false; _who = null; }" /> человеку</label>
@@ -38,12 +48,12 @@
             else
             {
                 <div class="wrap">
-                    <span class="chip-x">@_who <button title="Другой" @onclick="() => _who = null">×</button></span>
-                    <span style="margin:0 6px">права:</span>
-                    <select class="input" style="width:auto" @bind="_template">
-                        @foreach (var (id, text, _) in Templates) { <option value="@id">@text</option> }
+                    <span class="chip-x">@(_groups ? "👥" : "👤") @_who <button title="Другой" @onclick="() => _who = null">×</button></span>
+                    <span style="margin:0 6px">роль:</span>
+                    <select class="input" style="width:auto" @bind="_roleId">
+                        @foreach (var r in _roles) { <option value="@r.Id">@r.Name — @string.Join(", ", r.Perms.Select(Perm.Short))</option> }
                     </select>
-                    <button class="btn primary" style="margin-left:8px" @onclick="Grant">Дать доступ</button>
+                    <button class="btn primary" style="margin-left:8px" @onclick="Add">Назначить</button>
                 </div>
             }
             @if (_msg.Length > 0) { <div class="muted small" style="margin-top:8px">@_msg</div> }
@@ -60,30 +70,25 @@
     [Parameter, EditorRequired] public object Item { get; set; } = null!;
     [Parameter] public EventCallback OnClose { get; set; }
 
-    private static readonly (string Id, string Text, string[] Perms)[] Templates =
-    {
-        ("operator", "оператор: опрос, Dry-run, Применить, Inventory", new[] { Perm.HostsView, Perm.RunCheck, Perm.RunApply, Perm.HostsEdit }),
-        ("runner", "запуск: опрос, Dry-run, Применить", new[] { Perm.HostsView, Perm.RunCheck, Perm.RunApply }),
-        ("check", "проверка: опрос и Dry-run", new[] { Perm.HostsView, Perm.RunCheck }),
-        ("view", "только просмотр", new[] { Perm.HostsView })
-    };
-
     private List<Role> _roles = new();
+    private List<Assignment> _all = new();
     private List<HostFolder> _folders = new();
     private bool _groups = true;
     private string? _who;
-    private string _template = "check", _msg = "";
+    private string _roleId = "operator", _msg = "";
 
     protected override void OnInitialized() => Reload();
 
     private void Reload()
     {
         _roles = Store.LoadRoles();
+        _all = Store.LoadAssignments();
         _folders = Store.LoadFolders();
     }
 
     private string Id => Item switch { HostFolder f => f.Id, StoredHost h => h.Id, _ => "" };
-    private string FolderOfItem => Item switch { HostFolder f => f.ParentId, StoredHost h => h.Config.FolderId, _ => "" };
+    private string ScopeKind => Item is HostFolder ? Scope.Folder : Scope.Host;
+    private string ParentFolder => Item switch { HostFolder f => f.ParentId, StoredHost h => h.Config.FolderId, _ => "" };
 
     private string ItemPath => Item switch
     {
@@ -100,64 +105,43 @@
         return string.Join(" / ", parts);
     }
 
-    /// <summary>Есть ли у роли сам объект; via — если доступ уже есть шире (все хосты или папка выше).</summary>
-    private (bool Has, string? Via) State(Role r)
+    /// <summary>Назначения, которые действуют на объект: свои (from = null), от папок выше, «на всё».</summary>
+    private IEnumerable<(Assignment A, string? From)> Effective()
     {
-        if (r.AllHosts) return (false, "все хосты");
-        var has = Item is HostFolder ? r.Folders.Contains(Id) : r.Hosts.Contains(Id);
-        for (var p = FolderOfItem; p.Length > 0; p = _folders.FirstOrDefault(x => x.Id == p)?.ParentId ?? "")
-            if (r.Folders.Contains(p)) return (has, $"через папку «{FolderPath(p)}»");
-        return (has, null);
+        foreach (var a in _all.Where(a => a.Scope == ScopeKind && a.ObjectId == Id)) yield return (a, null);
+        for (var p = ParentFolder; p.Length > 0; p = _folders.FirstOrDefault(x => x.Id == p)?.ParentId ?? "")
+            foreach (var a in _all.Where(a => a.Scope == Scope.Folder && a.ObjectId == p)) yield return (a, $"от «{FolderPath(p)}»");
+        foreach (var a in _all.Where(a => a.Scope == Scope.All)) yield return (a, "на всё");
     }
 
-    private static string PermsText(Role r) =>
-        string.Join(", ", Perm.All.Where(p => r.Perms.Contains(p.Id)).Select(p => p.Id switch
-        {
-            Perm.HostsView => "просмотр", Perm.RunCheck => "Dry-run", Perm.RunApply => "Применить",
-            Perm.HostsEdit => "Inventory", Perm.AuditView => "аудит", Perm.Settings => "настройки", _ => p.Id
-        }));
-
-    private bool Can() => S.Can(Perm.Settings);
-
-    private void Set(Role r, bool on)
+    private void Remove(Assignment a)
     {
-        if (!Can()) return;
-        var list = Item is HostFolder ? r.Folders : r.Hosts;
-        if (on) { if (!list.Contains(Id)) list.Add(Id); }
-        else list.Remove(Id);
-        // сняли последнее — роль стала бы «все хосты»: не даём расширить доступ случайно
-        if (r.AllHosts && !r.Builtin)
-        {
-            list.Add(Id);
-            _msg = $"«{r.Name}»: это был её единственный объект — без него роль видела бы все хосты. Удалите роль в «Настройки» → «Роли», если она не нужна.";
-            return;
-        }
-        if (r.AllHosts) { list.Add(Id); _msg = "У встроенной роли должен остаться хоть один объект, иначе она увидит все хосты."; return; }
-        Store.SaveRole(r);
-        Audit.Write(S.Who, "доступ: " + (on ? "выдан" : "снят"), $"{r.Name} → {ItemPath}");
-        _msg = $"«{r.Name}»: доступ к «{ItemPath}» {(on ? "выдан" : "снят")}.";
+        if (!S.Can(Perm.Settings)) return;
+        Store.DeleteAssignment(a.Id);
+        var role = _roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? a.RoleId;
+        Audit.Write(S.Who, "доступ: снят", $"{(a.IsGroup ? "группа" : "человек")} {a.Who}, роль «{role}» → {ItemPath}");
+        _msg = $"{a.Who}: «{role}» на «{ItemPath}» снята.";
         Reload();
     }
 
-    private void Grant()
+    private void Add()
     {
-        if (!Can() || _who is null) return;
-        var t = Templates.First(x => x.Id == _template);
-        // та же группа (человек) с теми же правами — дополняем её роль, а не плодим новые
-        var role = _roles.FirstOrDefault(r => !r.Builtin && !r.AllHosts && r.Perms.ToHashSet().SetEquals(t.Perms) &&
-            (_groups ? r.AdGroups.Count == 1 && r.AdUsers.Count == 0 && string.Equals(r.AdGroups[0], _who, StringComparison.OrdinalIgnoreCase)
-                     : r.AdUsers.Count == 1 && r.AdGroups.Count == 0 && string.Equals(r.AdUsers[0], _who, StringComparison.OrdinalIgnoreCase)));
-        var isNew = role is null;
-        role ??= new Role { Name = $"{_who} — {t.Text.Split(':')[0]}", Perms = t.Perms.ToList() };
-        if (isNew) { if (_groups) role.AdGroups.Add(_who); else role.AdUsers.Add(_who); }
-        var list = Item is HostFolder ? role.Folders : role.Hosts;
-        if (!list.Contains(Id)) list.Add(Id);
-        Store.SaveRole(role);
-        Audit.Write(S.Who, "доступ: выдан", $"{(_groups ? "группа" : "человек")} {_who}, права «{t.Text}» → {ItemPath} (роль «{role.Name}»{(isNew ? ", новая" : "")})");
-        _msg = $"{_who}: доступ к «{ItemPath}» выдан (роль «{role.Name}»{(isNew ? ", создана" : "")}).";
+        if (!S.Can(Perm.Settings) || _who is null) return;
+        var role = _roles.FirstOrDefault(r => r.Id == _roleId);
+        if (role is null) return;
+        if (_all.Any(a => a.Scope == ScopeKind && a.ObjectId == Id && a.RoleId == role.Id && string.Equals(a.Who, _who, StringComparison.OrdinalIgnoreCase)))
+        {
+            _msg = "Такое назначение уже есть.";
+            return;
+        }
+        Store.SaveAssignment(new Assignment { Who = _who, IsGroup = _groups, RoleId = role.Id, Scope = ScopeKind, ObjectId = Id });
+        Audit.Write(S.Who, "доступ: выдан", $"{(_groups ? "группа" : "человек")} {_who}, роль «{role.Name}» → {ItemPath}");
+        _msg = $"{_who}: «{role.Name}» на «{ItemPath}».";
         _who = null;
         Reload();
     }
+
+    private Task Key(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
 
     private Task Close() => OnClose.InvokeAsync();
 }

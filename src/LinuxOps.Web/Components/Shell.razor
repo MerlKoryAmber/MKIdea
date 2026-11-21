@@ -49,6 +49,11 @@
         </footer>
     }
 
+    @if (S.Notice is { } notice && S.Tab != "actions")
+    {
+        <div class="toast" role="alert" @onclick="S.HideNotice" title="Закрыть">@notice</div>
+    }
+
     <DialogHost S="S" />
     <PromptHost S="S" />
 </div>
@@ -64,7 +69,13 @@
     };
 
     private IEnumerable<(string Key, string Text)> VisibleTabs =>
-        Tabs.Where(t => S.Can(Perm.HostsView));
+        Tabs.Where(t => S.Can(Perm.HostsView) && t.Key switch
+        {
+            "ssh" => S.Can(Perm.FilesRead),
+            "terminal" => S.Can(Perm.Terminal) || S.Can(Perm.Rdp),
+            "powershell" => S.Can(Perm.Vcenter),
+            _ => true
+        });
 
     private static readonly string Version = typeof(WebSession).Assembly.GetName().Version?.ToString(3) ?? "?";
 
@@ -73,7 +84,7 @@
         // кто вошёл — из cookie; роли перечитываются (могли поменять после входа)
         var p = AuthState is null ? null : (await AuthState).User;
         var user = p?.Identity?.IsAuthenticated == true
-            ? Login.Resolve(p.Identity.Name ?? "", p.FindFirst("kind")?.Value ?? "", p.FindFirst("display")?.Value ?? "", p.FindAll("role").Select(c => c.Value))
+            ? Login.Resolve(p.Identity.Name ?? "", p.FindFirst("kind")?.Value ?? "", p.FindFirst("display")?.Value ?? "", p.FindAll("grp").Select(c => c.Value))
             : null;
         if (user is null) { Nav.NavigateTo("/login", forceLoad: true); return; }
         S.SetUser(user, ClientIp);

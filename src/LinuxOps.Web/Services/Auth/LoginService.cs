@@ -67,7 +67,7 @@ public sealed class LoginService(WebStore store, AuditLog audit)
             if (la.NoTotp)
             {
                 Clear(kLogin);
-                var admin = UserInfo.Build(la.Login, "Локальный админ", "local", store.LoadRoles().Where(r => r.Id == "admin"));
+                var admin = UserInfo.LocalAdmin(la.Login);
                 audit.Write($"{admin.Login} ({ip})", "вход", "локальный админ, лабораторный режим: без TOTP");
                 return new(Step.Done, User: admin);
             }
@@ -88,16 +88,13 @@ public sealed class LoginService(WebStore store, AuditLog audit)
             audit.Write($"{login} ({ip})", "вход: отказ", "AD: " + r.Error);
             return new(Step.Fail, r.Error);
         }
-        var roles = store.LoadRoles().Where(role =>
-            role.AdUsers.Any(u => string.Equals(u.Trim(), r.Login, StringComparison.OrdinalIgnoreCase)) ||
-            role.AdGroups.Any(g => r.Groups.Contains(g.Trim(), StringComparer.OrdinalIgnoreCase))).ToList();
-        if (roles.Count == 0)
+        var user = UserInfo.Build(r.Login, r.Display, "ad", r.Groups, store.LoadRoles(), store.LoadAssignments());
+        if (user.Grants.Count == 0)
         {
-            audit.Write($"{r.Login} ({ip})", "вход: отказ", "AD: пароль верный, но нет роли в LinuxOps Web; группы: " + string.Join(", ", r.Groups));
-            return new(Step.Fail, "У вашей учётки нет роли в LinuxOps Web. Обратитесь к администратору.");
+            audit.Write($"{r.Login} ({ip})", "вход: отказ", "AD: пароль верный, но нет назначений в LinuxOps Web; группы: " + string.Join(", ", r.Groups));
+            return new(Step.Fail, "У вашей учётки нет доступа к LinuxOps Web. Обратитесь к администратору.");
         }
         Clear(kLogin);
-        var user = UserInfo.Build(r.Login, r.Display, "ad", roles);
         audit.Write($"{user.Login} ({ip})", "вход", $"AD, роли: {user.RolesText}");
         return new(Step.Done, User: user);
     }
@@ -143,23 +140,24 @@ public sealed class LoginService(WebStore store, AuditLog audit)
             Clear(kLogin);
             if (setup) audit.Write($"{la.Login} ({ip})", "локальный админ: TOTP привязан");
         }
-        var user = UserInfo.Build(la.Login, "Локальный админ", "local", store.LoadRoles().Where(r => r.Id == "admin"));
+        var user = UserInfo.LocalAdmin(la.Login);
         audit.Write($"{user.Login} ({ip})", "вход", "локальный админ, пароль + TOTP");
         return new(Step.Done, User: user);
     }
 
-    /// <summary>Права на момент открытия окна: роли перечитываются (их могли поменять после входа).</summary>
-    public UserInfo? Resolve(string login, string kind, string display, IEnumerable<string> roleIds)
+    /// <summary>
+    /// Права при открытии окна и на каждом запросе: назначения перечитываются (их могли поменять после входа).
+    /// Группы — с момента входа (в cookie); новая группа в AD — после повторного входа.
+    /// </summary>
+    public UserInfo? Resolve(string login, string kind, string display, IEnumerable<string> groups)
     {
-        var all = store.LoadRoles();
         if (kind == "local")
         {
             var la = store.LoadLocalAdmin();
             if (!la.Enabled || !string.Equals(la.Login, login, StringComparison.OrdinalIgnoreCase)) return null;
-            return UserInfo.Build(login, display, kind, all.Where(r => r.Id == "admin"));
+            return UserInfo.LocalAdmin(login);
         }
-        var ids = roleIds.ToHashSet();
-        var roles = all.Where(r => ids.Contains(r.Id)).ToList();
-        return roles.Count == 0 ? null : UserInfo.Build(login, display, kind, roles);
+        var user = UserInfo.Build(login, display, kind, groups.ToList(), store.LoadRoles(), store.LoadAssignments());
+        return user.Grants.Count == 0 ? null : user;
     }
 }

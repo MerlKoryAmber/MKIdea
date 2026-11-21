@@ -55,7 +55,8 @@ public static class AuthEndpoints
             new(ClaimTypes.Name, user.Login), new("display", user.Display), new("kind", user.Kind),
             new("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
         };
-        claims.AddRange(user.Roles.Select(r => new Claim("role", r.Id)));
+        // группы AD — для назначений на группы (права перечитываются на каждом запросе)
+        claims.AddRange(user.Groups.Select(g => new Claim("grp", g)));
         await ctx.SignInAsync(Scheme, new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme)),
             new AuthenticationProperties { IsPersistent = false, IssuedUtc = DateTimeOffset.UtcNow });
         ctx.Response.Cookies.Delete(PendingCookie);
@@ -125,7 +126,7 @@ public static class AuthEndpoints
         var now = DateTimeOffset.UtcNow;
         var iat = long.TryParse(p.FindFirstValue("iat"), out var t) ? DateTimeOffset.FromUnixTimeSeconds(t) : DateTimeOffset.MinValue;
         var issued = ctx.Properties.IssuedUtc ?? iat;
-        var user = svc.Resolve(p.Identity?.Name ?? "", p.FindFirstValue("kind") ?? "", p.FindFirstValue("display") ?? "", p.FindAll("role").Select(c => c.Value));
+        var user = svc.Resolve(p.Identity?.Name ?? "", p.FindFirstValue("kind") ?? "", p.FindFirstValue("display") ?? "", p.FindAll("grp").Select(c => c.Value));
         if (now - iat > TimeSpan.FromHours(Math.Max(1, s.MaxHours)) || now - issued > TimeSpan.FromMinutes(Math.Max(5, s.IdleMinutes)) || user is null)
         {
             ctx.RejectPrincipal();

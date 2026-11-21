@@ -1,14 +1,22 @@
 namespace LinuxOps.Web.Services.Auth;
 
-/// <summary>Права. Роль — набор прав + папки хостов + группы AD.</summary>
+/// <summary>
+/// Права (как в vSphere): роль — набор прав; назначение — «кто (группа или человек AD) → роль → объект (всё, папка, хост)».
+/// Назначение на папку действует на её хосты и вложенные папки. Глобальные права (настройки, аудит, vCenter) — только от назначения на «всё».
+/// </summary>
 public static class Perm
 {
     public const string HostsView = "hosts.view";     // видеть хосты, детали, историю
     public const string RunCheck = "run.check";       // опрос и Dry-run (только чтение на хостах)
     public const string RunApply = "run.apply";       // «Применить», «Обновить отмеченное», «Добавить пользователя»
     public const string HostsEdit = "hosts.edit";     // Inventory: хосты, папки, секреты
-    public const string AuditView = "audit.view";     // журнал аудита
-    public const string Settings = "settings";        // вкладка «Настройки»: вход, роли
+    public const string Terminal = "ssh.terminal";    // терминал SSH под учёткой хоста (обычно — полный доступ к хосту)
+    public const string Rdp = "rdp";                  // RDP: пускает к машине, вход — своей доменной учёткой
+    public const string FilesRead = "files.read";     // файлы: смотреть и скачивать
+    public const string FilesWrite = "files.write";   // файлы: загружать, удалять, переименовывать
+    public const string AuditView = "audit.view";     // журнал аудита и записи сеансов
+    public const string Settings = "settings";        // настройки: вход, роли, назначения
+    public const string Vcenter = "vcenter";          // vCenter и PowerShell — только встроенная «Админ»
 
     public static readonly (string Id, string Text)[] All =
     {
@@ -16,34 +24,79 @@ public static class Perm
         (RunCheck, "Опрос и Dry-run (только чтение на хостах)"),
         (RunApply, "Применять: изменения на хостах, обновления, пользователи"),
         (HostsEdit, "Inventory: добавлять и менять хосты, папки, пароли и ключи"),
-        (AuditView, "Журнал аудита"),
-        (Settings, "Настройки: вход, роли (только админ)")
+        (Terminal, "Терминал SSH (под учёткой хоста — обычно полный доступ)"),
+        (Rdp, "RDP (вход своей доменной учёткой)"),
+        (FilesRead, "Файлы: смотреть и скачивать"),
+        (FilesWrite, "Файлы: загружать, удалять, переименовывать"),
+        (AuditView, "Журнал аудита и записи сеансов (только назначение на «всё»)"),
+        (Settings, "Настройки: вход, роли, назначения (только назначение на «всё»)"),
+        (Vcenter, "vCenter и PowerShell (только встроенная «Админ»)")
+    };
+
+    /// <summary>Действуют только из назначения на «всё»: у них нет объекта.</summary>
+    public static readonly HashSet<string> Global = new() { AuditView, Settings, Vcenter };
+
+    /// <summary>В своих ролях не выдаются.</summary>
+    public static readonly HashSet<string> AdminOnly = new() { Vcenter };
+
+    public static string Short(string id) => id switch
+    {
+        HostsView => "просмотр", RunCheck => "Dry-run", RunApply => "Применить", HostsEdit => "Inventory",
+        Terminal => "терминал", Rdp => "RDP", FilesRead => "файлы: чтение", FilesWrite => "файлы: запись",
+        AuditView => "аудит", Settings => "настройки", Vcenter => "vCenter", _ => id
     };
 }
 
+/// <summary>Роль — только набор прав. Кому и на что — в назначениях.</summary>
 public sealed class Role
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
-    /// <summary>Встроенная: не удаляется, права не меняются; группы AD и папки — можно.</summary>
+    /// <summary>Встроенная: не удаляется и не меняется.</summary>
     public bool Builtin { get; set; }
     public List<string> Perms { get; set; } = new();
-    /// <summary>Пусто вместе с Hosts — все хосты. Иначе id папок (с вложенными).</summary>
-    public List<string> Folders { get; set; } = new();
-    /// <summary>Отдельные хосты (id) — сверх папок.</summary>
-    public List<string> Hosts { get; set; } = new();
-    [System.Text.Json.Serialization.JsonIgnore] public bool AllHosts => Folders.Count == 0 && Hosts.Count == 0;
-    /// <summary>Группы AD (имя, sAMAccountName или CN; вложенность учитывается).</summary>
-    public List<string> AdGroups { get; set; } = new();
-    /// <summary>Отдельные люди (логин AD) — без группы.</summary>
-    public List<string> AdUsers { get; set; } = new();
 
     public static List<Role> Builtins() => new()
     {
         new() { Id = "admin", Name = "Админ", Builtin = true, Perms = Perm.All.Select(p => p.Id).ToList() },
-        new() { Id = "operator", Name = "Оператор", Builtin = true, Perms = { Perm.HostsView, Perm.RunCheck, Perm.RunApply, Perm.HostsEdit } },
-        new() { Id = "auditor", Name = "Аудитор", Builtin = true, Perms = { Perm.HostsView, Perm.RunCheck, Perm.AuditView } }
+        new() { Id = "operator", Name = "Оператор", Builtin = true,
+                Perms = { Perm.HostsView, Perm.RunCheck, Perm.RunApply, Perm.HostsEdit, Perm.Terminal, Perm.Rdp, Perm.FilesRead, Perm.FilesWrite } },
+        new() { Id = "auditor", Name = "Аудитор", Builtin = true, Perms = { Perm.HostsView, Perm.RunCheck, Perm.FilesRead, Perm.AuditView } },
+        new() { Id = "viewer", Name = "Просмотр", Builtin = true, Perms = { Perm.HostsView } }
     };
+}
+
+public static class Scope
+{
+    public const string All = "all", Folder = "folder", Host = "host";
+}
+
+/// <summary>Назначение: группа или человек AD получает роль на объект.</summary>
+public sealed class Assignment
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    /// <summary>sAMAccountName группы или человека.</summary>
+    public string Who { get; set; } = "";
+    public bool IsGroup { get; set; } = true;
+    public string RoleId { get; set; } = "";
+    /// <summary>all | folder | host</summary>
+    public string Scope { get; set; } = Auth.Scope.All;
+    /// <summary>id папки или хоста; для all — пусто.</summary>
+    public string ObjectId { get; set; } = "";
+
+    public bool Matches(string login, ICollection<string> groups) => IsGroup
+        ? groups.Contains(Who, StringComparer.OrdinalIgnoreCase)
+        : string.Equals(Who, login, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>Старая запись роли (до 0.4.0): группы и область внутри роли — только для переноса в назначения.</summary>
+public sealed class LegacyRole
+{
+    public string Id { get; set; } = "";
+    public List<string> Folders { get; set; } = new();
+    public List<string> Hosts { get; set; } = new();
+    public List<string> AdGroups { get; set; } = new();
+    public List<string> AdUsers { get; set; } = new();
 }
 
 public enum LdapSecurity { Ldaps, StartTls, None }
@@ -88,35 +141,44 @@ public sealed class LocalAdmin
     public bool HasPassword => PasswordHash.Length > 0;
 }
 
-/// <summary>Кто вошёл: из cookie, права — из ролей на момент входа в окно.</summary>
+/// <summary>Одно действующее назначение пользователя: права роли на объект.</summary>
+public sealed record Grant(string RoleName, HashSet<string> Perms, string Scope, string ObjectId);
+
+/// <summary>Кто вошёл: из cookie; назначения перечитываются при открытии окна и на каждом запросе.</summary>
 public sealed class UserInfo
 {
     public string Login { get; init; } = "";
     public string Display { get; init; } = "";
     /// <summary>local | ad</summary>
     public string Kind { get; init; } = "";
-    public List<Role> Roles { get; init; } = new();
-    public HashSet<string> Perms { get; init; } = new();
-    /// <summary>null — все хосты (тогда и Hosts null).</summary>
-    public HashSet<string>? Folders { get; init; }
-    /// <summary>Отдельные хосты сверх папок; null — все.</summary>
-    public HashSet<string>? Hosts { get; init; }
-    public bool Limited => Folders is not null;
+    /// <summary>Группы AD на момент входа (для назначений на группы).</summary>
+    public List<string> Groups { get; init; } = new();
+    public List<Grant> Grants { get; init; } = new();
 
-    public bool Can(string perm) => Perms.Contains(perm);
-    public string RolesText => Roles.Count == 0 ? "без роли" : string.Join(", ", Roles.Select(r => r.Name));
+    /// <summary>Есть ли право где-нибудь (для показа вкладок и кнопок; на объекте проверяет WebSession).</summary>
+    public bool Can(string perm) => Perm.Global.Contains(perm)
+        ? Grants.Any(g => g.Scope == Scope.All && g.Perms.Contains(perm))
+        : Grants.Any(g => g.Perms.Contains(perm));
 
-    public static UserInfo Build(string login, string display, string kind, IEnumerable<Role> roles)
+    /// <summary>Видит не все хосты — только назначенные папки и хосты.</summary>
+    public bool Limited => !Grants.Any(g => g.Scope == Scope.All && g.Perms.Contains(Perm.HostsView));
+
+    public string RolesText => Grants.Count == 0 ? "без роли"
+        : string.Join(", ", Grants.Select(g => g.RoleName + (g.Scope == Scope.All ? "" : "*")).Distinct());
+
+    public static UserInfo Build(string login, string display, string kind, List<string> groups, List<Role> roles, List<Assignment> assignments)
     {
-        var list = roles.ToList();
-        var perms = list.SelectMany(r => r.Perms).ToHashSet();
-        // область: если хоть одна роль без ограничения — все хосты
-        var all = list.Count == 0 || list.Any(r => r.AllHosts);
-        return new UserInfo
-        {
-            Login = login, Display = display, Kind = kind, Roles = list, Perms = perms,
-            Folders = all ? null : list.SelectMany(r => r.Folders).ToHashSet(),
-            Hosts = all ? null : list.SelectMany(r => r.Hosts).ToHashSet()
-        };
+        var grants = new List<Grant>();
+        foreach (var a in assignments.Where(a => a.Matches(login, groups)))
+            if (roles.FirstOrDefault(r => r.Id == a.RoleId) is { } role)
+                grants.Add(new Grant(role.Name, role.Perms.ToHashSet(), a.Scope, a.ObjectId));
+        return new UserInfo { Login = login, Display = display, Kind = kind, Groups = groups, Grants = grants };
     }
+
+    /// <summary>Локальный админ: «Админ» на всё.</summary>
+    public static UserInfo LocalAdmin(string login) => new()
+    {
+        Login = login, Display = "Локальный админ", Kind = "local",
+        Grants = { new Grant("Админ", Perm.All.Select(p => p.Id).ToHashSet(), Scope.All, "") }
+    };
 }
