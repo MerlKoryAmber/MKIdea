@@ -51,6 +51,17 @@ public sealed partial class WebSession : IDisposable
     public bool ShowRawDetail { get; set; }
     public string Tab { get; set; } = "actions";
 
+    /// <summary>Хост, который надо открыть на вкладке после перехода (меню правой кнопки: «Открыть в SSH Files» и т. п.).</summary>
+    public StoredHost? OpenHost { get; set; }
+
+    /// <summary>Перейти на вкладку и открыть там хост.</summary>
+    public void OpenOn(string tab, StoredHost h)
+    {
+        OpenHost = h;
+        Tab = tab;
+        Notify();
+    }
+
     /// <summary>Аудит пользователей по хосту — для «Закрыть доступ» (позже).</summary>
     private readonly Dictionary<string, UserAuditReport> _audits = new(StringComparer.OrdinalIgnoreCase);
     private PackageUpdateReport? _lastUpdate;
@@ -81,14 +92,16 @@ public sealed partial class WebSession : IDisposable
             Actions.Add(ActionItemView.From(def, planned.Contains(def.Id)));
     }
 
-    public IEnumerable<StoredHost> SelectedHosts => Hosts.Where(h => h.Config.IsSelected);
+    /// <summary>Хосты Linux (Actions, опрос, терминал, файлы); Windows — только RDP.</summary>
+    public IEnumerable<StoredHost> LinuxHosts => Hosts.Where(h => !h.IsWindows);
+    public IEnumerable<StoredHost> SelectedHosts => LinuxHosts.Where(h => h.Config.IsSelected);
     public IEnumerable<ActionDefinition> PlannedActions => Actions.Where(a => a.IsSelected).Select(a => a.Definition);
 
     public string HostsSelectedText
     {
         get
         {
-            var n = Hosts.Count(h => h.Config.IsSelected);
+            var n = SelectedHosts.Count();
             return n == 0 ? "ничего не выбрано" : $"{n} выбрано";
         }
     }
@@ -99,7 +112,7 @@ public sealed partial class WebSession : IDisposable
         {
             var defs = PlannedActions.ToList();
             if (defs.Count == 0) return "План пуст: щёлкните действие в каталоге";
-            var n = Hosts.Count(h => h.Config.IsSelected);
+            var n = SelectedHosts.Count();
             return "План: " + string.Join(", ", defs.Select(a => a.Name)) +
                    (n > 0 ? $" → {n} {Plural(n, "хост", "хоста", "хостов")}" : " — отметьте хосты");
         }
@@ -230,6 +243,8 @@ public sealed partial class WebSession : IDisposable
                     stored.Config.DistroHint = p.DistroHint;
                     try { _store.SaveHost(stored); } catch { }
                 }
+                // «Версии ПО» — последний итог хоста в сводку по парку
+                if (p.Row?.Versions is { } vr) try { _store.SaveFleet(FleetSnapshot.From(stored, vr, Who)); } catch { }
             }
             ApplyProgress(p);
             Notify();
@@ -286,7 +301,7 @@ public sealed partial class WebSession : IDisposable
     public string? Notice { get; private set; }
     private int _noticeSeq;
 
-    private void ShowNotice(string text)
+    public void ShowNotice(string text)
     {
         Notice = text;
         var seq = ++_noticeSeq;
@@ -437,7 +452,7 @@ public sealed partial class WebSession : IDisposable
     {
         if (!Allowed(Auth.Perm.RunCheck, "Опросить")) return;
         var targets = SelectedHosts.ToList();
-        if (targets.Count == 0) targets = Hosts.ToList();
+        if (targets.Count == 0) targets = LinuxHosts.ToList();
         targets = targets.Where(h => CanOn(Auth.Perm.RunCheck, h)).ToList();
         if (targets.Count == 0) return;
         WebPrompts.Channel.Value = Prompts;
@@ -658,7 +673,7 @@ public sealed partial class WebSession : IDisposable
         _store.SaveHost(h, password, key, keyName);
         if (isNew) Hosts.Add(h);
         _audit.Write(Who, isNew ? "хост: добавлен" : "хост: изменён",
-            $"{h.Config.Title} ({h.Config.Username}@{h.Config.Host}:{h.Config.Port})" +
+            (h.IsWindows ? $"{h.Config.Title} (Windows, RDP {h.Config.Host}:{h.Config.Port})" : $"{h.Config.Title} ({h.Config.Username}@{h.Config.Host}:{h.Config.Port})") +
             (password is not null ? (password.Length > 0 ? ", пароль задан" : ", пароль убран") : "") +
             (key is not null ? (key.Length > 0 ? $", ключ загружен ({keyName})" : ", ключ убран") : ""));
         Notify();
@@ -697,6 +712,7 @@ public sealed partial class WebSession : IDisposable
     {
         if (!AllowedOn(Auth.Perm.HostsEdit, h, "хост: удалить")) return;
         _store.DeleteHost(h.Id);
+        _store.DeleteFleet(h.Id);
         _store.DeleteAssignmentsOn(h.Id);
         Hosts.Remove(h);
         _audit.Write(Who, "хост: удалён", $"{h.Config.Title} ({h.Config.Host})");

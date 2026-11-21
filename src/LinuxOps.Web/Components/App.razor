@@ -20,6 +20,7 @@
                 try { localStorage.setItem('lo-theme', t); } catch (e) { }
             },
             copy: function (text) { return navigator.clipboard ? navigator.clipboard.writeText(text) : null; },
+            download: function (url) { const a = document.createElement("a"); a.href = url; a.download = ""; document.body.appendChild(a); a.click(); a.remove(); },
             logout: function () { document.getElementById("lo-logout")?.submit(); }
         };
         // Сессия: есть движение мыши / клавиши — раз в минуту продлить (/auth/ping); простой дольше IdleMinutes — на вход.

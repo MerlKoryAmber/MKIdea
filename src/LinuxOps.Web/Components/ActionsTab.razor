@@ -16,7 +16,7 @@
             </div>
         </div>
         <div class="scroll tree-wrap">
-            <HostTree S="S" Checks="true" Changed="Changed" Empty="Ресурсов нет. Добавьте хосты Linux на вкладке Inventory." />
+            <HostTree S="S" Checks="true" Filter="h => !h.IsWindows" Changed="Changed" Empty="Ресурсов нет. Добавьте хосты Linux на вкладке Inventory." />
         </div>
         <div class="surface-footer">
             <label class="check"><input type="checkbox" checked="@AllChecked" @onchange="e => SelectAll((bool)e.Value!)" /> Выбрать все / снять все</label>
@@ -100,7 +100,7 @@
     private bool _probing;
     private string _copyText = "Копировать";
 
-    private bool AllChecked => S.Hosts.Count > 0 && S.Hosts.All(h => h.Config.IsSelected);
+    private bool AllChecked => S.LinuxHosts.Any() && S.LinuxHosts.All(h => h.Config.IsSelected);
 
     private void Changed()
     {
@@ -110,7 +110,7 @@
 
     private void SelectAll(bool on)
     {
-        foreach (var h in S.Hosts) h.Config.IsSelected = on;
+        foreach (var h in S.LinuxHosts) h.Config.IsSelected = on;
         S.CheckedFolders.Clear();
         if (on) foreach (var f in S.Folders) S.CheckedFolders.Add(f.Id);
         Changed();

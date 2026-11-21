@@ -1,0 +1,45 @@
+@* Меню правой кнопки по хосту в «Подключениях» и SSH Files — как у списка хостов настольной версии:
+   «Подключить» здесь и «Открыть» в соседнем инструменте (терминал ↔ файлы). Пункты — по правам на хост. *@
+
+@if (Item is StoredHost h)
+{
+    <div class="ctx-overlay" @onclick="Close" @oncontextmenu="Close" @oncontextmenu:preventDefault="true"></div>
+    <div class="ctx-menu" style="left:min(@Px(X)px, calc(100vw - 230px));top:min(@Px(Y)px, calc(100vh - 140px))">
+        @if (Here == "terminal")
+        {
+            <button style="font-weight:600" @onclick="() => Do(Connect)" disabled="@(!CanSession(h))">@(h.IsWindows ? "Подключить (RDP)" : "Подключить (терминал)")</button>
+            @if (!h.IsWindows)
+            {
+                <button @onclick='() => Do(() => Go("ssh", h))' disabled="@(!S.CanOn(Perm.FilesRead, h))">Открыть в SSH Files</button>
+            }
+        }
+        else
+        {
+            <button style="font-weight:600" @onclick="() => Do(Connect)" disabled="@(!S.CanOn(Perm.FilesRead, h))">Подключить (файлы)</button>
+            <button @onclick='() => Do(() => Go("terminal", h))' disabled="@(!S.CanOn(Perm.Terminal, h))">Открыть терминал</button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>terminal | ssh — на какой вкладке меню.</summary>
+    [Parameter, EditorRequired] public string Here { get; set; } = "";
+    [Parameter] public object? Item { get; set; }
+    [Parameter] public double X { get; set; }
+    [Parameter] public double Y { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback Connect { get; set; }
+
+    private bool CanSession(StoredHost h) => S.CanOn(h.IsWindows ? Perm.Rdp : Perm.Terminal, h);
+
+    private static string Px(double v) => Math.Max(4, v).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    private async Task Do(Func<Task> act) { await OnClose.InvokeAsync(); await act(); }
+    private async Task Do(EventCallback cb) { await OnClose.InvokeAsync(); await cb.InvokeAsync(); }
+    private Task Do(Action act) { act(); return OnClose.InvokeAsync(); }
+
+    private void Go(string tab, StoredHost h) => S.OpenOn(tab, h);
+}

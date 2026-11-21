@@ -14,6 +14,12 @@ public sealed class StoredHost
     public bool HasKey { get; set; }
     /// <summary>Имя файла ключа, загруженного в сервис (для подписи).</summary>
     public string KeyName { get; set; } = "";
+
+    /// <summary>Метка хоста Windows (RDP) в DistroHint: хранится в той же таблице, дерево, папки и права — общие.</summary>
+    public const string WindowsHint = "windows";
+
+    /// <summary>Хост Windows: только RDP; Actions, опрос, терминал и файлы его пропускают.</summary>
+    public bool IsWindows => Config.DistroHint == WindowsHint;
 }
 
 /// <summary>

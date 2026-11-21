@@ -1,0 +1,68 @@
+@* Окно «Хост Windows» (RDP): только адрес. Учётку вводит каждый пользователь при подключении — свою доменную, в сервисе не хранится. *@
+
+<div class="window-body">
+    <div class="lbl">Имя</div>
+    <input class="input" @bind="_name" />
+    <div class="row" style="gap:12px">
+        <div class="grow">
+            <div class="lbl">Host / IP</div>
+            <input class="input" @bind="_host" />
+        </div>
+        <div style="width:120px">
+            <div class="lbl">Port (RDP)</div>
+            <input class="input" @bind="_port" />
+        </div>
+    </div>
+    <div class="muted small" style="margin-top:10px">Вход по RDP — своей доменной учётной записью: её спросят при подключении и нигде не сохранят. Сеанс записывается.</div>
+    <div class="row" style="gap:10px;margin-top:12px">
+        <button class="btn" @onclick="Test" disabled="@_testing">Проверить порт</button>
+        <span class="small @(_testOk ? "ok-text" : "muted")">@_testText</span>
+    </div>
+    @if (_error.Length > 0)
+    {
+        <div class="error">@_error</div>
+    }
+</div>
+<div class="window-buttons">
+    <button class="btn" style="width:100px" @onclick="() => D.Result.TrySetResult(null)">Отмена</button>
+    <button class="btn primary" style="width:120px" @onclick="Ok">Сохранить</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter, EditorRequired] public UiDialog D { get; set; } = null!;
+
+    private string _name = "", _host = "", _port = "3389", _error = "", _testText = "";
+    private bool _testing, _testOk;
+
+    protected override void OnInitialized()
+    {
+        var c = D.Host!.Config;
+        _name = c.Name; _host = c.Host; _port = (c.Port is <= 0 or 22 ? 3389 : c.Port).ToString();
+    }
+
+    private bool TryRead(out HostConfig cfg)
+    {
+        cfg = new HostConfig();
+        _error = "";
+        if (string.IsNullOrWhiteSpace(_host)) { _error = "Нужен Host."; return false; }
+        if (!int.TryParse(_port.Trim(), out var port) || port is <= 0 or > 65535) { _error = "Port — число 1…65535."; return false; }
+        cfg = new HostConfig { Name = _name.Trim(), Host = _host.Trim(), Port = port, Username = "", DistroHint = StoredHost.WindowsHint, IsSelected = false };
+        return true;
+    }
+
+    private async Task Test()
+    {
+        if (!TryRead(out var cfg)) return;
+        _testing = true;
+        _testText = "проверка…";
+        StateHasChanged();
+        (_testOk, _testText) = await S.TestRdpPort(cfg.Host, cfg.Port);
+        _testing = false;
+    }
+
+    private void Ok()
+    {
+        if (TryRead(out var cfg)) D.Result.TrySetResult(new HostEdit { Config = cfg });
+    }
+}

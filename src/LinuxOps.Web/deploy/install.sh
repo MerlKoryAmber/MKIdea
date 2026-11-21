@@ -43,6 +43,11 @@ if ((GUACD)) && ! rpm -q guacd >/dev/null 2>&1; then
   fi
 fi
 
+# RDP: FreeRDP 2 в guacd без настоящей OpenH264 не подключается вовсе (в EL10 по умолчанию — заглушка noopenh264).
+# Пакет (сборка Cisco, подпись EPEL) — в комплекте релиза, deploy/vendor; нет под эту версию ОС — из репозитория OpenH264 для EPEL.
+if ((GUACD)) && rpm -q guacd >/dev/null 2>&1 && ! rpm -q openh264 >/dev/null 2>&1; then
+  openh264_ensure "$SRC" || warn "OpenH264 not installed — RDP will not connect"
+fi
 # --- пользователь и каталоги ---
 id "$SVC_USER" >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d "$DATA_DIR" "$SVC_USER"
 install -d -m 755 "$APP_DIR" "$RELEASES_DIR"

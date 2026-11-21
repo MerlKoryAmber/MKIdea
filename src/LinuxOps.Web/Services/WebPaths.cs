@@ -13,6 +13,16 @@ public static class WebPaths
     public static string KeyFile { get; } = Resolve("LINUXOPS_WEB_KEY",
         OperatingSystem.IsWindows() ? Path.Combine(AppContext.BaseDirectory, "data-key", "master.key") : "/etc/linuxops-web/master.key");
 
+    /// <summary>
+    /// Записи сеансов guacd. Пишет сам guacd (пользователь guacd), сервис читает через группу и удаляет старые (RecordingsKeeper):
+    /// каталог guacd:linuxops-web 2770 (ставит install.sh). Отдельно от DataDir — тот закрыт 0700.
+    /// </summary>
+    public static string RecordingsDir { get; } = Resolve("LINUXOPS_WEB_RECORDINGS",
+        OperatingSystem.IsWindows() ? Path.Combine(AppContext.BaseDirectory, "data", "recordings") : "/var/lib/linuxops-web-rec");
+
+    /// <summary>guacd: адрес и порт (по умолчанию — на этом же сервере).</summary>
+    public static string Guacd { get; } = Resolve("LINUXOPS_WEB_GUACD", "localhost:4822");
+
     public static string DbFile => Path.Combine(DataDir, "linuxops-web.db");
     public static string AuditFile => Path.Combine(DataDir, "audit.log");
 

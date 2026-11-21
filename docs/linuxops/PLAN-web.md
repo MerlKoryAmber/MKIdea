@@ -32,10 +32,11 @@ LinuxOps (WPF) ──► LinuxOps.Core  (+ вкладка RDP на mstscax)
 - **Интерфейс — Blazor Server.** Всё на C#, без сборки на Node. Терминал и RDP — готовая JS-библиотека `guacamole-common-js` через JS interop.
 
 ## Ход работ
-- **2026-11-21, ветка `feature/linuxops-web`:** Ф1 сделан (LinuxOps 0.3.54 на ядре, регресс на лабе пройден). Ф2 и Ф2+ без стенда — LinuxOps Web 0.1.0: проверено из браузера на лабе с локального запуска (`docs/linuxops.web/CURRENT.md`). Из Ф2+ нет сводки по парку и проверки по расписанию.
+- **2026-11-21, ветка `feature/linuxops-web`:** Ф1 сделан (LinuxOps 0.3.54 на ядре, регресс на лабе пройден). Ф2 и Ф2+ без стенда — LinuxOps Web 0.1.0: проверено из браузера на лабе с локального запуска (`docs/linuxops.web/CURRENT.md`). Сводка по парку и проверка по расписанию — в 0.5.0.
 - **Стенд готов** — 192.168.0.169, AlmaLinux 10.3 (`ssh stand`), LinuxOps Web 0.1.1 службой за nginx, guacd 1.6.0 из EPEL 10. Дальше — Ф3.
 - **Ф0+ сделан** — LinuxOps Web 0.2.0: установщик, обновление из релизов Git, меню `linuxops-web`.
 - **Ф4, первая часть** — LinuxOps Web 0.3.0: вход (локальный админ с TOTP, AD через LDAP), роли встроенные и свои, папки на роль, вкладка «Настройки». Остаток Ф4: второй фактор через API MK 2FA и подтверждение опасных действий. **Ф4, права (0.4.0):** модель как в vSphere — роль (набор прав) + назначение «кто → роль → папка или хост»; права на терминал, RDP, файлы (чтение и запись); vCenter и PowerShell — только админ.
+- **Ф3 и остаток Ф2+** — LinuxOps Web 0.5.0: терминал SSH и RDP через guacd с записью и проигрыванием, SSH Files (одна панель: скачать, загрузить), хосты Windows в Inventory; сводка «Версии ПО» и CVE по парку, проверка парка по расписанию. RDP проверен до входа: на единственной реальной Windows лабы (DC) входить по RDP могут только админы домена.
 
 ## Этапы
 Единица — одна версия масштаба LinuxOps 0.3.42 ≈ 15–25 млн токенов, точность ±50%.
@@ -75,7 +76,7 @@ LinuxOps (WPF) ──► LinuxOps.Core  (+ вкладка RDP на mstscax)
 | `System.DirectoryServices.Protocols` (Microsoft) | MIT | LDAP на Linux (нужен системный `openldap`) |
 | nginx (AlmaLinux, AppStream) | BSD-2 | TLS и 443 перед сервисом |
 | `guacd` (Apache Guacamole server) | Apache 2.0 | RDP/SSH-шлюз, запись сессий |
-| `guacamole-common-js` | Apache 2.0 | клиент в браузере, файлы вкладываются в сервис |
+| `guacamole-common-js` | Apache 2.0 | клиент в браузере — **согласовано**, вложен в сервис с 0.5.0 (1.5.0, `wwwroot/lib/guacamole`, sha512 в `SOURCE.txt`) |
 | RADIUS-клиент | — | свой, около 150 строк (PAP, RFC 2865), без пакета |
 | WebView2 (только Ф7) | Microsoft | страница сессии в LinuxOps |
 

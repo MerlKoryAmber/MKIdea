@@ -14,6 +14,7 @@ ETC_DIR=/etc/linuxops-web
 PKI_DIR=/etc/pki/linuxops-web
 BACKUP_DIR=/var/backups/linuxops-web
 SVC_USER=linuxops-web
+REC_DIR=/var/lib/linuxops-web-rec
 UNIT=linuxops-web
 UNIT_FILE=/etc/systemd/system/linuxops-web.service
 NGINX_CONF=/etc/nginx/conf.d/linuxops-web.conf
@@ -245,6 +246,44 @@ release_probe() {
   else _api "$API_URL/repos/$PROJECT" >/dev/null; fi
 }
 
+# OpenH264 для guacd (RDP): репозиторий Fedora/Cisco для EPEL, замена заглушки noopenh264.
+openh264_ensure() {
+  local repo=/etc/yum.repos.d/epel-cisco-openh264.repo
+  [[ -f $repo ]] || cat >"$repo" <<'REPO'
+[epel-cisco-openh264]
+name=Extra Packages for Enterprise Linux $releasever openh264 (From Cisco) - $basearch
+baseurl=https://codecs.fedoraproject.org/openh264/epel/$releasever/$basearch/
+type=rpm
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-$releasever
+skip_if_unavailable=True
+REPO
+  # пакет из комплекта релиза (deploy/vendor) — сеть не нужна; подпись EPEL проверяется до установки
+  local pkg="" el f
+  el=$(rpm -E %rhel 2>/dev/null || true)
+  for f in "${1:-}"/deploy/vendor/openh264-*.el"${el}"*."$(uname -m)".rpm; do [[ -f $f ]] && pkg=$f; done
+  if [[ -n $pkg ]]; then
+    rpm --import "/etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-$el" 2>/dev/null || true
+    local chk; chk=$(rpm -K "$pkg" 2>/dev/null || true)
+    if [[ $chk == *"signatures OK"* ]]; then log "OpenH264: $(basename "$pkg")"
+    else warn "OpenH264: signature check failed for $(basename "$pkg") — trying the repository"; pkg=""; fi
+  fi
+  local src=${pkg:-openh264}
+  if rpm -q noopenh264 >/dev/null 2>&1; then dnf -y -q swap noopenh264 "$src" || return 1
+  else dnf -y -q install "$src" || return 1; fi
+  systemctl restart guacd 2>/dev/null || true
+}
+
+# Записи сеансов: пишет guacd, сервис читает через группу (setgid — новые файлы с группой сервиса)
+# и удаляет по сроку и объёму (запись в каталог группе — 2770; сами файлы guacd — 0640, сервис их не меняет).
+recordings_dir_ensure() {
+  id guacd >/dev/null 2>&1 || return 0
+  install -d -o guacd -g "$SVC_USER" -m 2770 "$REC_DIR"
+  chown guacd:"$SVC_USER" "$REC_DIR"; chmod 2770 "$REC_DIR"
+  if have_cmd semanage && have_cmd restorecon; then restorecon -R "$REC_DIR" 2>/dev/null || true; fi
+}
+
 # Сделать релиз текущим: юнит из него, перезапуск, проверка. Не поднялся — назад на прежний.
 # activate_release DIR [norollback]
 activate_release() {
@@ -254,6 +293,7 @@ activate_release() {
   systemctl stop "$UNIT" 2>/dev/null || true
   ln -sfn "$dir" "$CURRENT_LINK"
   if [[ -n "$old" && "$old" != "$dir" ]]; then echo "$old" >"$PREVIOUS_FILE"; fi
+  recordings_dir_ensure
   install -m 644 "$dir/deploy/linuxops-web.service" "$UNIT_FILE"
   systemctl daemon-reload
   systemctl enable "$UNIT" >/dev/null 2>&1

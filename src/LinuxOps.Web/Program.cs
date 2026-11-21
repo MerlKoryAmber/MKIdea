@@ -1,4 +1,5 @@
 using LinuxOps.Services;
+using LinuxOps.Web.Services.Guac;
 using LinuxOps.Web.Components;
 using LinuxOps.Web.Services;
 using LinuxOps.Web.Services.Auth;
@@ -26,6 +27,12 @@ builder.Services.AddSingleton<WebStore>();
 builder.Services.AddSingleton<AuditLog>();
 builder.Services.AddSingleton<HostLocks>();
 builder.Services.AddSingleton<LoginService>();
+builder.Services.AddSingleton<LinuxOps.Web.Services.Guac.GuacTickets>();
+builder.Services.AddSingleton<LinuxOps.Web.Services.Files.FileDownloads>();
+builder.Services.AddSingleton<FleetCheck>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<FleetCheck>());
+builder.Services.AddSingleton<RecordingsKeeper>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordingsKeeper>());
 builder.Services.AddScoped<PromptChannel>();
 builder.Services.AddScoped<UiDialogs>();
 builder.Services.AddScoped<WebSession>();
@@ -59,6 +66,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 app.MapAuth();
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
+app.MapGuac();
+LinuxOps.Web.Services.Files.FileDownloads.Map(app);
 // Окно открыто и с ним работают — продлить сессию (иначе через IdleMinutes — выход).
 app.MapGet("/auth/ping", () => Results.NoContent()).RequireAuthorization();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();

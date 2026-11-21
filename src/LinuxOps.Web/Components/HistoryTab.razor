@@ -1,18 +1,27 @@
 @inject WebStore Store
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <div class="page single">
     <section class="surface">
         <div class="surface-header">
             <div class="row">
                 <div class="grow">
-                    <div class="section-title">@(_audit ? "Аудит" : "History")</div>
-                    <div class="muted small" style="margin-top:2px">@(_audit
-                        ? "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog."
-                        : S.User.Limited ? "Последние dry-run / apply по вашим хостам — всех пользователей сервиса." : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса.")</div>
+                    <div class="section-title">@(_mode switch { Mode.Audit => "Аудит", Mode.Sessions => "Сеансы", Mode.Fleet => "Парк — версии ПО и CVE", _ => "History" })</div>
+                    <div class="muted small" style="margin-top:2px">@(_mode switch
+                    {
+                        Mode.Audit => "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog.",
+                        Mode.Sessions => "Терминалы и RDP через шлюз: кто, куда, сколько. Запись экрана — проиграть, текст терминала — скачать.",
+                        Mode.Fleet => "Последняя проверка «Версии ПО» каждого хоста (из Actions или по расписанию): что закрыть сейчас и где есть обновления безопасности.",
+                        _ => S.User.Limited ? "Последние dry-run / apply по вашим хостам — всех пользователей сервиса." : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса."
+                    })</div>
                 </div>
+                <button class="btn sm @(_mode == Mode.History ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.History)">History</button>
+                <button class="btn sm @(_mode == Mode.Fleet ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.Fleet)" title="Сводка по парку: версии ПО и CVE">Парк</button>
                 @if (S.Can(Perm.AuditView))
                 {
-                    <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="() => { _audit = !_audit; Reload(); }">@(_audit ? "History" : "Аудит")</button>
+                    <button class="btn sm @(_mode == Mode.Audit ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.Audit)">Аудит</button>
+                    <button class="btn sm @(_mode == Mode.Sessions ? "primary" : "")" style="min-width:80px;margin-right:12px" @onclick="() => Switch(Mode.Sessions)">Сеансы</button>
                 }
                 <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="Reload">Обновить</button>
                 <button class="btn sm" style="min-width:90px" disabled title="История сервиса не стирается — это след для аудита">Очистить</button>
@@ -21,35 +30,127 @@
         <div class="history">
             <div class="scroll grid-wrap">
                 <table class="grid">
-                    @if (_audit)
+                    @switch (_mode)
                     {
-                        <thead><tr><th style="width:140px">Когда</th><th style="width:120px">Кто</th><th style="width:200px">Что</th><th>Подробно</th></tr></thead>
-                        <tbody>
-                            @foreach (var a in _auditRows)
-                            {
-                                <tr class="@(ReferenceEquals(a, _selAudit) ? "selected" : "")" @onclick="() => _selAudit = a">
-                                    <td>@a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td><td>@a.Who</td><td>@a.What</td><td class="ell">@a.Detail</td>
-                                </tr>
-                            }
-                        </tbody>
-                    }
-                    else
-                    {
-                        <thead><tr><th style="width:140px">Когда</th><th style="width:70px">Режим</th><th style="width:120px">Хост</th><th>Действие</th><th style="width:70px">Статус</th><th style="width:110px">Кто</th></tr></thead>
-                        <tbody>
-                            @foreach (var (e, who) in _rows)
-                            {
-                                <tr class="@(ReferenceEquals(e, _sel) ? "selected" : "")" @onclick="() => _sel = e">
-                                    <td>@e.AtLocalText</td><td>@e.Mode</td><td class="ell">@e.Host</td><td class="ell">@e.Action</td><td>@e.Status</td><td>@who</td>
-                                </tr>
-                            }
-                        </tbody>
+                        case Mode.Audit:
+                            <thead><tr><th style="width:140px">Когда</th><th style="width:120px">Кто</th><th style="width:200px">Что</th><th>Подробно</th></tr></thead>
+                            <tbody>
+                                @foreach (var a in _auditRows)
+                                {
+                                    <tr class="@(ReferenceEquals(a, _selAudit) ? "selected" : "")" @onclick="() => _selAudit = a">
+                                        <td>@a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td><td>@a.Who</td><td>@a.What</td><td class="ell">@a.Detail</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            break;
+                        case Mode.Sessions:
+                            <thead><tr><th style="width:140px">Начало</th><th style="width:140px">Конец</th><th style="width:60px">Вид</th><th style="width:160px">Хост</th><th style="width:140px">Кто</th><th>Статус</th></tr></thead>
+                            <tbody>
+                                @foreach (var s in _sessRows)
+                                {
+                                    <tr class="@(ReferenceEquals(s, _selSess) ? "selected" : "")" @onclick="() => PickSession(s)">
+                                        <td>@s.Start</td><td>@s.End</td><td>@(s.Protocol == "rdp" ? "RDP" : "SSH")</td><td class="ell">@s.Host</td><td class="ell">@s.Who</td><td class="ell">@s.Status</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            break;
+                        case Mode.Fleet:
+                            <thead><tr><th>Хост</th><th style="width:130px">Проверено</th><th style="width:110px">Кто</th><th style="width:110px" title="CVE в KEV, EPSS ≥ 10% или CVSS ≥ 9 по сети">Закрыть сейчас</th><th style="width:120px">Обновления</th><th style="width:90px">Внимание</th></tr></thead>
+                            <tbody>
+                                @foreach (var f in _fleet)
+                                {
+                                    <tr class="@(ReferenceEquals(f, _selFleet) ? "selected" : "")" @onclick="() => _selFleet = f">
+                                        <td class="ell">@f.Host</td>
+                                        @if (f.At == default)
+                                        {
+                                            <td class="muted" colspan="5">не проверялся — «Версии ПО» в Actions или проверка по расписанию</td>
+                                        }
+                                        else
+                                        {
+                                            <td>@f.At.ToString("yyyy-MM-dd HH:mm")</td><td class="ell">@f.Who</td>
+                                            <td>@if (f.Urgent > 0) { <span class="sbadge sev-bad strong">@f.Urgent CVE</span> } else { <span class="muted">—</span> }</td>
+                                            <td>@(f.Updates > 0 ? $"{f.Updates}" + (f.Security > 0 ? $" ({f.Security} безоп.)" : "") : "—")</td>
+                                            <td>@(f.Bad + f.Warn > 0 ? (f.Bad + f.Warn).ToString() : "—")@(f.Errors.Length > 0 ? " ⚠" : "")</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                            break;
+                        default:
+                            <thead><tr><th style="width:140px">Когда</th><th style="width:70px">Режим</th><th style="width:120px">Хост</th><th>Действие</th><th style="width:70px">Статус</th><th style="width:110px">Кто</th></tr></thead>
+                            <tbody>
+                                @foreach (var (e, who) in _rows)
+                                {
+                                    <tr class="@(ReferenceEquals(e, _sel) ? "selected" : "")" @onclick="() => _sel = e">
+                                        <td>@e.AtLocalText</td><td>@e.Mode</td><td class="ell">@e.Host</td><td class="ell">@e.Action</td><td>@e.Status</td><td>@who</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            break;
                     }
                 </table>
             </div>
             <div class="history-detail">
-                <div class="section-title" style="margin-bottom:8px">Детали</div>
-                <pre class="logbox light">@(_audit ? (_selAudit is { } s ? $"{s.At.ToLocalTime():yyyy-MM-dd HH:mm:ss}  {s.Who}\n{s.What}\n\n{s.Detail}" : "") : _sel?.Detail)</pre>
+                @if (_mode == Mode.Sessions)
+                {
+                    <div class="row" style="margin-bottom:8px">
+                        <span class="section-title grow">Запись</span>
+                        @if (_selSess is { } ss)
+                        {
+                            <button class="btn sm" style="margin-right:6px" @onclick="PlayPause" disabled="@(!_loaded)">@(_playing ? "Пауза" : "Играть")</button>
+                            @if (ss.Protocol == "ssh" && !ss.Status.Contains("запись удалена", StringComparison.Ordinal))
+                            {
+                                <a class="btn sm" href="guac/recording/@ss.Id?kind=text" download>Текст терминала</a>
+                            }
+                        }
+                    </div>
+                    <div class="rec-player"><div class="conn-host" id="@PlayerId"></div></div>
+                    @if (_selSess is not null)
+                    {
+                        <input type="range" class="rec-seek" min="0" max="@_duration" value="@_position" disabled="@(!_loaded)" @onchange="Seek" />
+                        <div class="muted small">@Time(_position) / @Time(_duration) @_recError</div>
+                    }
+                    else
+                    {
+                        <div class="muted small" style="margin-top:6px">Выберите сеанс.</div>
+                    }
+                }
+                else if (_mode == Mode.Fleet)
+                {
+                    <div class="section-title" style="margin-bottom:8px">@(_selFleet?.Host ?? "Детали")</div>
+                    @if (_selFleet is { At: var at } sf && at != default)
+                    {
+                        <div class="small" style="margin-bottom:6px">@sf.Summary</div>
+                        <div class="muted small">@sf.UpdatesText</div>
+                        @if (sf.CveSummary.Length > 0) { <div class="small" style="margin-top:4px">@sf.CveSummary</div> }
+                        @if (sf.Errors.Length > 0) { <div class="error small" style="margin-top:4px">@sf.Errors</div> }
+                        <div class="scroll" style="flex:1;min-height:0;margin-top:8px">
+                            <table class="grid">
+                                <thead><tr><th>Продукт</th><th style="width:90px">Версия</th><th style="width:110px">Обновление</th><th style="width:150px">CVE</th></tr></thead>
+                                <tbody>
+                                    @foreach (var i in sf.Items)
+                                    {
+                                        <tr title="@i.State">
+                                            <td class="ell">@(i.Where == "хост" ? "" : i.Where + ": ")@i.Product</td><td class="ell">@i.Version</td>
+                                            <td class="ell">@i.Update@(i.Security ? " 🔒" : "")</td>
+                                            <td class="ell" title="@i.CveIds">@if (i.Cve.Length > 0) { <span class="sbadge sev-bad strong">@i.Cve</span> <span class="small">@i.CveIds</span> }</td>
+                                        </tr>
+                                    }
+                                    @if (sf.Items.Count == 0) { <tr><td colspan="4" class="muted">Срочного нет.</td></tr> }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="muted small">Выберите хост.</div>
+                    }
+                }
+                else
+                {
+                    <div class="section-title" style="margin-bottom:8px">Детали</div>
+                    <pre class="logbox light">@(_mode == Mode.Audit ? (_selAudit is { } s ? $"{s.At.ToLocalTime():yyyy-MM-dd HH:mm:ss}  {s.Who}\n{s.What}\n\n{s.Detail}" : "") : _sel?.Detail)</pre>
+                }
             </div>
         </div>
     </section>
@@ -58,33 +159,114 @@
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
 
-    private bool _audit;
+    private enum Mode { History, Audit, Sessions, Fleet }
+    private const string PlayerId = "guac-player";
+
+    private Mode _mode;
     private List<(HistoryEntry Entry, string Who)> _rows = new();
     private HistoryEntry? _sel;
     private List<AuditRow> _auditRows = new();
     private AuditRow? _selAudit;
+    private List<SessionRow> _sessRows = new();
+    private List<FleetSnapshot> _fleet = new();
+    private FleetSnapshot? _selFleet;
+    private SessionRow? _selSess;
+    private IJSObjectReference? _mod;
+    private DotNetObjectReference<HistoryTab>? _self;
+    private long _position, _duration;
+    private bool _playing, _loaded;
+    private string _recError = "";
 
     private sealed record AuditRow(DateTime At, string Who, string What, string Detail);
 
     protected override void OnInitialized() => Reload();
 
+    private async Task Switch(Mode m)
+    {
+        await StopPlayer();
+        _mode = m;
+        Reload();
+    }
+
     private void Reload()
     {
-        if (_audit)
+        switch (_mode)
         {
-            _auditRows = Store.LoadAudit().Select(a => new AuditRow(a.At, a.Who, a.What, a.Detail)).ToList();
-            _selAudit = null;
+            case Mode.Audit:
+                _auditRows = Store.LoadAudit().Select(a => new AuditRow(a.At, a.Who, a.What, a.Detail)).ToList();
+                _selAudit = null;
+                break;
+            case Mode.Sessions:
+                _sessRows = S.Can(Perm.AuditView) ? Store.LoadSessions() : new();
+                break;
+            case Mode.Fleet:
+                // только видимые пользователю хосты Linux; не проверявшиеся — тоже, внизу
+                var snaps = Store.LoadFleet().ToDictionary(x => x.HostId);
+                _fleet = S.LinuxHosts
+                    .Select(h => snaps.TryGetValue(h.Id, out var x) ? x : new FleetSnapshot { HostId = h.Id, Host = h.Config.Title })
+                    .OrderByDescending(x => x.Urgent).ThenByDescending(x => x.Security).ThenByDescending(x => x.At != default).ThenBy(x => x.Host, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+                _selFleet = _fleet.FirstOrDefault(x => x.HostId == _selFleet?.HostId);
+                break;
+            default:
+                _rows = Store.LoadHistory();
+                // роль ограничена папками или хостами — только история своих хостов
+                if (S.User.Limited)
+                {
+                    var mine = S.Hosts.Select(h => h.Config.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    _rows = _rows.Where(r => mine.Contains(r.Entry.Host.Split(" · ")[0].Trim())).ToList();
+                }
+                _sel = null;
+                break;
         }
-        else
+    }
+
+    private async Task PickSession(SessionRow s)
+    {
+        _selSess = s;
+        _position = _duration = 0;
+        _playing = _loaded = false;
+        _recError = "";
+        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", "./guac.js");
+        _self ??= DotNetObjectReference.Create(this);
+        // запись удалена по сроку или объёму (RecordingsKeeper) — проигрывать нечего
+        if (s.Status.Contains("запись удалена", StringComparison.Ordinal))
         {
-            _rows = Store.LoadHistory();
-            // роль ограничена папками или хостами — только история своих хостов
-            if (S.User.Limited)
-            {
-                var mine = S.Hosts.Select(h => h.Config.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                _rows = _rows.Where(r => mine.Contains(r.Entry.Host.Split(" · ")[0].Trim())).ToList();
-            }
-            _sel = null;
+            await _mod.InvokeVoidAsync("stop", PlayerId);
+            _recError = "— " + s.Status[s.Status.IndexOf("запись удалена", StringComparison.Ordinal)..];
+            return;
         }
+        await _mod.InvokeVoidAsync("play", PlayerId, $"guac/recording/{s.Id}", _self);
+    }
+
+    private async Task PlayPause() { if (_mod is not null) await _mod.InvokeVoidAsync("playPause", PlayerId); }
+
+    private async Task Seek(ChangeEventArgs e)
+    {
+        if (_mod is not null && long.TryParse(e.Value?.ToString(), out var ms)) await _mod.InvokeVoidAsync("seek", PlayerId, ms);
+    }
+
+    private async Task StopPlayer()
+    {
+        _selSess = null;
+        if (_mod is not null) await _mod.InvokeVoidAsync("stop", PlayerId);
+    }
+
+    private static string Time(long ms) => TimeSpan.FromMilliseconds(ms).ToString(ms >= 3600000 ? @"h\:mm\:ss" : @"m\:ss");
+
+    [JSInvokable]
+    public Task OnRecProgress(long position, long duration, bool playing) => InvokeAsync(() =>
+    {
+        _position = position; _duration = duration; _playing = playing; _loaded = true;
+        StateHasChanged();
+    });
+
+    [JSInvokable]
+    public Task OnGuacError(string message) => InvokeAsync(() => { _recError = "— " + message; StateHasChanged(); });
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_mod is not null) { await _mod.InvokeVoidAsync("stop", PlayerId); await _mod.DisposeAsync(); } } catch (JSDisconnectedException) { }
+        _self?.Dispose();
     }
 }

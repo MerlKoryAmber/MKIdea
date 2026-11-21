@@ -17,8 +17,8 @@
 
 ## Сервис
 
-- `Program.cs` — пути, `WebPrompts`, DI: синглтоны `SecretBox`, `WebStore`, `AuditLog`, `HostLocks`; на окно браузера — `PromptChannel`, `UiDialogs`, `WebSession`.
-- `WebStore` — SQLite (WAL): `folders`, `hosts` (JSON без секретов), `secrets` (зашифровано), `history`, `audit`, `settings`. `ForConnect` — копия хоста с расшифрованными секретами, только для подключения.
+- `Program.cs` — пути, `WebPrompts`, DI: синглтоны `SecretBox`, `WebStore`, `AuditLog`, `HostLocks`, `GuacTickets`, `FileDownloads`, `FleetCheck`, `RecordingsKeeper` (обе и фоновые службы); на окно браузера — `PromptChannel`, `UiDialogs`, `WebSession`. `UseWebSockets` → `/guac/tunnel`.
+- `WebStore` — SQLite (WAL): `folders`, `hosts` (JSON без секретов; хост Windows — `DistroHint = "windows"`, `StoredHost.IsWindows`), `secrets` (зашифровано), `history`, `audit`, `settings`, `sessions` (сеансы guacd), `fleet` (последний итог «Версии ПО» по хосту). `ForConnect` — копия хоста с расшифрованными секретами, только для подключения.
 - `SecretBox` — AES-256-GCM, `v1:` + base64(nonce|tag|шифр); мастер-ключ 32 байта, создаётся при первом запуске (права 600).
 - `AuditLog` — база + `audit.log` + syslog.
 - `HostLocks` — замок на `хост:порт` на время действия.
@@ -51,3 +51,13 @@
 - `VERSION` пишет publish (цель `WriteDeployVersion` в csproj).
 - На сервере: `/opt/linuxops-web/releases/<ver>`, `current`, `previous`; `/var/lib/linuxops-web` — данные; `/etc/linuxops-web` — мастер-ключ, `release.conf`, `git-token`; `/etc/pki/linuxops-web` — сертификат и CA; `/var/backups/linuxops-web` — бэкапы.
 - С ПК на стенд — `tools/deploy-linuxops-web.ps1 -Target stand`.
+
+## Сеансы, файлы, парк (0.5.0)
+
+- `Services/Guac/` — `GuacProtocol` (кодирование «длина.значение», длины в кодовых точках), `GuacTickets` (одноразовый пропуск на 60 с: параметры connect, только тому же пользователю), `GuacTunnel` — `/guac/tunnel` (WebSocket, подпротокол `guacamole`): рукопожатие с guacd (`select` → `args` → `size`/`audio`/`video`/`image`/`timezone` → `connect`), служебная первая инструкция с номером сеанса, ping — эхом, отправка в WebSocket под замком; `sessions` и аудит; `/guac/recording/{id}` — запись (`.guac`) или текст терминала без управляющих символов, только с правом «аудит».
+- `WebSession.Sessions.cs` — `OpenTerminal` (право «Терминал», проверка ключа хоста по SSH.NET, ключ для guacd — тип по порядку libssh2 из `/etc/ssh/ssh_host_*_key.pub` проверенного соединения), `OpenRdp` (право «RDP», своя учётка, NLA, `disable-gfx`; ответы guacd переводит `TerminalTab.Explain`), `RecordKeys` (`recording-include-keys` по настройке `rec.keys`), `TestRdpPort`. Записи — `WebPaths.RecordingsDir` (`/var/lib/linuxops-web-rec`, guacd:linuxops-web 2750, `recordings_dir_ensure` в `deploy/lib/common.sh`; там же `openh264_ensure DIR` — RPM из `DIR/deploy/vendor` под версию ОС (подпись EPEL, `rpm -K`), иначе репозиторий `epel-cisco-openh264`; `dnf swap noopenh264`: без неё FreeRDP 2 в guacd не подключает RDP. RPM кладёт в релиз `tools/package-linuxops-web.ps1`: скачивает один раз в `dist\vendor`, сверяет закреплённый SHA-256); guacd — `WebPaths.Guacd` (`localhost:4822`).
+- `wwwroot/guac.js` (модуль) + `wwwroot/lib/guacamole/` (guacamole-common-js 1.5.0, ESM): экран, мышь, клавиатура только при фокусе, вставка (терминал — Ctrl+Shift+V в guacd, RDP — Ctrl+V), буфер из сеанса → буфер ПК, размер за окном, экран вписан в окно (`display.scale`); `.conn-host` и `.rec-player` — `isolation: isolate` (холст слоя 0 с z-index −1); проигрывание записи (`SessionRecording`, перемотка).
+- `Services/Files/FileDownloads` — `/files/download/{id}`: одноразовая ссылка, SFTP → поток ответа. `WebSession.Files.cs` — `OpenFiles` (право «Файлы: чтение», имена владельцев через getent), `DownloadLink`, `Upload` (право «Файлы: запись», до 1 ГБ, замена — с вопросом).
+- `FleetSnapshot` / `WebStore.Fleet.cs` — срочное из `VersionReport` (CVE «сейчас», обновления безопасности, bad/warn); пишется из `WebSession.Execute` на каждый итог «Версии ПО». `FleetCheck` — `BackgroundService`: раз в сутки в `fleet.time` (настройки `fleet.*`), `RunNow`; блокировки хостов, History и аудит от «расписание».
+- `RecordingsKeeper` — `BackgroundService`, раз в час: записи по сеансам (файлы `<id>.*`), сначала старше `rec.days`, потом сверх `rec.maxgb` (самые старые); идущие и свежее 5 мин не трогает; `WebStore.SessionNote` — «запись удалена: …» в статус сеанса; аудит «хранение записей». `Usage`, `CleanAsync` — для ⚙. Юнит службы: `ReadWritePaths=-/var/lib/linuxops-web-rec`, каталог 2770.
+- Компоненты: `TerminalTab` (Подключения: SSH и форма входа RDP), `FilesTab` (SSH Files), `WinHostDialog`; `HostTree.Filter` — Actions и файлы без хостов Windows; `HistoryTab` — History / Парк / Аудит / Сеансы.

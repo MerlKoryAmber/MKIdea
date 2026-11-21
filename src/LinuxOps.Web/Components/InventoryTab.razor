@@ -2,10 +2,10 @@
     <section class="surface">
         <div class="surface-header">
             <div class="section-title">Inventory · хосты и vCenter</div>
-            <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку, правая кнопка — меню (правка, «Доступ…»).</div>
+            <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) и Windows (RDP) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку, правая кнопка — меню (правка, «Доступ…»).</div>
             <div class="wrap">
                 <button class="btn" style="min-width:110px" title="Новый хост — в выделенную папку" @onclick="AddHost" disabled="@(!CanAdd)">+ Хост Linux</button>
-                <button class="btn" style="min-width:120px" disabled title="Хосты Windows (RDP) — этап Ф3, после стенда">+ Хост Windows</button>
+                <button class="btn" style="min-width:120px" title="Хост Windows (RDP) — в выделенную папку" @onclick="AddWinHost" disabled="@(!CanAdd)">+ Хост Windows</button>
                 <button class="btn" style="min-width:96px" disabled title="vCenter (PowerShell) — этап Ф5">+ vCenter</button>
                 <button class="btn" style="min-width:90px;margin-right:16px" title="Новая папка — внутри выделенной" @onclick="AddFolder" disabled="@(!CanAdd)">+ Папка</button>
                 <button class="btn" style="min-width:96px" title="Хост — правка, папка — переименовать (или двойной щелчок)" @onclick="Edit" disabled="@(!CanEdit(_sel))">Изменить</button>
@@ -14,7 +14,7 @@
             </div>
         </div>
         <div class="scroll tree-wrap" style="margin:8px">
-            <HostTree S="S" @bind-Selected="_sel" Activated="Open" Context="@(Ro && !S.Can(Perm.Settings) ? default : EventCallback.Factory.Create<(object Item, double X, double Y)>(this, ShowMenu))" Empty="Пусто. Добавьте хост Linux кнопкой выше." />
+            <HostTree S="S" @bind-Selected="_sel" Activated="Open" Context="@(Ro && !S.Can(Perm.Settings) ? default : EventCallback.Factory.Create<(object Item, double X, double Y)>(this, ShowMenu))" Empty="Пусто. Добавьте хост кнопкой выше." />
         </div>
     </section>
 </div>
@@ -31,6 +31,7 @@
         else
         {
             <button @onclick="() => Do(AddHost)" disabled="@(!CanAdd)">+ Хост Linux сюда</button>
+            <button @onclick="() => Do(AddWinHost)" disabled="@(!CanAdd)">+ Хост Windows сюда</button>
             <button @onclick="() => Do(AddFolder)" disabled="@(!CanAdd)">+ Папка внутри</button>
         }
         <hr />
@@ -90,6 +91,7 @@
     };
 
     private Task AddHost() => EditHost(new StoredHost { Config = new HostConfig { FolderId = TargetFolder, IsSelected = false } }, true);
+    private Task AddWinHost() => EditHost(new StoredHost { Config = new HostConfig { FolderId = TargetFolder, IsSelected = false, Port = 3389, Username = "", DistroHint = StoredHost.WindowsHint } }, true);
 
     private async Task Duplicate()
     {
@@ -109,7 +111,7 @@
 
     private async Task EditHost(StoredHost h, bool isNew)
     {
-        var d = new UiDialog { Kind = "host", Title = "Хост", Host = h };
+        var d = h.IsWindows ? new UiDialog { Kind = "winhost", Title = "Хост Windows", Host = h } : new UiDialog { Kind = "host", Title = "Хост", Host = h };
         if (await S.Dialogs.Show(d) is not HostEdit e) return;
         var c = h.Config;
         c.Name = e.Config.Name; c.Host = e.Config.Host; c.Port = e.Config.Port; c.Username = e.Config.Username;

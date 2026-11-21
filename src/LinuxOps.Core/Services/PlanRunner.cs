@@ -208,7 +208,7 @@ public sealed class PlanRunner
                 result.ActionName = action.Name;
                 var row = FromActionResult(host.Name, action.Name, result, tunnel);
                 row = WithCve(row, host.Name, action.Name, env, progress, key, cancellationToken);
-                progress.Report(new PlanProgress { Row = row });
+                progress.Report(new PlanProgress { Row = row, Host = host });
                 Remember(history, ToHistory(mode, host.Name, action.Name, row));
             }
         }

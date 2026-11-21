@@ -16,8 +16,30 @@ if (-not $NoBuild) {
 foreach ($f in 'LinuxOps.Web', 'deploy\install.sh', 'deploy\VERSION') {
     if (-not (Test-Path (Join-Path $dist $f))) { throw "В $dist нет $f" }
 }
+# OpenH264 (сборка Cisco, подпись EPEL) — в комплект: без неё guacd (FreeRDP 2) не подключает RDP,
+# а CDN Cisco с серверов бывает недоступен. Скачивается один раз в dist\vendor, сверяется по SHA-256.
+$h264 = @{
+    Name = 'openh264-2.5.1-1.el10_1.x86_64.rpm'
+    Url = 'https://codecs.fedoraproject.org/openh264/epel/10/x86_64/Packages/o/openh264-2.5.1-1.el10_1.x86_64.rpm'
+    Sha256 = 'd4f002fd8ff2553b2d5080bd59d917f116847ba1aa4c3249cafa31b233a370c3'
+}
+$cache = Join-Path $root "dist\vendor\$($h264.Name)"
+if (-not (Test-Path $cache)) {
+    New-Item -ItemType Directory -Force (Split-Path $cache) | Out-Null
+    Write-Host "Скачивание $($h264.Name)"
+    Invoke-WebRequest $h264.Url -OutFile "$cache.part" -UseBasicParsing
+    Move-Item -Force "$cache.part" $cache
+}
+if ((Get-FileHash $cache -Algorithm SHA256).Hash.ToLowerInvariant() -ne $h264.Sha256) {
+    Remove-Item $cache
+    throw "$($h264.Name): SHA-256 не совпал — файл удалён, запустите сборку ещё раз"
+}
+$vendor = Join-Path $dist 'deploy\vendor'
+New-Item -ItemType Directory -Force $vendor | Out-Null
+Copy-Item $cache $vendor -Force
+
 # Скрипты для Linux — только LF: CRLF ломает bash.
-Get-ChildItem (Join-Path $dist 'deploy') -Recurse -File -Exclude VERSION | ForEach-Object {
+Get-ChildItem (Join-Path $dist 'deploy') -Recurse -File -Exclude VERSION, *.rpm | ForEach-Object {
     if ([IO.File]::ReadAllText($_.FullName).Contains("`r")) { throw "CRLF в $($_.FullName)" }
 }
 

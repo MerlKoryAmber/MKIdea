@@ -30,8 +30,8 @@
             case "actions": <ActionsTab S="S" />; break;
             case "history": <HistoryTab S="S" />; break;
             case "settings": <SettingsTab S="S" />; break;
-            case "ssh": <Placeholder Title="SSH Files" Stage="Ф5" Text="Файлы по SFTP с двумя панелями — следующий этап веб-версии." />; break;
-            case "terminal": <Placeholder Title="Подключения" Stage="Ф3" Text="Терминал SSH и RDP через шлюз Guacamole — после стенда." />; break;
+            case "ssh": <FilesTab S="S" />; break;
+            case "terminal": <TerminalTab S="S" />; break;
             case "powershell": <Placeholder Title="PowerShell" Stage="Ф5" Text="PowerCLI против vCenter — следующий этап веб-версии." />; break;
         }
     </main>
@@ -98,6 +98,31 @@
     }
 
     private void Redraw() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// Вкладка переживает F5: хранится в sessionStorage этой вкладки браузера (новое окно — как обычно).
+    /// После перезагрузки — вернуть, если она ещё доступна по правам.
+    /// </summary>
+    private string? _savedTab;
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        try
+        {
+            if (first)
+            {
+                var t = await JS.InvokeAsync<string?>("sessionStorage.getItem", "lo.tab");
+                _savedTab = t;
+                if (t is not null && t != S.Tab && (t == "settings" || VisibleTabs.Any(v => v.Key == t))) { Go(t); StateHasChanged(); return; }
+            }
+            if (S.Tab != _savedTab)
+            {
+                _savedTab = S.Tab;
+                await JS.InvokeVoidAsync("sessionStorage.setItem", "lo.tab", S.Tab);
+            }
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
 
     private async Task Logout() => await JS.InvokeVoidAsync("lo.logout");
 

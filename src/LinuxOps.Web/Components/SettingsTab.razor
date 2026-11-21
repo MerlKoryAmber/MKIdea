@@ -1,6 +1,8 @@
 @inject WebStore Store
 @inject AuditLog Audit
 @inject IJSRuntime JS
+@inject FleetCheck Fleet
+@inject RecordingsKeeper Keeper
 
 @* Открывается шестерёнкой в шапке. Тема — всем (в этом браузере); вход и роли — только с правом «Настройки». *@
 @if (!S.Can(Perm.Settings))
@@ -56,6 +58,37 @@ else
                 «@_la.Login»: вход @(_la.Enabled ? "включён" : "выключен"), пароль @(_la.HasPassword ? "задан" : "не задан"), TOTP @(_la.NoTotp ? "выключен — лабораторный режим" : _la.TotpConfirmed ? "привязан" : "не привязан").
                 Управление — только на сервере: <code>sudo linuxops-web</code> → «Local admin» (пароль, новый TOTP, включить / выключить).
             </div>
+
+            <div class="section-title" style="margin-top:16px">Проверка парка по расписанию</div>
+            <div class="muted small" style="margin-bottom:6px">Раз в сутки — «Версии ПО» по всем хостам Linux; итог — в History → Парк. Ключи хостов — только уже подтверждённые.</div>
+            <label class="check"><input type="checkbox" @bind="_fleetOn" /> Проверять ежедневно</label>
+            <div class="form-grid">
+                <label>Время (ЧЧ:ММ)</label><input class="input" @bind="_fleetTime" style="width:100px" placeholder="03:00" />
+            </div>
+            <label class="check" title="Хостам без интернета: базы CVE сверяются на сервере"><input type="checkbox" @bind="_fleetVia" /> Сверка CVE через сервер</label>
+            <div class="wrap" style="margin-top:10px">
+                <button class="btn primary" @onclick="SaveFleet">Сохранить</button>
+                <button class="btn" style="margin-left:6px" @onclick="RunFleet" disabled="@Fleet.Running">@(Fleet.Running ? "Идёт проверка…" : "Проверить сейчас")</button>
+                <span class="muted small" style="margin-left:8px">@_fleetMsg</span>
+            </div>
+            @if (Fleet.LastText.Length > 0)
+            {
+                <div class="muted small" style="margin-top:6px">Последний запуск: @Fleet.LastText</div>
+            }
+
+            <div class="section-title" style="margin-top:16px">Записи сеансов</div>
+            <div class="muted small" style="margin-bottom:6px">Терминал и RDP пишутся всегда. Чистка — раз в час: сначала старше срока, потом самые старые, пока каталог не уложится в объём. Идущий сеанс не трогается. 0 — без ограничения.</div>
+            <div class="form-grid">
+                <label>Хранить, дней</label><input class="input" type="number" min="0" @bind="_recDays" style="width:100px" />
+                <label>Не больше, ГБ</label><input class="input" type="number" min="0" step="0.01" @bind="_recGb" style="width:100px" />
+            </div>
+            <label class="check" title="Всё, что набрано в сеансе, включая пароли внутри него, будет видно при проигрывании записи"><input type="checkbox" @bind="_recKeys" /> Записывать нажатия клавиш (попадут и пароли, набранные в сеансе)</label>
+            <div class="wrap" style="margin-top:10px">
+                <button class="btn primary" @onclick="SaveRec">Сохранить</button>
+                <button class="btn" style="margin-left:6px" @onclick="CleanRec" disabled="@_recBusy">Почистить сейчас</button>
+                <span class="muted small" style="margin-left:8px">@_recMsg</span>
+            </div>
+            <div class="muted small" style="margin-top:6px">@_recUsage</div>
         </div>
     </section>
 
@@ -194,7 +227,57 @@ else
 
     private async Task SetTheme(string t) { _theme = t; await JS.InvokeVoidAsync("lo.setTheme", t); }
 
-    protected override void OnInitialized() => Reload();
+    protected override void OnInitialized() { Reload(); LoadFleet(); LoadRec(); }
+
+    // ---------- записи сеансов ----------
+    private int _recDays;
+    private double _recGb;
+    private bool _recKeys, _recBusy;
+    private string _recMsg = "", _recUsage = "";
+
+    private void LoadRec()
+    {
+        var p = Keeper.Load();
+        _recDays = p.Days; _recGb = p.MaxGb; _recKeys = p.Keys;
+        ShowUsage();
+    }
+
+    private void ShowUsage()
+    {
+        try
+        {
+            var u = Keeper.Usage();
+            _recUsage = u.Sessions == 0 ? "Записей нет." : $"Сейчас: {u.Sessions} записей, {RecordingsKeeper.FileSize(u.Bytes)}, самая старая — {u.Oldest:yyyy-MM-dd}.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _recUsage = "Каталог записей не читается: " + ex.Message; }
+    }
+
+    private async Task SaveRec()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        if (_recDays < 0 || _recGb < 0) { _recMsg = "Только 0 и больше."; return; }
+        var p = new RecordingPolicy(_recDays, _recGb, _recKeys);
+        Keeper.Save(p, S.Who);
+        LoadRec();
+        _recMsg = "Сохранено: " + RecordingsKeeper.Describe(Keeper.Load()) + ".";
+        await CleanRecords(false);
+    }
+
+    private Task CleanRec() => CleanRecords(true);
+
+    private async Task CleanRecords(bool say)
+    {
+        if (!S.Can(Perm.Settings)) return;
+        _recBusy = true;
+        try
+        {
+            var r = await Keeper.CleanAsync();
+            if (r.Length > 0) _recMsg = (say ? "" : _recMsg + " ") + "Чистка: " + r + ".";
+            else if (say) _recMsg = "Удалять нечего.";
+            ShowUsage();
+        }
+        finally { _recBusy = false; }
+    }
 
     private void Reload()
     {
@@ -230,6 +313,40 @@ else
         var lines = mine.Select(a => $"  {(_roles.FirstOrDefault(x => x.Id == a.RoleId)?.Name ?? "?")} на {ObjectText(a)} (через {(a.IsGroup ? "группу " + a.Who : "логин")})");
         _try = $"Вход OK: {r.Display} ({r.Login}).\nГруппы: {string.Join(", ", r.Groups)}\nНазначения: {(mine.Count == 0 ? "нет — войти не сможет" : "\n" + string.Join("\n", lines))}";
         Audit.Write(S.Who, "настройки: пробный вход AD", $"{r.Login} — OK, назначений: {mine.Count}");
+    }
+
+    private bool _fleetOn, _fleetVia;
+    private string _fleetTime = "03:00", _fleetMsg = "";
+
+    private void LoadFleet()
+    {
+        var f = Fleet.Load();
+        _fleetOn = f.Enabled; _fleetTime = f.Time; _fleetVia = f.ViaServer;
+    }
+
+    private void SaveFleet()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        if (FleetCheck.ValidTime(_fleetTime) is not { } t) { _fleetMsg = "Время — ЧЧ:ММ, например 03:00."; return; }
+        Fleet.Save(new FleetSchedule(_fleetOn, t, _fleetVia), S.Who);
+        _fleetTime = t;
+        _fleetMsg = _fleetOn ? $"Сохранено: ежедневно в {t}." : "Сохранено: выключено.";
+    }
+
+    private async Task RunFleet()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        _fleetMsg = Fleet.RunNow(S.Who) ? "Запущено — итог появится в History → Парк." : "Проверка уже идёт.";
+        // показать «идёт» и итог, не перезагружая страницу
+        try
+        {
+            for (var i = 0; i < 600 && (i < 2 || Fleet.Running); i++)
+            {
+                await Task.Delay(1000);
+                StateHasChanged();
+            }
+        }
+        catch (ObjectDisposedException) { }
     }
 
     private void SaveAuth()

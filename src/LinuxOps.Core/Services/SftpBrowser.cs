@@ -239,6 +239,24 @@ public sealed class SftpBrowser : IDisposable
         await _client.UploadFileAsync(fs, remotePath, true, relay, cancellationToken);
     }
 
+    /// <summary>Скачать в поток (веб: прямо в ответ браузеру, без временного файла).</summary>
+    public async Task DownloadToAsync(string remotePath, Stream target, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        var relay = progress is null
+            ? null
+            : new Progress<DownloadFileProgressReport>(r => progress.Report((long)r.TotalBytesDownloaded));
+        await _client.DownloadFileAsync(remotePath, target, relay, cancellationToken);
+    }
+
+    /// <summary>Загрузить из потока (веб: файл из браузера).</summary>
+    public async Task UploadFromAsync(Stream source, string remotePath, bool overwrite, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        var relay = progress is null
+            ? null
+            : new Progress<UploadFileProgressReport>(r => progress.Report((long)r.TotalBytesUploaded));
+        await _client.UploadFileAsync(source, remotePath, overwrite, relay, cancellationToken);
+    }
+
     /// <summary>Все файлы и папки под remotePath (сама папка — с Relative = её имя).</summary>
     public List<TreeItem> Tree(string remotePath)
     {

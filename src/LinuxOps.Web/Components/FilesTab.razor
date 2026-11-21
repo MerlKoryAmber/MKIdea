@@ -1,0 +1,202 @@
+@* SSH Files (урезанно): одна панель — папки хоста по SFTP; скачать в браузер, загрузить с ПК. *@
+@inject IJSRuntime JS
+@inject LinuxOps.Web.Services.Files.FileDownloads Downloads
+@implements IDisposable
+
+<div class="page conn-grid">
+    <section class="surface">
+        <div class="surface-header">
+            <div class="row"><span class="section-title grow">Хосты</span></div>
+            <div class="muted small" style="margin-top:2px">Двойной щелчок — открыть файлы хоста.</div>
+        </div>
+        <div class="scroll tree-wrap">
+            <HostTree S="S" @bind-Selected="_sel" Activated="Activate" Context="ShowMenu" Filter="h => !h.IsWindows" Empty="Хостов Linux нет." />
+        </div>
+    </section>
+
+    <section class="surface conn-screen-wrap">
+        <div class="surface-header slim">
+            <div class="row">
+                <span class="section-title grow">@(_host is null ? "Файлы" : $"{_host.Config.Title} — {_host.Config.Username}@{_host.Config.Host}")</span>
+                <button class="btn sm primary" @onclick="Connect" disabled="@(!CanOpen)" title="@OpenHint">Открыть</button>
+            </div>
+            @if (_b is not null)
+            {
+                <div class="row" style="margin-top:8px;gap:6px">
+                    <button class="btn sm" @onclick="Up" disabled="@(_dir == "/" || _busy)" title="Вверх">↑</button>
+                    <button class="btn sm" @onclick="Home" disabled="@_busy" title="Домашняя папка">⌂</button>
+                    <input class="input grow" style="height:28px" @bind="_pathInput" @onkeydown="PathKey" title="Путь — Enter, чтобы перейти" />
+                    <button class="btn sm" @onclick="() => Go(_dir)" disabled="@_busy">Обновить</button>
+                    <button class="btn sm" @onclick="Download" disabled="@(_pick is not { IsDirectory: false } || _busy)" title="Скачать выбранный файл на этот ПК">Скачать</button>
+                    @if (CanWrite)
+                    {
+                        <label class="btn sm file-btn @(_busy ? "disabled" : "")" title="Загрузить файл с этого ПК в текущую папку (до @FileEntry.FormatSize(WebSession.MaxUpload))">Загрузить…<InputFile OnChange="Upload" style="display:none" disabled="@_busy" /></label>
+                    }
+                </div>
+            }
+        </div>
+        @if (_b is null)
+        {
+            <div class="conn-empty muted"><div>Выберите хост слева и нажмите «Открыть».</div><div class="small">Скачать — право «Файлы: чтение», загрузить — «Файлы: запись».</div></div>
+        }
+        else
+        {
+            <div class="scroll grid-wrap" style="flex:1;min-height:0">
+                <table class="grid">
+                    <thead><tr><th>Имя</th><th style="width:90px">Размер</th><th style="width:130px">Изменён</th><th style="width:100px">Права</th><th style="width:140px">Владелец</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in _items)
+                        {
+                            <tr class="@(ReferenceEquals(e, _pick) ? "selected" : "")" @onclick="() => _pick = e" @ondblclick="() => Open(e)">
+                                <td title="@e.FullPath">@(e.IsDirectory || e.IsParentNav ? "📁 " : "")@e.DisplayName</td>
+                                <td>@e.SizeText</td><td>@e.ModifiedText</td><td class="mono">@e.RightsText</td><td>@e.OwnerText</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="surface-footer"><span class="muted small">@_status</span></div>
+        }
+    </section>
+</div>
+
+<HostMenu S="S" Here="ssh" Item="@_menu?.Item" X="@(_menu?.X ?? 0)" Y="@(_menu?.Y ?? 0)" OnClose="() => _menu = null" Connect="Connect" />
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private (object Item, double X, double Y)? _menu;
+    private void ShowMenu((object Item, double X, double Y) m) { if (m.Item is StoredHost) _menu = m; }
+
+    /// <summary>Пришли сюда из меню другой вкладки («Открыть в …») — сразу открыть хост.</summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first || S.OpenHost is not { } h) return;
+        S.OpenHost = null;
+        _sel = h;
+        StateHasChanged();
+        await Connect();
+        StateHasChanged();
+    }
+
+    private object? _sel;
+    private StoredHost? _host;
+    private SftpBrowser? _b;
+    private string _dir = "/", _pathInput = "/", _status = "";
+    private IReadOnlyList<FileEntry> _items = [];
+    private FileEntry? _pick;
+    private bool _busy;
+    private CancellationTokenSource? _cts;
+
+    private StoredHost? Sel => _sel as StoredHost;
+    private bool CanOpen => !_busy && Sel is { } h && S.CanOn(Perm.FilesRead, h);
+    private string OpenHint => Sel is null ? "Выберите хост" : !S.CanOn(Perm.FilesRead, Sel) ? "Нет права «Файлы: чтение» на этот хост" : "Открыть файлы хоста";
+    private bool CanWrite => _host is not null && S.CanOn(Perm.FilesWrite, _host);
+
+    private async Task Activate(object? item)
+    {
+        _sel = item;
+        if (CanOpen) await Connect();
+    }
+
+    private async Task Connect()
+    {
+        if (Sel is not { } h) return;
+        _busy = true;
+        _status = "подключение…";
+        try
+        {
+            var b = await S.OpenFiles(h);
+            if (b is null) { _status = ""; return; }
+            Close();
+            _b = b;
+            _host = h;
+            await Go(b.Home);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Go(string dir)
+    {
+        if (_b is null) return;
+        _busy = true;
+        try
+        {
+            var b = _b;
+            _items = await Task.Run(() => b.List(dir));
+            _dir = dir.Length > 1 ? dir.TrimEnd('/') : "/";
+            _pathInput = _dir;
+            _pick = null;
+            var files = _items.Count(e => !e.IsDirectory && !e.IsParentNav);
+            _status = $"{_items.Count(e => e.IsDirectory && !e.IsParentNav)} папок, {files} файлов";
+        }
+        catch (Exception ex)
+        {
+            _pathInput = _dir;
+            S.ShowNotice($"{_host?.Config.Title}: {dir}: {ex.Message}");
+        }
+        finally { _busy = false; }
+    }
+
+    private Task Up() => Go(_dir == "/" ? "/" : (_dir[..Math.Max(_dir.LastIndexOf('/'), 0)] is { Length: > 0 } p ? p : "/"));
+    private Task Home() => _b is null ? Task.CompletedTask : Go(_b.Home);
+
+    private async Task PathKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && _pathInput.StartsWith('/')) await Go(_pathInput);
+    }
+
+    private async Task Open(FileEntry e)
+    {
+        if (e.IsDirectory || e.IsParentNav) await Go(e.FullPath);
+        else { _pick = e; await Download(); }
+    }
+
+    private async Task Download()
+    {
+        if (_host is null || _pick is not { IsDirectory: false } f) return;
+        var url = S.DownloadLink(_host, f.FullPath, Downloads);
+        if (url is not null) await JS.InvokeVoidAsync("lo.download", url);
+    }
+
+    private async Task Upload(InputFileChangeEventArgs e)
+    {
+        if (_b is null || _host is null) return;
+        _busy = true;
+        _cts = new CancellationTokenSource();
+        var file = e.File;
+        var size = Math.Max(file.Size, 1);
+        var last = DateTime.MinValue;
+        var progress = new Progress<long>(n =>
+        {
+            if ((DateTime.UtcNow - last).TotalMilliseconds < 300) return;
+            last = DateTime.UtcNow;
+            _status = $"загрузка {file.Name}: {n * 100 / size}%";
+            InvokeAsync(StateHasChanged);
+        });
+        try
+        {
+            _status = $"загрузка {file.Name}…";
+            StateHasChanged();
+            if (await S.Upload(_b, _host, _dir, file, progress, _cts.Token))
+            {
+                _busy = false;
+                await Go(_dir);
+                _status = $"загружен {file.Name} ({FileEntry.FormatSize(file.Size)})";
+            }
+            else _status = "";
+        }
+        finally { _busy = false; }
+    }
+
+    private void Close()
+    {
+        _cts?.Cancel();
+        _b?.Dispose();
+        _b = null;
+        _host = null;
+        _items = [];
+    }
+
+    public void Dispose() => Close();
+}

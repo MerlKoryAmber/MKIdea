@@ -18,7 +18,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/linuxops-web /etc/linuxops-web
+# записи сеансов: сервис удаляет старые (срок и объём); «-» — каталога может не быть (установка без guacd)
+ReadWritePaths=/var/lib/linuxops-web /etc/linuxops-web -/var/lib/linuxops-web-rec
 
 [Install]
 WantedBy=multi-user.target

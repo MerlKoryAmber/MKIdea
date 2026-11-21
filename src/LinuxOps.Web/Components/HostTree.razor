@@ -1,6 +1,6 @@
 @* Дерево хостов с папками — как ResourceTree настольной версии: в Actions с галками, в Inventory с выделением. *@
 
-@if (S.Hosts.Count == 0 && S.Folders.Count == 0)
+@if (!Shown.Any() && S.Folders.Count == 0)
 {
     <div class="tree-empty">@Empty</div>
 }
@@ -12,6 +12,9 @@ else
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
     [Parameter] public bool Checks { get; set; }
+    /// <summary>Какие хосты показывать (Actions и файлы — только Linux). null — все.</summary>
+    [Parameter] public Func<StoredHost, bool>? Filter { get; set; }
+    private IEnumerable<StoredHost> Shown => Filter is null ? S.Hosts : S.Hosts.Where(Filter);
     [Parameter] public string Empty { get; set; } = "Хостов нет. Добавьте хосты Linux на вкладке Inventory.";
     /// <summary>Inventory: выделенный хост или папка.</summary>
     [Parameter] public object? Selected { get; set; }
@@ -66,10 +69,10 @@ else
                 @Level(f.Id, depth + 1)
             }
         }
-        foreach (var h in S.Hosts.Where(h => FolderOf(h) == parent))
+        foreach (var h in Shown.Where(h => FolderOf(h) == parent))
         {
             var c = h.Config;
-            <div class="tree-row host @(ReferenceEquals(Selected, h) ? "selected" : "")" style="padding-left:@(depth * 19 + 20)px" title="@c.Display"
+            <div class="tree-row host @(ReferenceEquals(Selected, h) ? "selected" : "")" style="padding-left:@(depth * 19 + 20)px" title="@(h.IsWindows ? c.Title + " · RDP " + c.Host : c.Display)"
                  @onclick="() => Pick(h)" @ondblclick="() => Activated.InvokeAsync(h)"
                  @oncontextmenu="e => Menu(h, e)" @oncontextmenu:preventDefault="@Context.HasDelegate">
                 @if (Checks)
@@ -77,10 +80,17 @@ else
                     <input type="checkbox" checked="@c.IsSelected" @onclick:stopPropagation="true"
                            @onchange="e => CheckHost(h, (bool)e.Value!)" />
                 }
-                <span class="distro" style="background:@c.IconColor" title="@c.IconTip">@c.IconLetter</span>
+                @if (h.IsWindows)
+                {
+                    <span class="distro" style="background:#0078D4" title="Windows · RDP">W</span>
+                }
+                else
+                {
+                    <span class="distro" style="background:@c.IconColor" title="@c.IconTip">@c.IconLetter</span>
+                }
                 <span class="tree-text">
                     <span class="tree-title">@c.Title</span>
-                    <span class="tree-sub">@c.Subtitle</span>
+                    <span class="tree-sub">@(h.IsWindows ? "RDP · " + c.Host + (c.Port is > 0 and not 3389 ? ":" + c.Port : "") : c.Subtitle)</span>
                 </span>
                 <span class="dot" style="background:@c.StatusColor" title="@c.Status"></span>
             </div>
@@ -93,7 +103,7 @@ else
 
     private IEnumerable<StoredHost> HostsIn(string folderId)
     {
-        foreach (var h in S.Hosts.Where(h => FolderOf(h) == folderId)) yield return h;
+        foreach (var h in Shown.Where(h => FolderOf(h) == folderId)) yield return h;
         foreach (var sub in S.Folders.Where(f => f.ParentId == folderId))
             foreach (var h in HostsIn(sub.Id)) yield return h;
     }
