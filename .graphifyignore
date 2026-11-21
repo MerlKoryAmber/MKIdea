@@ -1,0 +1,15 @@
+# build/generated
+bin/
+obj/
+dist/
+publish/
+graphify-out/
+# tooling / vcs
+.git/
+.claude/
+.vs/
+# assets
+*.min.js
+*.min.css
+*.jpg
+*.png

@@ -9,3 +9,7 @@ appsettings.*.local.json
 **/AdServerGroups.state
 **/LinuxOps.settings
 **/LinuxOps.state
+
+# graphify (граф генерируется локально: graphify update . ; правила — в .cursor/rules)
+graphify-out/
+*.graphify-bak

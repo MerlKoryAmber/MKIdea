@@ -31,4 +31,4 @@
 
 ## Publish
 
-`dist\LinuxOps.Web-<ver>\` — linux-x64 self-contained; `deploy/linuxops-web.service` — юнит systemd.
+`dist\LinuxOps.Web-<ver>\` — linux-x64 self-contained; `deploy/linuxops-web.service` — юнит systemd, `deploy/nginx-linuxops-web.conf` — nginx с TLS. Выкладка на стенд — `tools/deploy-linuxops-web.ps1 -Target stand`.

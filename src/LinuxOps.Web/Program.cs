@@ -22,6 +22,8 @@ builder.Services.AddScoped<UiDialogs>();
 builder.Services.AddScoped<WebSession>();
 
 var app = builder.Build();
+// За обратным прокси на этом же сервере: адрес клиента — из X-Forwarded-For (доверяем только 127.0.0.1 и ::1).
+app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto });
 app.Services.GetRequiredService<AuditLog>().Write("сервис", "запуск", $"LinuxOps Web {typeof(WebSession).Assembly.GetName().Version?.ToString(3)}, данные {WebPaths.DataDir}");
 app.UseStaticFiles();
 app.UseAntiforgery();

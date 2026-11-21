@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/graphify-gate.ps1\"",
+            "statusMessage": "graphify-gate: проверка на широкий обзор кода"
+          }
+        ]
+      }
+    ]
+  }
+}

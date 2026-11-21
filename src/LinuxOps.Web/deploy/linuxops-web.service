@@ -1,4 +1,4 @@
-# LinuxOps Web — служба на стенде (CentOS Stream 9/10, без контейнеров).
+# LinuxOps Web — служба (AlmaLinux 10, без контейнеров). Выкладка — tools/deploy-linuxops-web.ps1.
 # Установка: файлы релиза в /opt/linuxops-web, этот файл в /etc/systemd/system/, затем
 #   useradd -r -s /sbin/nologin linuxops-web
 #   install -d -o linuxops-web -m 700 /var/lib/linuxops-web /etc/linuxops-web
