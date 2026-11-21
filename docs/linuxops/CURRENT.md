@@ -3,7 +3,7 @@
 **Версия:** 0.3.54
 
 ## Отложено
-- **LinuxOps Web** — начат в ветке `feature/linuxops-web`: 0.1.0 (ядро, Inventory, Actions, «Версии ПО» с CVE, «Обновить отмеченное», аудит) — `docs/linuxops.web/CURRENT.md`. Дальше нужен стенд — ВМ CentOS 9 или 10 (решить) (2 vCPU, 4 ГБ, 40 ГБ) с доступом root по ключу. План — `docs/linuxops/PLAN-web.md`.
+- **LinuxOps Web** — начат в ветке `feature/linuxops-web`: 0.1.0 (ядро, Inventory, Actions, «Версии ПО» с CVE, «Обновить отмеченное», аудит) — `docs/linuxops.web/CURRENT.md`. Дальше нужен стенд — ВМ AlmaLinux 10 (2 vCPU, 4 ГБ, 40 ГБ) с доступом root по ключу. План — `docs/linuxops/PLAN-web.md`.
 
 ## 0.3.54
 - **Ядро вынесено в `LinuxOps.Core`** — общее с веб-версией. Для пользователя ничего не меняется.

@@ -37,6 +37,6 @@
 | Среда | Где | Доступ |
 |-------|-----|--------|
 | AD Merl.loc | см. `docs/adservergroups/` | Windows Auth / domain creds |
-| Linux CentOS Stream 9 | `192.168.0.178` | `root` + `~/.ssh/radiusproxy_ed25519` |
+| Linux CentOS Stream 9 (две ВМ, можно включать вместе) | `192.168.0.178` (ssh `lab`) · `192.168.0.188` (vm-188, ssh `lab188`) | `root`; .178 — `~/.ssh/lab2fa_ed25519`, .188 — `~/.ssh/radiusproxy_ed25519` |
 
 Подробности лаб — в docs конкретного приложения, не дублировать пароли в код.
