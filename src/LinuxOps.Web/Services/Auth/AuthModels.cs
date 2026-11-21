@@ -71,22 +71,66 @@ public static class Scope
     public const string All = "all", Folder = "folder", Host = "host";
 }
 
-/// <summary>Назначение: группа или человек AD получает роль на объект.</summary>
+/// <summary>Кто вошёл: локальный админ, локальный пользователь сервиса, пользователь AD.</summary>
+public static class UserKind
+{
+    public const string Admin = "local", Local = "user", Ad = "ad";
+}
+
+/// <summary>Назначение: группа AD, человек AD или локальный пользователь получает роль на объект.</summary>
 public sealed class Assignment
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    /// <summary>sAMAccountName группы или человека.</summary>
+    /// <summary>sAMAccountName группы или человека; для локального — его логин.</summary>
     public string Who { get; set; } = "";
     public bool IsGroup { get; set; } = true;
+    /// <summary>Локальный пользователь сервиса (не AD). Тот же логин в AD — другой человек.</summary>
+    public bool Local { get; set; }
     public string RoleId { get; set; } = "";
     /// <summary>all | folder | host</summary>
     public string Scope { get; set; } = Auth.Scope.All;
     /// <summary>id папки или хоста; для all — пусто.</summary>
     public string ObjectId { get; set; } = "";
 
-    public bool Matches(string login, ICollection<string> groups) => IsGroup
-        ? groups.Contains(Who, StringComparer.OrdinalIgnoreCase)
+    public bool Matches(string login, ICollection<string> groups, string kind) =>
+        Local ? kind == UserKind.Local && string.Equals(Who, login, StringComparison.OrdinalIgnoreCase)
+        : kind != UserKind.Ad ? false
+        : IsGroup ? groups.Contains(Who, StringComparer.OrdinalIgnoreCase)
         : string.Equals(Who, login, StringComparison.OrdinalIgnoreCase);
+
+    public string Icon => Local ? "🔑" : IsGroup ? "👥" : "👤";
+    public string KindText => Local ? "локальный" : IsGroup ? "группа" : "человек";
+}
+
+/// <summary>Учётка со своим TOTP: локальный админ и локальные пользователи.</summary>
+public interface ITotpAccount
+{
+    string Login { get; }
+    string TotpSecretEnc { get; set; }
+    bool TotpConfirmed { get; set; }
+    long TotpLastStep { get; set; }
+}
+
+/// <summary>
+/// Локальный пользователь сервиса (не AD): пароль и TOTP с QR-кодом. Заводит тот, у кого право «Настройки»;
+/// права — назначениями, как у людей AD. Без второго фактора не входит (лабораторного режима нет).
+/// </summary>
+public sealed class LocalUser : ITotpAccount
+{
+    public string Login { get; set; } = "";
+    public string Display { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public string PasswordHash { get; set; } = "";
+    public string TotpSecretEnc { get; set; } = "";
+    public bool TotpConfirmed { get; set; }
+    public long TotpLastStep { get; set; }
+    public DateTime Created { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Логин: латиница, цифры, . _ - ; 2–64 символа (без @ и \ — не спутать с доменным).</summary>
+    public static bool ValidLogin(string login) =>
+        System.Text.RegularExpressions.Regex.IsMatch(login, "^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$");
+
+    public const int MinPassword = 12;
 }
 
 /// <summary>Старая запись роли (до 0.4.0): группы и область внутри роли — только для переноса в назначения.</summary>
@@ -122,12 +166,21 @@ public sealed class AuthSettings
     /// <summary>Сессия всего, часов.</summary>
     public int MaxHours { get; set; } = 10;
 
+    /// <summary>Второй фактор для входа пользователей AD — API MK 2FA. Выключен — AD входят только паролем.</summary>
+    public bool MfaEnabled { get; set; }
+    /// <summary>Адрес API: https://&lt;панель&gt;/api/v1/mfa</summary>
+    public string MfaUrl { get; set; } = "";
+    /// <summary>Секрет сервиса (mfa_…), зашифрован (SecretBox).</summary>
+    public string MfaSecretEnc { get; set; } = "";
+    /// <summary>Что видит человек в сообщении Express.</summary>
+    public string MfaAction { get; set; } = "Вход в LinuxOps Web";
+
     public string BaseDn => !string.IsNullOrWhiteSpace(AdBaseDn) ? AdBaseDn
         : string.Join(",", AdDomain.Split('.', StringSplitOptions.RemoveEmptyEntries).Select(p => "DC=" + p));
 }
 
 /// <summary>Локальный админ — аварийный вход. Пароль и TOTP задаются только из CLI на сервере.</summary>
-public sealed class LocalAdmin
+public sealed class LocalAdmin : ITotpAccount
 {
     public string Login { get; set; } = "admin";
     public bool Enabled { get; set; }
@@ -149,7 +202,7 @@ public sealed class UserInfo
 {
     public string Login { get; init; } = "";
     public string Display { get; init; } = "";
-    /// <summary>local | ad</summary>
+    /// <summary>UserKind: local (админ) | user (локальный) | ad</summary>
     public string Kind { get; init; } = "";
     /// <summary>Группы AD на момент входа (для назначений на группы).</summary>
     public List<string> Groups { get; init; } = new();
@@ -169,7 +222,7 @@ public sealed class UserInfo
     public static UserInfo Build(string login, string display, string kind, List<string> groups, List<Role> roles, List<Assignment> assignments)
     {
         var grants = new List<Grant>();
-        foreach (var a in assignments.Where(a => a.Matches(login, groups)))
+        foreach (var a in assignments.Where(a => a.Matches(login, groups, kind)))
             if (roles.FirstOrDefault(r => r.Id == a.RoleId) is { } role)
                 grants.Add(new Grant(role.Name, role.Perms.ToHashSet(), a.Scope, a.ObjectId));
         return new UserInfo { Login = login, Display = display, Kind = kind, Groups = groups, Grants = grants };

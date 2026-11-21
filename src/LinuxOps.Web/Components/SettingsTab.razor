@@ -53,11 +53,15 @@ else
             </div>
             <div class="wrap" style="margin-top:10px"><button class="btn primary" @onclick="SaveAuth">Сохранить</button> <span class="muted small" style="margin-left:8px">@_saved</span></div>
 
+            <MfaPanel S="S" />
+
             <div class="section-title" style="margin-top:16px">Локальный админ</div>
             <div class="muted small">
                 «@_la.Login»: вход @(_la.Enabled ? "включён" : "выключен"), пароль @(_la.HasPassword ? "задан" : "не задан"), TOTP @(_la.NoTotp ? "выключен — лабораторный режим" : _la.TotpConfirmed ? "привязан" : "не привязан").
                 Управление — только на сервере: <code>sudo linuxops-web</code> → «Local admin» (пароль, новый TOTP, включить / выключить).
             </div>
+
+            <LocalUsersPanel S="S" Changed="Reload" />
 
             <div class="section-title" style="margin-top:16px">Проверка парка по расписанию</div>
             <div class="muted small" style="margin-bottom:6px">Раз в сутки — «Версии ПО» по всем хостам Linux; итог — в History → Парк. Ключи хостов — только уже подтверждённые.</div>
@@ -145,7 +149,7 @@ else
                 @foreach (var a in _assign.OrderBy(a => a.Who, StringComparer.OrdinalIgnoreCase))
                 {
                     <tr>
-                        <td>@(a.IsGroup ? "👥" : "👤") @a.Who</td>
+                        <td title="@a.KindText">@a.Icon @a.Who</td>
                         <td>@(_roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? "?")</td>
                         <td>@ObjectText(a)</td>
                         <td><button class="btn-icon" title="Убрать назначение" @onclick="() => RemoveAssignment(a)">×</button></td>
@@ -155,18 +159,14 @@ else
                 </tbody>
             </table>
             <div class="role-edit">
-                <div class="wrap" style="margin-bottom:6px">
-                    <label class="check" style="margin-right:12px"><input type="radio" name="awho" checked="@_aGroup" @onchange="() => { _aGroup = true; _aWho = null; }" /> группа AD</label>
-                    <label class="check"><input type="radio" name="awho" checked="@(!_aGroup)" @onchange="() => { _aGroup = false; _aWho = null; }" /> человек</label>
-                </div>
                 @if (_aWho is null)
                 {
-                    <AdPicker Groups="_aGroup" OnPick="w => _aWho = w" />
+                    <WhoPicker OnPick="w => _aWho = w" />
                 }
                 else
                 {
                     <div class="form-grid">
-                        <label>Кто</label><span><span class="chip-x">@(_aGroup ? "👥" : "👤") @_aWho <button title="Другой" @onclick="() => _aWho = null">×</button></span></span>
+                        <label>Кто</label><span><span class="chip-x">@_aWho.Icon @_aWho.Who <button title="Другой" @onclick="() => _aWho = null">×</button></span></span>
                         <label>Роль</label>
                         <select class="input" @bind="_aRole">
                             @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
@@ -194,8 +194,7 @@ else
     private LocalAdmin _la = new();
     private List<Role> _roles = new();
     private List<Assignment> _assign = new();
-    private bool _aGroup = true;
-    private string? _aWho;
+    private WhoPicker.Picked? _aWho;
     private string _aRole = "operator", _aObject = "all:", _assignMsg = "";
     private List<HostFolder> _folders = new();
     private List<StoredHost> _hosts = new();
@@ -309,7 +308,7 @@ else
         var r = await Task.Run(() => LdapAuth.Authenticate(_a, _tryLogin, _tryPassword));
         _tryPassword = "";
         if (!r.Ok) { _try = r.Error; Audit.Write(S.Who, "настройки: пробный вход AD", $"{_tryLogin} — {r.Error}"); return; }
-        var mine = _assign.Where(a => a.Matches(r.Login, r.Groups)).ToList();
+        var mine = _assign.Where(a => a.Matches(r.Login, r.Groups, UserKind.Ad)).ToList();
         var lines = mine.Select(a => $"  {(_roles.FirstOrDefault(x => x.Id == a.RoleId)?.Name ?? "?")} на {ObjectText(a)} (через {(a.IsGroup ? "группу " + a.Who : "логин")})");
         _try = $"Вход OK: {r.Display} ({r.Login}).\nГруппы: {string.Join(", ", r.Groups)}\nНазначения: {(mine.Count == 0 ? "нет — войти не сможет" : "\n" + string.Join("\n", lines))}";
         Audit.Write(S.Who, "настройки: пробный вход AD", $"{r.Login} — OK, назначений: {mine.Count}");
@@ -356,6 +355,9 @@ else
         _a.MaxHours = Math.Clamp(_a.MaxHours, 1, 24);
         if (_lookupPw.Length > 0) { _a.AdLookupPasswordEnc = Store.Protect(_lookupPw); _lookupPw = ""; }
         if (_a.AdLookupUser.Trim().Length == 0) _a.AdLookupPasswordEnc = "";
+        // MK 2FA сохраняет свой раздел — его поля берём свежими, чтобы не затереть
+        var cur = Store.LoadAuth();
+        (_a.MfaEnabled, _a.MfaUrl, _a.MfaSecretEnc, _a.MfaAction) = (cur.MfaEnabled, cur.MfaUrl, cur.MfaSecretEnc, cur.MfaAction);
         Store.SaveAuth(_a);
         Audit.Write(S.Who, "настройки: вход", $"AD {(_a.AdEnabled ? "вкл" : "выкл")}, {_a.AdServers}:{_a.AdPort} {_a.AdSecurity}, домен {_a.AdDomain}, база {_a.BaseDn}, поиск {(_a.AdLookupUser.Length > 0 ? _a.AdLookupUser : "выкл")}; простой {_a.IdleMinutes} мин, всего {_a.MaxHours} ч");
         _saved = "сохранено " + DateTime.Now.ToString("HH:mm:ss");
@@ -416,14 +418,15 @@ else
         var role = _roles.FirstOrDefault(r => r.Id == _aRole);
         if (role is null) return;
         var parts = _aObject.Split(':', 2);
-        var a = new Assignment { Who = _aWho, IsGroup = _aGroup, RoleId = role.Id, Scope = parts[0], ObjectId = parts.Length > 1 ? parts[1] : "" };
-        if (_assign.Any(x => x.Scope == a.Scope && x.ObjectId == a.ObjectId && x.RoleId == a.RoleId && string.Equals(x.Who, a.Who, StringComparison.OrdinalIgnoreCase)))
+        var a = new Assignment { Who = _aWho.Who, IsGroup = _aWho.IsGroup, Local = _aWho.Local, RoleId = role.Id, Scope = parts[0], ObjectId = parts.Length > 1 ? parts[1] : "" };
+        if (_assign.Any(x => x.Scope == a.Scope && x.ObjectId == a.ObjectId && x.RoleId == a.RoleId && x.Local == a.Local && x.IsGroup == a.IsGroup
+                             && string.Equals(x.Who, a.Who, StringComparison.OrdinalIgnoreCase)))
         {
             _assignMsg = "Такое назначение уже есть.";
             return;
         }
         Store.SaveAssignment(a);
-        Audit.Write(S.Who, "доступ: выдан", $"{(a.IsGroup ? "группа" : "человек")} {a.Who}, роль «{role.Name}» → {ObjectText(a)}");
+        Audit.Write(S.Who, "доступ: выдан", $"{a.KindText} {a.Who}, роль «{role.Name}» → {ObjectText(a)}");
         _assignMsg = $"{a.Who}: «{role.Name}» на {ObjectText(a)}.";
         _aWho = null;
         Reload();
@@ -435,7 +438,7 @@ else
         var role = _roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? a.RoleId;
         // последний путь админа в сервис — локальный админ; его назначением не убрать, так что сервис без админа не останется
         Store.DeleteAssignment(a.Id);
-        Audit.Write(S.Who, "доступ: снят", $"{(a.IsGroup ? "группа" : "человек")} {a.Who}, роль «{role}» → {ObjectText(a)}");
+        Audit.Write(S.Who, "доступ: снят", $"{a.KindText} {a.Who}, роль «{role}» → {ObjectText(a)}");
         _assignMsg = $"{a.Who}: «{role}» на {ObjectText(a)} снята.";
         Reload();
     }

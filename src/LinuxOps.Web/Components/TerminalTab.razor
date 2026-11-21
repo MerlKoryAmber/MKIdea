@@ -148,7 +148,7 @@
         _rdp = h.IsWindows;
         _errorShown = false;
         _startedAt = DateTime.UtcNow;
-        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", "./guac.js");
+        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
         _self ??= DotNetObjectReference.Create(this);
         if (_title is not null) await _mod.InvokeVoidAsync("close", ScreenId);
         _title = title;

@@ -21,6 +21,7 @@ public sealed partial class WebStore
             {
                 Exec(c, "CREATE TABLE IF NOT EXISTS roles(id TEXT PRIMARY KEY, json TEXT NOT NULL)");
                 Exec(c, "CREATE TABLE IF NOT EXISTS assignments(id TEXT PRIMARY KEY, json TEXT NOT NULL)");
+                Exec(c, "CREATE TABLE IF NOT EXISTS local_users(login TEXT PRIMARY KEY COLLATE NOCASE, json TEXT NOT NULL)");
             }
             if (GetSetting("auth_model") != "2") MigrateRoles();
             _authReady = true;
@@ -123,6 +124,57 @@ public sealed partial class WebStore
     }
 
     public void SaveLocalAdmin(LocalAdmin a) => PutSetting("local_admin", JsonSerializer.Serialize(a));
+
+    // ---------- локальные пользователи ----------
+
+    public List<LocalUser> LoadLocalUsers()
+    {
+        EnsureAuthSchema();
+        var list = new List<LocalUser>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT json FROM local_users ORDER BY login";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            if (JsonSerializer.Deserialize<LocalUser>(r.GetString(0), AuthJson) is { } u) list.Add(u);
+        return list;
+    }
+
+    public LocalUser? LoadLocalUser(string login) =>
+        LoadLocalUsers().FirstOrDefault(u => string.Equals(u.Login, login.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    public void SaveLocalUser(LocalUser u)
+    {
+        EnsureAuthSchema();
+        using var c = Open();
+        Exec(c, "INSERT INTO local_users(login, json) VALUES($l, $j) ON CONFLICT(login) DO UPDATE SET json=$j",
+            ("$l", u.Login), ("$j", JsonSerializer.Serialize(u)));
+    }
+
+    /// <summary>Удалить пользователя и его назначения.</summary>
+    public int DeleteLocalUser(string login)
+    {
+        EnsureAuthSchema();
+        var gone = LoadAssignments().Where(a => a.Local && string.Equals(a.Who, login, StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var a in gone) DeleteAssignment(a.Id);
+        using var c = Open();
+        Exec(c, "DELETE FROM local_users WHERE login=$l", ("$l", login));
+        return gone.Count;
+    }
+
+    /// <summary>Учётка со своим TOTP по логину: локальный админ или локальный пользователь.</summary>
+    public ITotpAccount? LoadTotpAccount(string login)
+    {
+        var la = LoadLocalAdmin();
+        if (string.Equals(la.Login, login.Trim(), StringComparison.OrdinalIgnoreCase)) return la;
+        return LoadLocalUser(login);
+    }
+
+    public void SaveTotpAccount(ITotpAccount a)
+    {
+        if (a is LocalAdmin la) SaveLocalAdmin(la);
+        else if (a is LocalUser u) SaveLocalUser(u);
+    }
 
     public string Protect(string plain) => _box.Protect(plain);
     public string Unprotect(string enc) => enc.Length == 0 ? "" : _box.Unprotect(enc);

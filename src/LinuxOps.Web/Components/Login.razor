@@ -13,7 +13,7 @@
             <div class="lab-badge wide">ЛАБА: admin / admin без второго фактора</div>
         }
 
-        @if (_message is not null)
+        @if (_message is not null && Step != "mfa")
         {
             <div class="login-msg">@_message</div>
         }
@@ -34,23 +34,46 @@
                 <AntiforgeryToken />
                 <input type="hidden" name="setup" value="1" />
                 <div class="login-hint">
-                    Привязка второго фактора для <b>@_pending</b>. Добавьте учётку в приложение-аутентификатор
-                    (Google / Microsoft Authenticator, FreeOTP): «Ввести ключ вручную», тип — по времени.
+                    Привязка второго фактора для <b>@_pending</b>. Отсканируйте QR-код приложением-аутентификатором
+                    (Google / Microsoft Authenticator, FreeOTP).
                 </div>
+                <img class="login-qr" src="@Totp.QrDataUri(_uri!)" alt="QR-код для приложения-аутентификатора" width="230" height="230" />
+                <div class="login-hint small">Камеры нет — «Ввести ключ вручную», тип — по времени, имя: LinuxOps Web — @_pending:</div>
                 <div class="login-secret" title="Секрет TOTP">@Totp.Pretty(_secret)</div>
-                <div class="login-hint small">Имя учётки: LinuxOps Web — @_pending. Ссылка для приложений, которые её принимают:</div>
-                <div class="login-uri">@Totp.Uri(_secret, _pending)</div>
                 <div class="login-hint">Введите код из приложения, чтобы закончить привязку:</div>
                 <input class="input" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="7" autofocus placeholder="000000" />
                 <button class="btn primary" type="submit">Привязать и войти</button>
             </form>
+        }
+        else if (Step == "mfa" && _mfa is not null)
+        {
+            <div id="mfa" data-poll="@_mfa.PollMs">
+                <AntiforgeryToken />
+                <div class="login-hint">Вход <b>@_mfa.User.Login</b>: пароль принят. Нужно подтверждение в MK 2FA.</div>
+                <div id="mfa-push" class="login-wait" hidden="@(_mfa.Status == "pending_code")">
+                    Подтвердите вход в Express — сообщение «LinuxOps Web». Ждём…
+                </div>
+                <form id="mfa-code" method="post" action="/auth/mfa/code" hidden="@(_mfa.Status != "pending_code")">
+                    <AntiforgeryToken />
+                    <div class="login-hint">Введите код из приложения-аутентификатора MK 2FA:</div>
+                    <input class="input" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="8" placeholder="000000" />
+                    <button class="btn primary" type="submit">Войти</button>
+                </form>
+                <div id="mfa-msg" class="login-msg" hidden="@(_message is null)" data-keep="@(_message is null ? null : "1")">@_message</div>
+                <a id="mfa-again" class="login-link" href="/login" hidden>Войти снова</a>
+                <form id="mfa-cancel" method="post" action="/auth/mfa/cancel">
+                    <AntiforgeryToken />
+                    <button class="btn" type="submit" style="width:100%;margin-top:8px">Отмена</button>
+                </form>
+            </div>
+            <script src="@WebPaths.Asset("login-mfa.js")" suppress-error="BL9992"></script>
         }
         else
         {
             <form method="post" action="/auth/login">
                 <AntiforgeryToken />
                 <label class="login-label">Логин</label>
-                <input class="input" name="login" autocomplete="username" autofocus placeholder="@(_ad ? "логин AD или admin" : "admin")" />
+                <input class="input" name="login" autocomplete="username" autofocus placeholder="@(_ad ? "логин AD или локальный" : "admin")" />
                 <label class="login-label">Пароль</label>
                 <input class="input" name="password" type="password" autocomplete="current-password" />
                 <button class="btn primary" type="submit">Войти</button>
@@ -67,7 +90,8 @@
     [CascadingParameter] private HttpContext? Ctx { get; set; }
     [SupplyParameterFromQuery(Name = "step")] private string? Step { get; set; }
 
-    private string? _message, _pending, _secret;
+    private string? _message, _pending, _secret, _uri;
+    private LoginService.MfaPending? _mfa;
     private bool _ad, _admin, _lab;
 
     protected override void OnInitialized()
@@ -81,10 +105,22 @@
         var la = Store.LoadLocalAdmin();
         _admin = la.Enabled && la.HasPassword;
         _lab = _admin && la.NoTotp;
+
+        if (Step == "mfa")
+        {
+            _mfa = Svc.FindMfa(AuthEndpoints.PendingMfa(Ctx));
+            if (_mfa is null) { Step = ""; _message ??= "Время на подтверждение вышло. Войдите снова."; }
+            return;
+        }
+        if (_pending is not null && _pending.StartsWith(AuthEndpoints.MfaPrefix)) _pending = null;
         if (_pending is null && Step is "totp" or "setup")
             _message ??= "Время на ввод кода вышло. Войдите снова.";
-        if (Step == "setup" && _pending is not null && Svc.IsLocalAdmin(_pending) && !la.TotpConfirmed)
-            _secret = Svc.TotpSetupSecret();
+        if (Step == "setup" && _pending is not null && Store.LoadTotpAccount(_pending) is { TotpConfirmed: false } acc)
+        {
+            _secret = Svc.TotpSetupSecret(acc.Login);
+            _uri = Totp.Uri(_secret, acc.Login);
+            _pending = acc.Login;
+        }
         else if (Step == "setup") Step = _pending is null ? "" : "totp";
     }
 }

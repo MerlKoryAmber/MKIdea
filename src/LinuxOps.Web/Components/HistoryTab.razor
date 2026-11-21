@@ -227,7 +227,7 @@
         _position = _duration = 0;
         _playing = _loaded = false;
         _recError = "";
-        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", "./guac.js");
+        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
         _self ??= DotNetObjectReference.Create(this);
         // запись удалена по сроку или объёму (RecordingsKeeper) — проигрывать нечего
         if (s.Status.Contains("запись удалена", StringComparison.Ordinal))

@@ -294,6 +294,9 @@ activate_release() {
   ln -sfn "$dir" "$CURRENT_LINK"
   if [[ -n "$old" && "$old" != "$dir" ]]; then echo "$old" >"$PREVIOUS_FILE"; fi
   recordings_dir_ensure
+  # SELinux: релиз распакован во временный каталог и унёс метку user_tmp_t — служба шла бы в init_t.
+  # По штатным меткам (usr_t, var_lib_t, etc_t) — в unconfined_service_t, как любая служба из /opt.
+  if have_cmd restorecon; then restorecon -R "$dir" "$DATA_DIR" "$ETC_DIR" 2>/dev/null || true; fi
   install -m 644 "$dir/deploy/linuxops-web.service" "$UNIT_FILE"
   systemctl daemon-reload
   systemctl enable "$UNIT" >/dev/null 2>&1

@@ -1,0 +1,163 @@
+@* ⚙ → локальные пользователи сервиса (не AD): пароль задаёт администратор, TOTP человек привязывает сам по QR-коду при первом входе.
+   Права — назначениями (🔑 в «Назначениях» и «Доступ…»). *@
+@using LinuxOps.Web.Services.Auth
+@inject WebStore Store
+@inject AuditLog Audit
+
+<div class="section-title" style="margin-top:16px">Локальные пользователи</div>
+<div class="muted small" style="margin-bottom:6px">
+    Для тех, у кого нет учётки в домене. Вход — пароль и код из приложения-аутентификатора; при первом входе — привязка по QR-коду.
+    Права — назначением: «Назначения» ниже или «Доступ…» в Inventory → «локальному». Логин не должен совпадать с доменным: локальный проверяется первым.
+</div>
+<table class="grid">
+    <thead><tr><th>Логин</th><th>Имя</th><th>Состояние</th><th style="width:90px">Назначений</th></tr></thead>
+    <tbody>
+    @foreach (var u in _users)
+    {
+        <tr class="@(u.Login == _sel?.Login ? "selected" : "")" @onclick="() => Pick(u)">
+            <td>🔑 @u.Login</td>
+            <td>@u.Display</td>
+            <td class="small">@(u.Enabled ? "" : "выключен · ")TOTP @(u.TotpConfirmed ? "привязан" : "ждёт привязки при входе")</td>
+            <td>@_assign.Count(a => a.Local && string.Equals(a.Who, u.Login, StringComparison.OrdinalIgnoreCase))</td>
+        </tr>
+    }
+    @if (_users.Count == 0) { <tr><td colspan="4" class="muted">Нет.</td></tr> }
+    </tbody>
+</table>
+
+<div class="role-edit">
+    @if (_sel is null)
+    {
+        <div class="form-grid">
+            <label>Логин</label><input class="input" @bind="_login" placeholder="латиница, цифры, . _ -" autocomplete="off" />
+            <label>Имя</label><input class="input" @bind="_display" placeholder="Иванов И. И. (подрядчик)" autocomplete="off" />
+            <label>Пароль</label><input class="input" type="password" @bind="_pw" placeholder="не короче @LocalUser.MinPassword символов" autocomplete="new-password" />
+            <label>Ещё раз</label><input class="input" type="password" @bind="_pw2" autocomplete="new-password" />
+        </div>
+        <div class="wrap" style="margin-top:8px"><button class="btn primary" @onclick="Create">Завести</button></div>
+    }
+    else
+    {
+        <div class="wrap" style="gap:6px">
+            <b>🔑 @_sel.Login</b>
+            <button class="btn sm" @onclick="ResetTotp" title="Новая привязка по QR-коду при следующем входе">Сбросить TOTP</button>
+            <button class="btn sm" @onclick="ToggleEnabled">@(_sel.Enabled ? "Выключить" : "Включить")</button>
+            <button class="btn sm" @onclick="() => _confirmDelete = true">Удалить</button>
+            <button class="btn sm" @onclick="() => Pick(null)">Новый</button>
+        </div>
+        @if (_confirmDelete)
+        {
+            <div class="login-msg" style="margin-top:6px">
+                Удалить «@_sel.Login» и его назначения (@_assign.Count(a => a.Local && string.Equals(a.Who, _sel.Login, StringComparison.OrdinalIgnoreCase)))? Вернуть нельзя.
+                <button class="btn sm" style="margin-left:8px" @onclick="Delete">Да, удалить</button>
+                <button class="btn sm" @onclick="() => _confirmDelete = false">Нет</button>
+            </div>
+        }
+        <div class="form-grid" style="margin-top:6px">
+            <label>Имя</label><input class="input" @bind="_display" />
+            <label>Новый пароль</label><input class="input" type="password" @bind="_pw" placeholder="пусто — не менять" autocomplete="new-password" />
+            <label>Ещё раз</label><input class="input" type="password" @bind="_pw2" autocomplete="new-password" />
+        </div>
+        <div class="wrap" style="margin-top:8px"><button class="btn primary" @onclick="SaveSel">Сохранить</button></div>
+    }
+    @if (_msg.Length > 0) { <div class="muted small" style="margin-top:6px">@_msg</div> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>Удалили пользователя — его назначения тоже; таблице назначений выше — перечитать.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private List<LocalUser> _users = new();
+    private List<Assignment> _assign = new();
+    private LocalUser? _sel;
+    private string _login = "", _display = "", _pw = "", _pw2 = "", _msg = "";
+    private bool _confirmDelete;
+
+    protected override void OnParametersSet() => Reload();
+
+    private void Reload()
+    {
+        _users = Store.LoadLocalUsers();
+        _assign = Store.LoadAssignments();
+        if (_sel is not null) _sel = _users.FirstOrDefault(u => u.Login == _sel.Login);
+    }
+
+    private void Pick(LocalUser? u)
+    {
+        _sel = u; _confirmDelete = false; _msg = "";
+        _login = ""; _display = u?.Display ?? ""; _pw = _pw2 = "";
+    }
+
+    private string? CheckPassword(bool required)
+    {
+        if (_pw.Length == 0 && !required) return null;
+        if (_pw.Length < LocalUser.MinPassword) return $"Пароль — не короче {LocalUser.MinPassword} символов.";
+        if (_pw != _pw2) return "Пароли не совпадают.";
+        return null;
+    }
+
+    private async Task Create()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        var login = _login.Trim();
+        if (!LocalUser.ValidLogin(login)) { _msg = "Логин: латиница, цифры, . _ - ; от 2 до 64 символов, без @ и \\."; return; }
+        if (string.Equals(login, Store.LoadLocalAdmin().Login, StringComparison.OrdinalIgnoreCase) || Store.LoadLocalUser(login) is not null)
+        { _msg = "Такой логин уже есть."; return; }
+        if (CheckPassword(true) is { } err) { _msg = err; return; }
+        var u = new LocalUser { Login = login, Display = _display.Trim(), PasswordHash = await Task.Run(() => PasswordHash.Hash(_pw)) };
+        Store.SaveLocalUser(u);
+        Audit.Write(S.Who, "локальный пользователь: заведён", $"{u.Login} ({u.Display})");
+        Reload();
+        Pick(_users.FirstOrDefault(x => x.Login == u.Login));
+        _msg = $"«{u.Login}» заведён. Дайте ему роль: «Назначения» → «локальному». При первом входе он привяжет TOTP по QR-коду.";
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SaveSel()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        if (CheckPassword(false) is { } err) { _msg = err; return; }
+        var changed = new List<string>();
+        if (_sel.Display != _display.Trim()) { _sel.Display = _display.Trim(); changed.Add("имя"); }
+        if (_pw.Length > 0) { _sel.PasswordHash = await Task.Run(() => PasswordHash.Hash(_pw)); changed.Add("пароль"); }
+        _pw = _pw2 = "";
+        if (changed.Count == 0) { _msg = "Нечего сохранять."; return; }
+        Store.SaveLocalUser(_sel);
+        Audit.Write(S.Who, "локальный пользователь: изменён", $"{_sel.Login}: {string.Join(", ", changed)}");
+        _msg = "Сохранено: " + string.Join(", ", changed) + ".";
+        Reload();
+    }
+
+    private void ResetTotp()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        _sel.TotpSecretEnc = ""; _sel.TotpConfirmed = false; _sel.TotpLastStep = 0;
+        Store.SaveLocalUser(_sel);
+        Audit.Write(S.Who, "локальный пользователь: TOTP сброшен", _sel.Login);
+        _msg = "TOTP сброшен: при следующем входе — новый QR-код.";
+        Reload();
+    }
+
+    private void ToggleEnabled()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        _sel.Enabled = !_sel.Enabled;
+        Store.SaveLocalUser(_sel);
+        Audit.Write(S.Who, _sel.Enabled ? "локальный пользователь: включён" : "локальный пользователь: выключен", _sel.Login);
+        _msg = _sel.Enabled ? "Включён." : "Выключен: войти не сможет, открытые окна закроются на следующем запросе.";
+        Reload();
+    }
+
+    private async Task Delete()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        var login = _sel.Login;
+        var n = Store.DeleteLocalUser(login);
+        Audit.Write(S.Who, "локальный пользователь: удалён", $"{login}, назначений снято: {n}");
+        Pick(null);
+        Reload();
+        _msg = $"«{login}» удалён, назначений снято: {n}.";
+        await Changed.InvokeAsync();
+    }
+}

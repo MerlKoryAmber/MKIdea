@@ -17,7 +17,7 @@
                 {
                     var role = _roles.FirstOrDefault(r => r.Id == a.RoleId);
                     <tr>
-                        <td>@(a.IsGroup ? "👥" : "👤") @a.Who</td>
+                        <td title="@a.KindText">@a.Icon @a.Who</td>
                         <td>@(role?.Name ?? "?")</td>
                         <td class="small">@(role is null ? "" : string.Join(", ", role.Perms.Select(Perm.Short)))</td>
                         <td class="small @(from is null ? "" : "muted")">@(from ?? "здесь")</td>
@@ -37,18 +37,14 @@
             </table>
 
             <div class="section-title" style="margin-top:14px">Назначить</div>
-            <div class="wrap" style="margin-bottom:6px">
-                <label class="check" style="margin-right:12px"><input type="radio" name="who" checked="@_groups" @onchange="() => { _groups = true; _who = null; }" /> группе AD</label>
-                <label class="check"><input type="radio" name="who" checked="@(!_groups)" @onchange="() => { _groups = false; _who = null; }" /> человеку</label>
-            </div>
             @if (_who is null)
             {
-                <AdPicker Groups="_groups" OnPick="w => _who = w" />
+                <WhoPicker OnPick="w => _who = w" />
             }
             else
             {
                 <div class="wrap">
-                    <span class="chip-x">@(_groups ? "👥" : "👤") @_who <button title="Другой" @onclick="() => _who = null">×</button></span>
+                    <span class="chip-x">@_who.Icon @_who.Who <button title="Другой" @onclick="() => _who = null">×</button></span>
                     <span style="margin:0 6px">роль:</span>
                     <select class="input" style="width:auto" @bind="_roleId">
                         @foreach (var r in _roles) { <option value="@r.Id">@r.Name — @string.Join(", ", r.Perms.Select(Perm.Short))</option> }
@@ -73,8 +69,7 @@
     private List<Role> _roles = new();
     private List<Assignment> _all = new();
     private List<HostFolder> _folders = new();
-    private bool _groups = true;
-    private string? _who;
+    private WhoPicker.Picked? _who;
     private string _roleId = "operator", _msg = "";
 
     protected override void OnInitialized() => Reload();
@@ -119,7 +114,7 @@
         if (!S.Can(Perm.Settings)) return;
         Store.DeleteAssignment(a.Id);
         var role = _roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? a.RoleId;
-        Audit.Write(S.Who, "доступ: снят", $"{(a.IsGroup ? "группа" : "человек")} {a.Who}, роль «{role}» → {ItemPath}");
+        Audit.Write(S.Who, "доступ: снят", $"{a.KindText} {a.Who}, роль «{role}» → {ItemPath}");
         _msg = $"{a.Who}: «{role}» на «{ItemPath}» снята.";
         Reload();
     }
@@ -129,14 +124,16 @@
         if (!S.Can(Perm.Settings) || _who is null) return;
         var role = _roles.FirstOrDefault(r => r.Id == _roleId);
         if (role is null) return;
-        if (_all.Any(a => a.Scope == ScopeKind && a.ObjectId == Id && a.RoleId == role.Id && string.Equals(a.Who, _who, StringComparison.OrdinalIgnoreCase)))
+        var w = _who;
+        if (_all.Any(a => a.Scope == ScopeKind && a.ObjectId == Id && a.RoleId == role.Id && a.Local == w.Local && a.IsGroup == w.IsGroup
+                          && string.Equals(a.Who, w.Who, StringComparison.OrdinalIgnoreCase)))
         {
             _msg = "Такое назначение уже есть.";
             return;
         }
-        Store.SaveAssignment(new Assignment { Who = _who, IsGroup = _groups, RoleId = role.Id, Scope = ScopeKind, ObjectId = Id });
-        Audit.Write(S.Who, "доступ: выдан", $"{(_groups ? "группа" : "человек")} {_who}, роль «{role.Name}» → {ItemPath}");
-        _msg = $"{_who}: «{role.Name}» на «{ItemPath}».";
+        Store.SaveAssignment(new Assignment { Who = w.Who, IsGroup = w.IsGroup, Local = w.Local, RoleId = role.Id, Scope = ScopeKind, ObjectId = Id });
+        Audit.Write(S.Who, "доступ: выдан", $"{w.KindText} {w.Who}, роль «{role.Name}» → {ItemPath}");
+        _msg = $"{w.Who}: «{role.Name}» на «{ItemPath}».";
         _who = null;
         Reload();
     }

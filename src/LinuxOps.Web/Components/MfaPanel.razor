@@ -1,0 +1,82 @@
+@* ⚙ → второй фактор для пользователей AD через API MK 2FA. Секрет — зашифрован, в окно не возвращается. *@
+@using LinuxOps.Web.Services.Auth
+@inject WebStore Store
+@inject AuditLog Audit
+@inject MkMfa Mfa
+
+<div class="section-title" style="margin-top:16px">Второй фактор для AD — MK 2FA</div>
+<div class="muted small" style="margin-bottom:6px">
+    После пароля AD человек подтверждает вход кнопкой в Express или кодом из приложения. MK 2FA недоступен — пользователи AD не войдут
+    (аварийный вход — локальный админ). Адрес этого сервера должен быть разрешён на стороне MK 2FA. Локальный админ и локальные пользователи — со своим TOTP.
+</div>
+<label class="check"><input type="checkbox" @bind="_on" /> Требовать подтверждение MK 2FA при входе пользователей AD</label>
+<div class="form-grid">
+    <label>Адрес API</label><input class="input" @bind="_url" placeholder="https://2fa.example.local/api/v1/mfa" autocomplete="off" />
+    <label>Секрет</label><input class="input" type="password" @bind="_secret" placeholder="@(_hasSecret ? "задан — оставьте пустым, чтобы не менять" : "mfa_… — выдают в MK 2FA")" autocomplete="new-password" />
+    <label>Текст в Express</label><input class="input" @bind="_action" placeholder="Вход в LinuxOps Web" maxlength="200" />
+</div>
+@if (_url.Trim().StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+{
+    <div class="login-msg">Без HTTPS секрет сервиса идёт по сети открытым текстом. Только для лабы.</div>
+}
+@if (!_on)
+{
+    <div class="muted small" style="margin-top:4px">Выключено: пользователи AD входят только паролем.</div>
+}
+<div class="wrap" style="margin-top:8px">
+    <button class="btn primary" @onclick="Save">Сохранить</button>
+    <button class="btn" style="margin-left:6px" @onclick="Probe" disabled="@_busy">Проверить связь</button>
+    <span class="muted small" style="margin-left:8px">@_msg</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private bool _on, _hasSecret, _busy;
+    private string _url = "", _secret = "", _action = "", _msg = "";
+
+    protected override void OnInitialized()
+    {
+        var a = Store.LoadAuth();
+        _on = a.MfaEnabled; _url = a.MfaUrl; _action = a.MfaAction; _hasSecret = a.MfaSecretEnc.Length > 0;
+    }
+
+    private string? Check()
+    {
+        var url = _url.Trim();
+        if (url.Length == 0) return _on ? "Укажите адрес API." : null;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("https" or "http")) return "Адрес — https://…/api/v1/mfa";
+        if (_on && !_hasSecret && _secret.Length == 0) return "Укажите секрет.";
+        return null;
+    }
+
+    private void Save()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        if (Check() is { } err) { _msg = err; return; }
+        var a = Store.LoadAuth();
+        a.MfaEnabled = _on;
+        a.MfaUrl = _url.Trim().TrimEnd('/');
+        a.MfaAction = _action.Trim().Length > 0 ? _action.Trim() : "Вход в LinuxOps Web";
+        if (_secret.Length > 0) { a.MfaSecretEnc = Store.Protect(_secret.Trim()); _secret = ""; }
+        Store.SaveAuth(a);
+        _hasSecret = a.MfaSecretEnc.Length > 0;
+        _url = a.MfaUrl; _action = a.MfaAction;
+        Audit.Write(S.Who, "настройки: MK 2FA", $"{(_on ? "вкл" : "выкл")}, {a.MfaUrl}, секрет {(_hasSecret ? "задан" : "не задан")}");
+        _msg = "сохранено " + DateTime.Now.ToString("HH:mm:ss");
+    }
+
+    private async Task Probe()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        var url = _url.Trim();
+        if (url.Length == 0 || !Uri.TryCreate(url, UriKind.Absolute, out _)) { _msg = "Укажите адрес API."; return; }
+        var secret = _secret.Length > 0 ? _secret.Trim() : Store.Unprotect(Store.LoadAuth().MfaSecretEnc);
+        if (secret.Length == 0) { _msg = "Укажите секрет."; return; }
+        _busy = true; _msg = "проверяю…";
+        var s = new AuthSettings { MfaUrl = url };
+        _msg = await Mfa.Probe(s, secret);
+        _busy = false;
+        Audit.Write(S.Who, "настройки: MK 2FA проверка", $"{url} — {_msg}");
+    }
+}

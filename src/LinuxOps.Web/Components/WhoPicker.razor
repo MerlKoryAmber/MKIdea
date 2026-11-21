@@ -1,0 +1,47 @@
+@* Кому назначить: группе AD, человеку AD или локальному пользователю сервиса. Выбрали — OnPick, дальше роль выбирает вызывающий. *@
+@using LinuxOps.Web.Services.Auth
+@inject WebStore Store
+
+<div class="wrap" style="margin-bottom:6px">
+    <label class="check" style="margin-right:12px"><input type="radio" name="@_name" checked="@(_kind == "group")" @onchange='() => _kind = "group"' /> группе AD</label>
+    <label class="check" style="margin-right:12px"><input type="radio" name="@_name" checked="@(_kind == "person")" @onchange='() => _kind = "person"' /> человеку AD</label>
+    <label class="check"><input type="radio" name="@_name" checked="@(_kind == "local")" @onchange='() => _kind = "local"' /> локальному</label>
+</div>
+@if (_kind == "local")
+{
+    var users = Store.LoadLocalUsers();
+    if (users.Count == 0)
+    {
+        <div class="muted small">Локальных пользователей нет — заведите в ⚙ → «Локальные пользователи».</div>
+    }
+    else
+    {
+        <select class="input" style="width:auto" value="" @onchange="PickLocal">
+            <option value="">— выберите —</option>
+            @foreach (var u in users) { <option value="@u.Login">@u.Login@(u.Display.Length > 0 ? " — " + u.Display : "")@(u.Enabled ? "" : " (выключен)")</option> }
+        </select>
+    }
+}
+else
+{
+    <AdPicker Groups="@(_kind == "group")" OnPick="PickAd" />
+}
+
+@code {
+    /// <summary>Выбранный: логин или группа; группа ли; локальный ли.</summary>
+    public sealed record Picked(string Who, bool IsGroup, bool Local)
+    {
+        public string Icon => Local ? "🔑" : IsGroup ? "👥" : "👤";
+        public string KindText => Local ? "локальный" : IsGroup ? "группа" : "человек";
+    }
+
+    [Parameter] public EventCallback<Picked> OnPick { get; set; }
+
+    private string _kind = "group";
+    private readonly string _name = "who-" + Guid.NewGuid().ToString("N")[..6];
+
+    private Task PickAd(string who) => OnPick.InvokeAsync(new Picked(who, _kind == "group", false));
+
+    private Task PickLocal(ChangeEventArgs e) =>
+        e.Value?.ToString() is { Length: > 0 } login ? OnPick.InvokeAsync(new Picked(login, false, true)) : Task.CompletedTask;
+}

@@ -7,6 +7,9 @@ namespace LinuxOps.Web.Services;
 /// </summary>
 public static class WebPaths
 {
+    /// <summary>Свои стили и скрипты — с версией в адресе: после обновления браузер не возьмёт старые из кэша.</summary>
+    public static string Asset(string path) => path + "?v=" + (typeof(WebPaths).Assembly.GetName().Version?.ToString() ?? "0");
+
     public static string DataDir { get; } = Resolve("LINUXOPS_WEB_DATA",
         OperatingSystem.IsWindows() ? Path.Combine(AppContext.BaseDirectory, "data") : "/var/lib/linuxops-web");
 

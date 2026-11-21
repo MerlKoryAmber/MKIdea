@@ -26,6 +26,7 @@ builder.Services.AddSingleton<SecretBox>();
 builder.Services.AddSingleton<WebStore>();
 builder.Services.AddSingleton<AuditLog>();
 builder.Services.AddSingleton<HostLocks>();
+builder.Services.AddSingleton<MkMfa>();
 builder.Services.AddSingleton<LoginService>();
 builder.Services.AddSingleton<LinuxOps.Web.Services.Guac.GuacTickets>();
 builder.Services.AddSingleton<LinuxOps.Web.Services.Files.FileDownloads>();

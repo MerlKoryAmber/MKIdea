@@ -51,6 +51,14 @@ public static class Totp
         $"otpauth://totp/{System.Uri.EscapeDataString(issuer)}:{System.Uri.EscapeDataString(account)}" +
         $"?secret={secretB32}&issuer={System.Uri.EscapeDataString(issuer)}&digits={Digits}&period={StepSeconds}";
 
+    /// <summary>QR-код ссылки otpauth:// — PNG в data:URI (QRCoder, без System.Drawing). Чёрное на белом с полем — читается в любой теме.</summary>
+    public static string QrDataUri(string text)
+    {
+        using var gen = new QRCoder.QRCodeGenerator();
+        using var data = gen.CreateQrCode(text, QRCoder.QRCodeGenerator.ECCLevel.M);
+        return "data:image/png;base64," + Convert.ToBase64String(new QRCoder.PngByteQRCode(data).GetGraphic(5));
+    }
+
     /// <summary>Секрет группами по 4 — так его проще ввести вручную.</summary>
     public static string Pretty(string secretB32) =>
         string.Join(' ', Enumerable.Range(0, (secretB32.Length + 3) / 4).Select(i => secretB32.Substring(i * 4, Math.Min(4, secretB32.Length - i * 4))));

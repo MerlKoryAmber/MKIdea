@@ -34,6 +34,15 @@ public static class AuthEndpoints
         try { return Protector(ctx, "pending").Unprotect(v); } catch { return null; }
     }
 
+    /// <summary>В cookie ожидания: логин (ждём TOTP) или «mfa:номер» (ждём MK 2FA). В логинах двоеточия нет.</summary>
+    public const string MfaPrefix = "mfa:";
+
+    public static string? PendingMfa(HttpContext ctx) =>
+        Pending(ctx) is { } p && p.StartsWith(MfaPrefix) ? p[MfaPrefix.Length..] : null;
+
+    private static void SetPending(HttpContext ctx, string value) =>
+        ctx.Response.Cookies.Append(PendingCookie, Protector(ctx, "pending").Protect(value, TimeSpan.FromMinutes(5)), Opts(ctx, TimeSpan.FromMinutes(5)));
+
     /// <summary>Сообщение для страницы входа (одноразовое).</summary>
     public static string? TakeMessage(HttpContext ctx)
     {
@@ -78,6 +87,7 @@ public static class AuthEndpoints
             var login = f["login"].ToString();
             // PBKDF2 и LDAP — в пуле, не на потоке запроса
             var r = await Task.Run(() => svc.Password(login, f["password"].ToString(), ClientIp(ctx)));
+            if (r.Step == LoginService.Step.Mfa) r = await svc.StartMfa(r.User!, ClientIp(ctx));
             switch (r.Step)
             {
                 case LoginService.Step.Done:
@@ -85,8 +95,11 @@ public static class AuthEndpoints
                     return Results.Redirect("/");
                 case LoginService.Step.Totp:
                 case LoginService.Step.TotpSetup:
-                    ctx.Response.Cookies.Append(PendingCookie, Protector(ctx, "pending").Protect(login.Trim(), TimeSpan.FromMinutes(5)), Opts(ctx, TimeSpan.FromMinutes(5)));
+                    SetPending(ctx, login.Trim());
                     return Results.Redirect(r.Step == LoginService.Step.Totp ? "/login?step=totp" : "/login?step=setup");
+                case LoginService.Step.Mfa:
+                    SetPending(ctx, MfaPrefix + r.Pending);
+                    return Results.Redirect("/login?step=mfa");
                 default:
                     return Back(ctx, r.Error);
             }
@@ -96,12 +109,49 @@ public static class AuthEndpoints
         {
             if (!await FormOk(ctx, af)) return Back(ctx, "Страница входа устарела. Войдите снова.");
             var pending = Pending(ctx);
-            if (pending is null || !svc.IsLocalAdmin(pending)) return Back(ctx, "Время на ввод кода вышло. Войдите снова.");
+            if (pending is null || pending.StartsWith(MfaPrefix) || !svc.HasOwnTotp(pending)) return Back(ctx, "Время на ввод кода вышло. Войдите снова.");
             var f = await ctx.Request.ReadFormAsync();
-            var r = svc.TotpCode(f["code"].ToString(), ClientIp(ctx));
-            if (r.Step != LoginService.Step.Done) return Back(ctx, r.Error, f["setup"] == "1" ? "setup" : "totp");
+            var r = svc.TotpCode(pending, f["code"].ToString(), ClientIp(ctx));
+            if (r.Step != LoginService.Step.Done) return Back(ctx, r.Error, r.Error.StartsWith("Неверный") || r.Error.StartsWith("Слишком") ? (f["setup"] == "1" ? "setup" : "totp") : "");
             await SignIn(ctx, r.User!);
             return Results.Redirect("/");
+        }).AllowAnonymous().DisableAntiforgery();
+
+        // MK 2FA: страница входа опрашивает статус; подтвердили — вход прямо в ответе опроса (cookie), страница идёт на «/»
+        app.MapPost("/auth/mfa/poll", async (HttpContext ctx, LoginService svc, IAntiforgery af) =>
+        {
+            if (!await FormOk(ctx, af)) return Results.Json(new { state = "fail", message = "Страница входа устарела. Войдите снова." });
+            var st = await svc.PollMfa(PendingMfa(ctx));
+            if (st.State == "done") await SignIn(ctx, st.User!);
+            else if (st.State == "fail") ctx.Response.Cookies.Delete(PendingCookie);
+            return Results.Json(new { state = st.State, message = st.Message, poll = st.PollMs });
+        }).AllowAnonymous().DisableAntiforgery();
+
+        app.MapPost("/auth/mfa/code", async (HttpContext ctx, LoginService svc, IAntiforgery af) =>
+        {
+            if (!await FormOk(ctx, af)) return Back(ctx, "Страница входа устарела. Войдите снова.");
+            var f = await ctx.Request.ReadFormAsync();
+            var st = await svc.CodeMfa(PendingMfa(ctx), f["code"].ToString());
+            switch (st.State)
+            {
+                case "done":
+                    await SignIn(ctx, st.User!);
+                    return Results.Redirect("/");
+                case "fail":
+                    ctx.Response.Cookies.Delete(PendingCookie);
+                    return Back(ctx, st.Message);
+                default:
+                    return Back(ctx, st.Message, "mfa");
+            }
+        }).AllowAnonymous().DisableAntiforgery();
+
+        // «Отмена» и уход со страницы (sendBeacon) — запрос в MK 2FA отменяется
+        app.MapPost("/auth/mfa/cancel", async (HttpContext ctx, LoginService svc, IAntiforgery af) =>
+        {
+            if (!await FormOk(ctx, af)) return Results.Redirect("/login");
+            await svc.CancelMfa(PendingMfa(ctx));
+            ctx.Response.Cookies.Delete(PendingCookie);
+            return Results.Redirect("/login");
         }).AllowAnonymous().DisableAntiforgery();
 
         app.MapPost("/auth/logout", async (HttpContext ctx, AuditLog audit, IAntiforgery af) =>
