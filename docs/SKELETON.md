@@ -30,6 +30,7 @@
 ## Инструменты
 
 - `tools/rehydrate.ps1` — статус репо одним вызовом для агента: git, версии и dist, верхние записи `docs/<app>/CURRENT.md`, хвосты 👀 из последнего отчёта, карта docs. Только чтение; `-Fetch` — сверка с origin.
+- `tools/package-linuxops-web.ps1`, `tools/deploy-linuxops-web.ps1` — релиз LinuxOps Web (архив + `.sha256`) и выкладка на стенд.
 - `tools/AdSmoke`, `tools/LinuxOpsSmoke`, `tools/LinuxOpsLabCheck`, `tools/RunAsDomain` — проверочные утилиты.
 
 ## Лабы (не путать)

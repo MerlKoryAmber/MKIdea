@@ -31,4 +31,12 @@
 
 ## Publish
 
-`dist\LinuxOps.Web-<ver>\` — linux-x64 self-contained; `deploy/linuxops-web.service` — юнит systemd, `deploy/nginx-linuxops-web.conf` — nginx с TLS. Выкладка на стенд — `tools/deploy-linuxops-web.ps1 -Target stand`.
+`dist\LinuxOps.Web-<ver>\` — linux-x64 self-contained, рядом `LinuxOps.Web-<ver>-linux-x64.tar.gz` + `.sha256` (`tools/package-linuxops-web.ps1`).
+
+## Сервер (`deploy/`)
+
+- `lib/common.sh` — пути, ввод (`/dev/tty` или stdin), сертификаты (свой CA с `nameConstraints`), источник релизов (GitHub / GitLab API), `activate_release` (переключить `current`, поднять, при неудаче вернуть прежний).
+- `install.sh` (`--upgrade` из update), `update.sh`, `uninstall.sh` (`--purge`), `linuxops-web.sh` — меню; `/usr/bin/linuxops-web` — обёртка на `current/deploy/linuxops-web.sh`.
+- `VERSION` пишет publish (цель `WriteDeployVersion` в csproj).
+- На сервере: `/opt/linuxops-web/releases/<ver>`, `current`, `previous`; `/var/lib/linuxops-web` — данные; `/etc/linuxops-web` — мастер-ключ, `release.conf`, `git-token`; `/etc/pki/linuxops-web` — сертификат и CA; `/var/backups/linuxops-web` — бэкапы.
+- С ПК на стенд — `tools/deploy-linuxops-web.ps1 -Target stand`.
