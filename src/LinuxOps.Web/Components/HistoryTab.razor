@@ -8,7 +8,7 @@
                     <div class="section-title">@(_audit ? "Аудит" : "History")</div>
                     <div class="muted small" style="margin-top:2px">@(_audit
                         ? "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog."
-                        : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса.")</div>
+                        : S.User.Limited ? "Последние dry-run / apply по вашим хостам — всех пользователей сервиса." : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса.")</div>
                 </div>
                 @if (S.Can(Perm.AuditView))
                 {
@@ -78,8 +78,8 @@
         else
         {
             _rows = Store.LoadHistory();
-            // роль ограничена папками — только история своих хостов
-            if (S.User.Folders is not null)
+            // роль ограничена папками или хостами — только история своих хостов
+            if (S.User.Limited)
             {
                 var mine = S.Hosts.Select(h => h.Config.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 _rows = _rows.Where(r => mine.Contains(r.Entry.Host.Split(" · ")[0].Trim())).ToList();

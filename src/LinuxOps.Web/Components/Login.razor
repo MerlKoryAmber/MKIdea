@@ -3,6 +3,7 @@
 @using LinuxOps.Web.Services.Auth
 @inject LoginService Svc
 @inject WebStore Store
+@inject NavigationManager Nav
 
 <div class="login-page">
     <div class="login-card">
@@ -72,6 +73,8 @@
     protected override void OnInitialized()
     {
         if (Ctx is null) return;
+        // уже вошёл — на главную (сменить пользователя: кнопка выхода в шапке)
+        if (Ctx.User.Identity?.IsAuthenticated == true && string.IsNullOrEmpty(Step)) { Nav.NavigateTo("/"); return; }
         _message = AuthEndpoints.TakeMessage(Ctx);
         _pending = AuthEndpoints.Pending(Ctx);
         _ad = Store.LoadAuth().AdEnabled;

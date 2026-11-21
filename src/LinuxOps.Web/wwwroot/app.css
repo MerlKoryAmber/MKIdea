@@ -72,7 +72,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
     width: 32px; height: 30px; margin-right: 14px; border: 0; border-radius: 6px; cursor: pointer;
     background: transparent; color: #C9D7E4; font-size: 17px;
 }
-.btn-header:hover { background: #1E3348; }
+.btn-header:hover, .btn-header.on { background: #1E3348; }
 .ver { color: #8EB8B0; font-size: 12px; }
 
 .footer {
@@ -297,3 +297,37 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 /* лабораторный режим локального админа (admin / admin без TOTP) */
 .lab-badge { background:#c62828; color:#fff; font-weight:700; font-size:12px; letter-spacing:.08em; padding:3px 8px; border-radius:4px; margin-left:8px; white-space:nowrap; }
 .lab-badge.wide { display:block; text-align:center; margin:0 0 12px; letter-spacing:.02em; }
+
+/* дерево Actions: папка с отмеченными внутри хостами — «частично» (черта), галка — только если отмечена сама папка */
+.cb-partial { width: 15px; height: 15px; margin-right: 6px; flex: none; cursor: pointer; border-radius: 3px; background: var(--accent); position: relative; }
+.cb-partial::after { content: ""; position: absolute; left: 3px; right: 3px; top: 6.5px; height: 2px; background: #fff; border-radius: 1px; }
+
+/* правая кнопка в Inventory */
+.ctx-overlay { position: fixed; inset: 0; z-index: 15; }
+.ctx-menu { position: fixed; z-index: 16; min-width: 190px; padding: 4px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.ctx-menu button { display: block; width: 100%; text-align: left; padding: 7px 14px; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.ctx-menu button:hover:not(:disabled) { background: var(--hover-soft); }
+.ctx-menu button:disabled { opacity: .45; cursor: default; }
+.ctx-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+
+/* доступ и роли: выбранные группы, поиск AD */
+.access-window { width: 760px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.access-window .grid td { white-space: normal; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; align-items: center; }
+.chip-x { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: 12px; background: var(--selected); font-size: 12.5px; }
+.chip-x button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px; opacity: .7; }
+.chip-x button:hover { opacity: 1; }
+.ad-picker { max-width: 520px; }
+.ad-results { border: 1px solid var(--line); border-radius: 6px; margin-top: 4px; max-height: 230px; overflow: auto; }
+.ad-row { padding: 5px 10px; cursor: pointer; border-bottom: 1px solid var(--card-line); }
+.ad-row:last-child { border-bottom: 0; }
+.ad-row:hover { background: var(--hover-soft); }
+.ad-row.taken { opacity: .5; }
+.scope-list { max-height: 220px; overflow: auto; border: 1px solid var(--card-line); border-radius: 6px; padding: 6px 10px; }
+
+/* обрыв связи с сервисом: полоска сверху вместо серого окна Blazor (App.razor) */
+.lo-reconnect { display: none; }
+.lo-reconnect.components-reconnect-show, .lo-reconnect.components-reconnect-failed, .lo-reconnect.components-reconnect-rejected {
+    display: block; position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 50;
+    padding: 6px 16px; border-radius: 0 0 8px 8px; background: #B26A00; color: #fff; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.3);
+}

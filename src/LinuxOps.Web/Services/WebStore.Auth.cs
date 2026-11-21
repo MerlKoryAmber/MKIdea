@@ -55,7 +55,7 @@ public sealed partial class WebStore
         var list = new List<Role>();
         foreach (var b in Role.Builtins())
         {
-            if (stored.Remove(b.Id, out var s)) { b.AdGroups = s.AdGroups; b.AdUsers = s.AdUsers; b.Folders = s.Folders; }
+            if (stored.Remove(b.Id, out var s)) { b.AdGroups = s.AdGroups; b.AdUsers = s.AdUsers; b.Folders = s.Folders; b.Hosts = s.Hosts; }
             list.Add(b);
         }
         list.AddRange(stored.Values.Select(r => { r.Builtin = false; return r; }));

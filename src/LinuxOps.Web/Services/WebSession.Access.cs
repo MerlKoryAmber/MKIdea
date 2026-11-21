@@ -41,25 +41,32 @@ public sealed partial class WebSession
         return set;
     }
 
-    /// <summary>Отфильтровать хосты и папки по ролям. Предки разрешённых папок видны (как путь), их хосты — нет.</summary>
+    private static bool HostAllowed(StoredHost h, HashSet<string> folders, HashSet<string>? hosts) =>
+        folders.Contains(h.Config.FolderId) || hosts?.Contains(h.Id) == true;
+
+    /// <summary>
+    /// Отфильтровать хосты и папки по ролям: разрешённые папки (с вложенными) и отдельные хосты.
+    /// Папки-предки видны как путь, их прочие хосты — нет.
+    /// </summary>
     private void ApplyFolderScope()
     {
         var allowed = AllowedFolders(Folders);
         if (allowed is null) return;
-        Hosts = Hosts.Where(h => allowed.Contains(h.Config.FolderId)).ToList();
+        Hosts = Hosts.Where(h => HostAllowed(h, allowed, User.Hosts)).ToList();
         var visible = new HashSet<string>(allowed);
-        foreach (var id in allowed.ToList())
+        foreach (var id in allowed.Concat(Hosts.Select(h => h.Config.FolderId)).ToList())
         {
+            if (!string.IsNullOrEmpty(id)) visible.Add(id);
             var p = Folders.FirstOrDefault(f => f.Id == id)?.ParentId;
             while (!string.IsNullOrEmpty(p) && visible.Add(p)) p = Folders.FirstOrDefault(f => f.Id == p)?.ParentId;
         }
         Folders = Folders.Where(f => visible.Contains(f.Id)).ToList();
     }
 
-    /// <summary>Хост в папке, доступной пользователю (для сохранения и запуска).</summary>
+    /// <summary>Хост доступен пользователю (для сохранения и запуска).</summary>
     private bool InScope(StoredHost h)
     {
         var allowed = AllowedFolders(_store.LoadFolders());
-        return allowed is null || allowed.Contains(h.Config.FolderId);
+        return allowed is null || HostAllowed(h, allowed, User.Hosts);
     }
 }

@@ -41,6 +41,8 @@ public sealed partial class WebSession : IDisposable
 
     public List<StoredHost> Hosts { get; private set; } = new();
     public List<HostFolder> Folders { get; private set; } = new();
+    /// <summary>Папки, отмеченные целиком (в дереве Actions); остальные с отмеченными хостами — «частично».</summary>
+    public HashSet<string> CheckedFolders { get; } = new();
     public List<ActionItemView> Actions { get; } = new();
     public List<ResultRow> Results { get; } = new();
     public ResultRow? Selected { get; private set; }

@@ -2,7 +2,7 @@
     <section class="surface">
         <div class="surface-header">
             <div class="section-title">Inventory · хосты и vCenter</div>
-            <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку.</div>
+            <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку, правая кнопка — меню (правка, «Доступ…»).</div>
             <div class="wrap">
                 <button class="btn" style="min-width:110px" title="Новый хост — в выделенную папку" @onclick="AddHost" disabled="@Ro">+ Хост Linux</button>
                 <button class="btn" style="min-width:120px" disabled title="Хосты Windows (RDP) — этап Ф3, после стенда">+ Хост Windows</button>
@@ -14,15 +14,53 @@
             </div>
         </div>
         <div class="scroll tree-wrap" style="margin:8px">
-            <HostTree S="S" @bind-Selected="_sel" Activated="Open" Empty="Пусто. Добавьте хост Linux кнопкой выше." />
+            <HostTree S="S" @bind-Selected="_sel" Activated="Open" Context="@(Ro && !S.Can(Perm.Settings) ? default : EventCallback.Factory.Create<(object Item, double X, double Y)>(this, ShowMenu))" Empty="Пусто. Добавьте хост Linux кнопкой выше." />
         </div>
     </section>
 </div>
+
+@if (_menu is { } m)
+{
+    <div class="ctx-overlay" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
+    <div class="ctx-menu" style="left:min(@Px(m.X)px, calc(100vw - 210px));top:min(@Px(m.Y)px, calc(100vh - 230px))">
+        <button @onclick="() => Do(Edit)" disabled="@Ro">@(m.Item is HostFolder ? "Переименовать" : "Изменить")</button>
+        @if (m.Item is StoredHost)
+        {
+            <button @onclick="() => Do(Duplicate)" disabled="@Ro">Дублировать</button>
+        }
+        else
+        {
+            <button @onclick="() => Do(AddHost)" disabled="@Ro">+ Хост Linux сюда</button>
+            <button @onclick="() => Do(AddFolder)" disabled="@Ro">+ Папка внутри</button>
+        }
+        <hr />
+        <button @onclick="() => Do(OpenAccess)" disabled="@(!S.Can(Perm.Settings))" title="@(S.Can(Perm.Settings) ? "Какие роли, группы и люди видят это" : "Нужно право «Настройки»")">Доступ…</button>
+        <hr />
+        <button @onclick="() => Do(Remove)" disabled="@Ro">Удалить</button>
+    </div>
+}
+
+@if (_access is not null)
+{
+    <AccessPanel S="S" Item="_access" OnClose="() => _access = null" />
+}
 
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
 
     private object? _sel;
+    private (object Item, double X, double Y)? _menu;
+    private object? _access;
+
+    private void ShowMenu((object Item, double X, double Y) m) => _menu = m;
+
+    // у правого и нижнего края меню прижимается внутрь (min() в стиле)
+    private static string Px(double v) => Math.Max(4, v).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private async Task Do(Func<Task> act) { _menu = null; await act(); }
+    private Task Do(Action act) { _menu = null; act(); return Task.CompletedTask; }
+
+    private void OpenAccess() { if (S.Can(Perm.Settings)) _access = _sel; }
 
     /// <summary>Нет права менять Inventory — кнопки выключены (и сервер не даст).</summary>
     private bool Ro => !S.Can(Perm.HostsEdit);
@@ -76,6 +114,7 @@
 
     private async Task Open(object? item)
     {
+        if (Ro) return; // без права «Inventory» окна правки не открываем — всё равно не сохранить
         switch (item)
         {
             case StoredHost h:

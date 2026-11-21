@@ -19,7 +19,7 @@
         <div class="spacer"></div>
         <span class="user-chip" title="@S.User.RolesText"><b>@S.User.Display</b> · @S.User.RolesText</span>
         <button class="btn-header" title="Выйти" @onclick="Logout">&#x23FB;</button>
-        <button class="btn-header" title="Настройки: тема" @onclick="Settings">&#9881;</button>
+        <button class="btn-header @(S.Tab == "settings" ? "on" : "")" title="@(S.Can(Perm.Settings) ? "Настройки: тема, вход, роли" : "Настройки: тема")" @onclick='() => Go("settings")'>&#9881;</button>
         <span class="ver">v@(Version) · web</span>
     </header>
 
@@ -64,7 +64,7 @@
     };
 
     private IEnumerable<(string Key, string Text)> VisibleTabs =>
-        Tabs.Where(t => S.Can(Perm.HostsView)).Concat(S.Can(Perm.Settings) ? new[] { ("settings", "Настройки") } : Array.Empty<(string, string)>());
+        Tabs.Where(t => S.Can(Perm.HostsView));
 
     private static readonly string Version = typeof(WebSession).Assembly.GetName().Version?.ToString(3) ?? "?";
 
@@ -95,13 +95,6 @@
         S.Tab = tab;
         // хосты могли поменять в Inventory другого окна — перечитать (не во время запуска)
         if (tab is "actions" or "inventory" && !S.IsRunning) { S.Load(); if (tab == "actions" && S.Results.All(r => r.Status is "INFO" or "SKIP")) S.RefreshPreview(); }
-    }
-
-    private async Task Settings()
-    {
-        var current = await JS.InvokeAsync<string>("lo.theme");
-        var pick = await S.Dialogs.Show(new UiDialog { Kind = "settings", Title = "Настройки", Values = { ["theme"] = current } });
-        if (pick is string t) await JS.InvokeVoidAsync("lo.setTheme", t);
     }
 
     public void Dispose()

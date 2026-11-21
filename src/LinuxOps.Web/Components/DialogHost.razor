@@ -77,23 +77,6 @@
                     </div>
                     break;
 
-                case "settings":
-                    <div class="window-body">
-                        <div style="margin-bottom:6px">Тема</div>
-                        @foreach (var (val, text) in Themes)
-                        {
-                            <label class="check" style="margin-bottom:6px">
-                                <input type="radio" name="theme" checked='@(d.Values["theme"] == val)' @onchange="() => Set(d, ThemeKey, val)" /> @text
-                            </label>
-                        }
-                        <div class="muted small" style="margin-top:6px">Тема запоминается в этом браузере.</div>
-                    </div>
-                    <div class="window-buttons">
-                        <button class="btn" style="width:100px" @onclick="() => d.Result.TrySetResult(null)">Отмена</button>
-                        <button class="btn primary" style="width:120px" @onclick='() => d.Result.TrySetResult(d.Values["theme"])'>Сохранить</button>
-                    </div>
-                    break;
-
                 case "host":
                     <HostDialog S="S" D="d" />
                     break;
@@ -109,9 +92,7 @@
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
 
-    private static readonly (string, string)[] Themes = { ("system", "Как в системе"), ("light", "Светлая"), ("dark", "Тёмная") };
 
-    private const string ThemeKey = "theme";
 
     private static void Set(UiDialog d, string key, object? value) => d.Values[key] = (value as string ?? "").Trim();
 

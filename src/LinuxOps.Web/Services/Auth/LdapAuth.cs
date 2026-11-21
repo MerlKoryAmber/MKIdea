@@ -87,6 +87,60 @@ public static class LdapAuth
         }
     }
 
+    /// <summary>Найденная группа или учётка: Sam — то, что пишется в роль.</summary>
+    public sealed record DirEntry(string Sam, string Name, string Info, bool IsGroup);
+
+    /// <summary>
+    /// Поиск групп или людей для ролей (окно «Доступ», редактор ролей) учёткой поиска из настроек.
+    /// Ищет по началу и середине имени: sAMAccountName, cn, displayName; не больше 25 строк.
+    /// </summary>
+    public static (List<DirEntry> Items, string Error) Find(AuthSettings s, string lookupPassword, string query, bool groups)
+    {
+        query = (query ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(s.AdServers) || string.IsNullOrWhiteSpace(s.AdDomain)) return (new(), "Вход через AD не настроен.");
+        if (string.IsNullOrWhiteSpace(s.AdLookupUser) || string.IsNullOrEmpty(lookupPassword))
+            return (new(), "Поиск выключен: задайте учётку для поиска в «Настройки» → «Вход через AD».");
+        if (query.Length < 2) return (new(), "");
+        var q = "*" + Escape(query) + "*";
+        var filter = groups
+            ? $"(&(objectClass=group)(|(sAMAccountName={q})(cn={q})(description={q})))"
+            : $"(&(objectCategory=person)(objectClass=user)(|(sAMAccountName={q})(cn={q})(displayName={q})))";
+        var bindName = s.AdLookupUser.Contains('\\') || s.AdLookupUser.Contains('@') ? s.AdLookupUser.Trim() : $"{s.AdLookupUser.Trim()}@{s.AdDomain}";
+        try
+        {
+            using var conn = Connect(s);
+            conn.Bind(new NetworkCredential(bindName, lookupPassword));
+            var req = new SearchRequest(s.BaseDn, filter, SearchScope.Subtree, "sAMAccountName", "cn", "displayName", "description", "distinguishedName") { SizeLimit = 25 };
+            SearchResponse resp;
+            try { resp = (SearchResponse)conn.SendRequest(req); }
+            catch (DirectoryOperationException ex) when (ex.Response is SearchResponse partial) { resp = partial; } // больше 25 — показываем первые
+            var list = new List<DirEntry>();
+            foreach (SearchResultEntry e in resp.Entries)
+            {
+                var sam = Attr(e, "sAMAccountName");
+                if (sam.Length == 0) continue;
+                var name = groups ? Attr(e, "cn") : Attr(e, "displayName");
+                var dn = Attr(e, "distinguishedName");
+                var where = string.Join("/", dn.Split(',').Skip(1).Where(p => p.StartsWith("OU=", StringComparison.OrdinalIgnoreCase) || p.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)).Select(p => p[3..]).Reverse());
+                var desc = Attr(e, "description");
+                list.Add(new DirEntry(sam, name.Length > 0 ? name : sam, string.Join(" · ", new[] { where, desc }.Where(x => x.Length > 0)), groups));
+            }
+            return (list.OrderBy(x => x.Sam, StringComparer.OrdinalIgnoreCase).ToList(), "");
+        }
+        catch (LdapException ex) when (ex.ErrorCode == 49)
+        {
+            return (new(), "Учётка поиска: неверный логин или пароль.");
+        }
+        catch (LdapException ex) when (ex.ErrorCode is 81 or 91)
+        {
+            return (new(), "Контроллер домена недоступен: " + s.AdServers + ".");
+        }
+        catch (Exception ex)
+        {
+            return (new(), "Ошибка LDAP: " + ex.Message);
+        }
+    }
+
     private static int _native;
 
     /// <summary>

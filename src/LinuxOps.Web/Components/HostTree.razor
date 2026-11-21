@@ -18,6 +18,15 @@ else
     [Parameter] public EventCallback<object?> SelectedChanged { get; set; }
     [Parameter] public EventCallback Changed { get; set; }
     [Parameter] public EventCallback<object?> Activated { get; set; }
+    /// <summary>Правая кнопка: хост или папка и где открыть меню (координаты окна).</summary>
+    [Parameter] public EventCallback<(object Item, double X, double Y)> Context { get; set; }
+
+    private async Task Menu(object item, MouseEventArgs e)
+    {
+        if (!Context.HasDelegate) return;
+        if (!Checks) await SelectedChanged.InvokeAsync(item);
+        await Context.InvokeAsync((item, e.ClientX, e.ClientY));
+    }
 
     private RenderFragment Level(string parent, int depth) => __builder =>
     {
@@ -26,13 +35,24 @@ else
             var hosts = HostsIn(f.Id).ToList();
             var all = hosts.Count > 0 && hosts.All(h => h.Config.IsSelected);
             var some = hosts.Any(h => h.Config.IsSelected);
+            // галка у папки — только если отметили саму папку; отмеченные внутри хосты — «частично» (черта)
+            var on = all && S.CheckedFolders.Contains(f.Id);
             <div class="tree-row @(ReferenceEquals(Selected, f) ? "selected" : "")" style="padding-left:@(depth * 19 + 2)px"
-                 @onclick="() => Pick(f)" @ondblclick="() => Activated.InvokeAsync(f)">
+                 @onclick="() => Pick(f)" @ondblclick="() => Activated.InvokeAsync(f)"
+                 @oncontextmenu="e => Menu(f, e)" @oncontextmenu:preventDefault="@Context.HasDelegate">
                 <span class="tree-toggle" @onclick="() => Toggle(f)" @onclick:stopPropagation="true">@(f.IsExpanded ? "▾" : "▸")</span>
                 @if (Checks)
                 {
-                    <input type="checkbox" checked="@all" class="@(some && !all ? "partial" : "")"
-                           @onclick:stopPropagation="true" @onchange="e => CheckFolder(f, (bool)e.Value!)" />
+                    @if (some && !on)
+                    {
+                        <span class="cb-partial" title="Внутри отмечены хосты (@hosts.Count(h => h.Config.IsSelected) из @hosts.Count). Щелчок — отметить всю папку"
+                              @onclick="() => CheckFolder(f, true)" @onclick:stopPropagation="true"></span>
+                    }
+                    else
+                    {
+                        <input type="checkbox" checked="@on" title="Отметить все хосты папки"
+                               @onclick:stopPropagation="true" @onchange="e => CheckFolder(f, (bool)e.Value!)" />
+                    }
                 }
                 <svg class="folder-icon" width="20" height="16" viewBox="0 0 20 16">
                     <path d="M0,2 Q0,0 2,0 L7,0 L9,2.5 L18,2.5 Q20,2.5 20,4.5 L20,14 Q20,16 18,16 L2,16 Q0,16 0,14 Z" class="f-back" />
@@ -50,7 +70,8 @@ else
         {
             var c = h.Config;
             <div class="tree-row host @(ReferenceEquals(Selected, h) ? "selected" : "")" style="padding-left:@(depth * 19 + 20)px" title="@c.Display"
-                 @onclick="() => Pick(h)" @ondblclick="() => Activated.InvokeAsync(h)">
+                 @onclick="() => Pick(h)" @ondblclick="() => Activated.InvokeAsync(h)"
+                 @oncontextmenu="e => Menu(h, e)" @oncontextmenu:preventDefault="@Context.HasDelegate">
                 @if (Checks)
                 {
                     <input type="checkbox" checked="@c.IsSelected" @onclick:stopPropagation="true"
@@ -92,12 +113,30 @@ else
     private async Task CheckHost(StoredHost h, bool on)
     {
         h.Config.IsSelected = on;
+        // сняли хост — снять отметку с папок над ним
+        if (!on)
+            for (var p = FolderOf(h); p.Length > 0; p = S.Folders.FirstOrDefault(f => f.Id == p)?.ParentId ?? "")
+                S.CheckedFolders.Remove(p);
         await Changed.InvokeAsync();
     }
 
     private async Task CheckFolder(HostFolder f, bool on)
     {
         foreach (var h in HostsIn(f.Id)) h.Config.IsSelected = on;
+        foreach (var sub in SubFolders(f.Id).Append(f.Id))
+            if (on) S.CheckedFolders.Add(sub); else S.CheckedFolders.Remove(sub);
+        if (!on)
+            for (var p = f.ParentId; p.Length > 0; p = S.Folders.FirstOrDefault(x => x.Id == p)?.ParentId ?? "")
+                S.CheckedFolders.Remove(p);
         await Changed.InvokeAsync();
+    }
+
+    private IEnumerable<string> SubFolders(string id)
+    {
+        foreach (var sub in S.Folders.Where(x => x.ParentId == id))
+        {
+            yield return sub.Id;
+            foreach (var s in SubFolders(sub.Id)) yield return s;
+        }
     }
 }

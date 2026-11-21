@@ -44,7 +44,9 @@ public static class SshAuth
         }
 
         var keyPath = Environment.ExpandEnvironmentVariables(host.PrivateKeyPath ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(keyPath) || !File.Exists(keyPath))
+        if (string.IsNullOrWhiteSpace(keyPath))
+            throw new InvalidOperationException($"Хост {host.Display}: ключ SSH не задан — укажите ключ или пароль в настройках хоста.");
+        if (!File.Exists(keyPath))
             throw new InvalidOperationException($"Хост {host.Display}: ключ не найден: {keyPath}");
 
         var path = Path.GetFullPath(keyPath);

@@ -1,0 +1,70 @@
+@* Поиск группы или человека в AD (учётка поиска из настроек). Щелчок по строке или Enter — выбрать. *@
+@inject WebStore Store
+
+<div class="ad-picker">
+    <input class="input" placeholder="@(Groups ? "найти группу AD: часть имени" : "найти человека: логин или имя")"
+           @bind="_q" @bind:event="oninput" @bind:after="Changed" @onkeydown="Key" @onblur="Hide" autocomplete="off" />
+    @if (_busy) { <div class="muted small">ищу…</div> }
+    else if (_error.Length > 0) { <div class="muted small">@_error</div> }
+    else if (_items.Count > 0)
+    {
+        <div class="ad-results">
+            @foreach (var e in _items)
+            {
+                <div class="ad-row @(Taken.Contains(e.Sam, StringComparer.OrdinalIgnoreCase) ? "taken" : "")" @onmousedown="() => Pick(e.Sam)">
+                    <b>@e.Sam</b>@if (!string.Equals(e.Name, e.Sam, StringComparison.OrdinalIgnoreCase)) { <span> — @e.Name</span> }
+                    @if (e.Info.Length > 0) { <div class="muted small">@e.Info</div> }
+                </div>
+            }
+        </div>
+    }
+    else if (_q.Trim().Length >= 2 && _done) { <div class="muted small">Не найдено. Enter — добавить «@_q.Trim()» как есть.</div> }
+</div>
+
+@code {
+    [Parameter] public bool Groups { get; set; } = true;
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    /// <summary>Уже выбранные — отмечаются в списке.</summary>
+    [Parameter] public IEnumerable<string> Taken { get; set; } = Array.Empty<string>();
+
+    private string _q = "", _error = "";
+    private List<LdapAuth.DirEntry> _items = new();
+    private bool _busy, _done;
+    private CancellationTokenSource? _cts;
+
+    private async Task Changed()
+    {
+        _cts?.Cancel();
+        var cts = _cts = new CancellationTokenSource();
+        _done = false;
+        var q = _q.Trim();
+        if (q.Length < 2) { _items.Clear(); _error = ""; _busy = false; return; }
+        try { await Task.Delay(350, cts.Token); } catch (TaskCanceledException) { return; }
+        _busy = true;
+        StateHasChanged();
+        var s = Store.LoadAuth();
+        var pw = Store.Unprotect(s.AdLookupPasswordEnc);
+        var (items, error) = await Task.Run(() => LdapAuth.Find(s, pw, q, Groups));
+        if (cts.IsCancellationRequested) return;
+        _items = items; _error = error; _busy = false; _done = true;
+    }
+
+    private async Task Key(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { Hide(); return; }
+        if (e.Key != "Enter") return;
+        var q = _q.Trim();
+        if (q.Length == 0) return;
+        var exact = _items.FirstOrDefault(i => string.Equals(i.Sam, q, StringComparison.OrdinalIgnoreCase));
+        await Pick(exact?.Sam ?? (_items.Count == 1 ? _items[0].Sam : q));
+    }
+
+    /// <summary>Ушли из поля или Esc — список закрыть.</summary>
+    private void Hide() { _cts?.Cancel(); _q = ""; _items.Clear(); _error = ""; _busy = false; _done = false; }
+
+    private async Task Pick(string sam)
+    {
+        _q = ""; _items.Clear(); _error = ""; _done = false;
+        await OnPick.InvokeAsync(sam);
+    }
+}

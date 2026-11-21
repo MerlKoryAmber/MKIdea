@@ -28,8 +28,11 @@ public sealed class Role
     /// <summary>Встроенная: не удаляется, права не меняются; группы AD и папки — можно.</summary>
     public bool Builtin { get; set; }
     public List<string> Perms { get; set; } = new();
-    /// <summary>Пусто — все папки. Иначе id папок (с вложенными).</summary>
+    /// <summary>Пусто вместе с Hosts — все хосты. Иначе id папок (с вложенными).</summary>
     public List<string> Folders { get; set; } = new();
+    /// <summary>Отдельные хосты (id) — сверх папок.</summary>
+    public List<string> Hosts { get; set; } = new();
+    [System.Text.Json.Serialization.JsonIgnore] public bool AllHosts => Folders.Count == 0 && Hosts.Count == 0;
     /// <summary>Группы AD (имя, sAMAccountName или CN; вложенность учитывается).</summary>
     public List<string> AdGroups { get; set; } = new();
     /// <summary>Отдельные люди (логин AD) — без группы.</summary>
@@ -57,6 +60,10 @@ public sealed class AuthSettings
     public string AdDomain { get; set; } = "";
     /// <summary>Где искать пользователей и группы: DC=merl,DC=loc (пусто — из домена).</summary>
     public string AdBaseDn { get; set; } = "";
+    /// <summary>Учётка для поиска групп и людей в настройках (только чтение каталога). Пусто — поиск выключен.</summary>
+    public string AdLookupUser { get; set; } = "";
+    /// <summary>Пароль учётки поиска, зашифрован (SecretBox).</summary>
+    public string AdLookupPasswordEnc { get; set; } = "";
     /// <summary>Сессия без действий, минут.</summary>
     public int IdleMinutes { get; set; } = 30;
     /// <summary>Сессия всего, часов.</summary>
@@ -90,8 +97,11 @@ public sealed class UserInfo
     public string Kind { get; init; } = "";
     public List<Role> Roles { get; init; } = new();
     public HashSet<string> Perms { get; init; } = new();
-    /// <summary>null — все папки.</summary>
+    /// <summary>null — все хосты (тогда и Hosts null).</summary>
     public HashSet<string>? Folders { get; init; }
+    /// <summary>Отдельные хосты сверх папок; null — все.</summary>
+    public HashSet<string>? Hosts { get; init; }
+    public bool Limited => Folders is not null;
 
     public bool Can(string perm) => Perms.Contains(perm);
     public string RolesText => Roles.Count == 0 ? "без роли" : string.Join(", ", Roles.Select(r => r.Name));
@@ -100,8 +110,13 @@ public sealed class UserInfo
     {
         var list = roles.ToList();
         var perms = list.SelectMany(r => r.Perms).ToHashSet();
-        // папки: если хоть одна роль без ограничения — все
-        HashSet<string>? folders = list.Count == 0 || list.Any(r => r.Folders.Count == 0) ? null : list.SelectMany(r => r.Folders).ToHashSet();
-        return new UserInfo { Login = login, Display = display, Kind = kind, Roles = list, Perms = perms, Folders = folders };
+        // область: если хоть одна роль без ограничения — все хосты
+        var all = list.Count == 0 || list.Any(r => r.AllHosts);
+        return new UserInfo
+        {
+            Login = login, Display = display, Kind = kind, Roles = list, Perms = perms,
+            Folders = all ? null : list.SelectMany(r => r.Folders).ToHashSet(),
+            Hosts = all ? null : list.SelectMany(r => r.Hosts).ToHashSet()
+        };
     }
 }

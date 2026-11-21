@@ -14,11 +14,38 @@ public sealed class SshRunner : IDisposable
 
     public static SshRunner Connect(HostConfig host, TimeSpan? timeout = null)
     {
-        var client = new SshClient(SshAuth.Build(host, timeout));
-        SshAuth.AttachHostKey(client, host);
-        client.Connect();
+        var port = host.Port <= 0 ? 22 : host.Port;
+        var knownBefore = KnownHostsStore.Find(host.Host, port);
+        var client = Open(host, timeout);
+        try
+        {
+            client.Connect();
+        }
+        catch (Renci.SshNet.Common.SshOperationTimeoutException) when (KnownHostsStore.Find(host.Host, port) is { } now && now != knownBefore)
+        {
+            // человек подтверждал ключ хоста дольше таймаута — ключ уже запомнен, второй раз вопроса не будет
+            client.Dispose();
+            client = Open(host, timeout);
+            try { client.Connect(); }
+            catch (Renci.SshNet.Common.SshOperationTimeoutException) { client.Dispose(); throw TimedOut(host); }
+        }
+        catch (Renci.SshNet.Common.SshOperationTimeoutException)
+        {
+            client.Dispose();
+            throw TimedOut(host);
+        }
         return new SshRunner(client);
     }
+
+    private static SshClient Open(HostConfig host, TimeSpan? timeout)
+    {
+        var client = new SshClient(SshAuth.Build(host, timeout));
+        SshAuth.AttachHostKey(client, host);
+        return client;
+    }
+
+    private static InvalidOperationException TimedOut(HostConfig host) =>
+        new($"Хост {host.Display}: не ответил вовремя (адрес, порт, файрвол?).");
 
     /// <summary>
     /// Скрипт уходит в stdin <c>bash -s</c>. Пароль sudo — первой строкой stdin, не в argv.

@@ -29,16 +29,16 @@
 
 - `LoginService` — шаги входа: пароль → (локальный админ) TOTP или привязка; AD → роли по группам. Пауза после 5 неудач. `Resolve` — права при открытии окна и на каждом запросе.
 - `AuthEndpoints` — POST `/auth/login`, `/auth/totp`, `/auth/logout` (антиподделка), cookie `lo.auth`; «ждём код» и сообщение — защищённые cookie. `Validate` — простой, общий срок, админ включён, роли есть. `/auth/ping` — продление из открытого окна (`App.razor`).
-- `LdapAuth` — bind учёткой пользователя, группы через `member:1.2.840.113556.1.4.1941:`; `Probe` — rootDSE анонимно. На Linux подсказывает загрузчику `libldap.so.2`.
-- `Totp` (RFC 6238), `PasswordHash` (PBKDF2-SHA256, 600 000), `AuthModels` — `Perm`, `Role` (встроенные: admin, operator, auditor), `AuthSettings`, `LocalAdmin`, `UserInfo`.
+- `LdapAuth` — bind учёткой пользователя, группы через `member:1.2.840.113556.1.4.1941:`; `Probe` — rootDSE анонимно. На Linux подсказывает загрузчику `libldap.so.2`. `Find` — поиск групп и людей учёткой поиска из настроек (`AdLookupUser`, пароль зашифрован), до 25 строк.
+- `Totp` (RFC 6238), `PasswordHash` (PBKDF2-SHA256, 600 000), `AuthModels` — `Perm`, `Role` (встроенные: admin, operator, auditor; область — `Folders` с вложенными + отдельные `Hosts`, пусто — все), `AuthSettings`, `LocalAdmin`, `UserInfo`.
 - `AdminCli` — `LinuxOps.Web admin status | password [--generate] | totp-reset | enable | disable | lab on|off` (лаба: admin/admin без TOTP, плашка «ЛАБА»); меню сервера зовёт его через `runuser -u linuxops-web`.
 - `WebStore.Auth.cs` — настройки `auth`, `local_admin` (секрет TOTP зашифрован `SecretBox`), таблица `roles`.
 - `WebSession.Access.cs` — `User`, `Can`, отказ с аудитом, папки роли (`ApplyFolderScope`, `InScope`).
-- Страницы: `Login.razor` (статическая, без WebSocket), `Home.razor` (`[Authorize]`, форма выхода, `lo-idle`), `SettingsTab.razor`.
+- Страницы: `Login.razor` (статическая, без WebSocket), `Home.razor` (`[Authorize]`, форма выхода, `lo-idle`), `SettingsTab.razor` — открывается шестерёнкой в шапке (вкладки нет): тема всем, вход и роли — с правом «Настройки».
 
 ## Компоненты
 
-`App` → `Routes` → `Home` (адрес клиента) → `Shell` (шапка, вкладки, подвал) → `InventoryTab` / `ActionsTab` (+ `DetailView`) / `HistoryTab` / `Placeholder`; `HostTree` — дерево с папками; `DialogHost` (+ `HostDialog`, `AddUserDialog`), `PromptHost`. Стили — `wwwroot/app.css`: цвета тем `Themes/Light.xaml` и `Dark.xaml` настольной версии.
+`App` → `Routes` → `Home` (адрес клиента) → `Shell` (шапка, вкладки, подвал) → `InventoryTab` / `ActionsTab` (+ `DetailView`) / `HistoryTab` / `Placeholder`; `HostTree` — дерево с папками (галка папки — только если отмечена сама папка, иначе «частично»; правая кнопка → `Context`); `InventoryTab` — меню правой кнопки, `AccessPanel` — «Доступ…» к папке или хосту; `AdPicker` — поиск в AD для ролей; `DialogHost` (+ `HostDialog`, `AddUserDialog`), `PromptHost`. Стили — `wwwroot/app.css`: цвета тем `Themes/Light.xaml` и `Dark.xaml` настольной версии. `App.razor` — своя полоска обрыва связи (`#components-reconnect-modal`): служба перезапустилась — страница перезагружается сама.
 
 ## Publish
 

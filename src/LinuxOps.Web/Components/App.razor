@@ -45,6 +45,29 @@
 </head>
 <body>
     <Routes />
+    @* Своя плашка вместо серого окна Blazor «Could not reconnect»: обрыв (перезапуск или обновление службы, сеть) —
+       тонкая полоска сверху, страница остаётся видна; как только сервис отвечает — страница перезагружается сама. *@
+    <div id="components-reconnect-modal" class="lo-reconnect">Связь с сервером потеряна — переподключаюсь…</div>
+    <script>
+        (function () {
+            var el = document.getElementById("components-reconnect-modal"), polling = false;
+            function reloadWhenUp() {
+                if (polling) return;
+                polling = true;
+                el.textContent = "Сервис перезапускается — страница обновится сама…";
+                (function poll() {
+                    fetch("/auth/ping", { credentials: "same-origin", redirect: "manual", cache: "no-store" })
+                        .then(function (r) { if (r.status < 500 || r.type === "opaqueredirect") location.reload(); else setTimeout(poll, 2000); })
+                        .catch(function () { setTimeout(poll, 2000); });
+                })();
+            }
+            new MutationObserver(function () {
+                var c = el.className;
+                // rejected — сервер жив, но окна уже не помнит (служба перезапускалась); failed — попытки кончились
+                if (c.indexOf("components-reconnect-rejected") >= 0 || c.indexOf("components-reconnect-failed") >= 0) reloadWhenUp();
+            }).observe(el, { attributes: true, attributeFilter: ["class"] });
+        })();
+    </script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

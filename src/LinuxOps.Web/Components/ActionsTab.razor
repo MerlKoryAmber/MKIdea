@@ -111,6 +111,8 @@
     private void SelectAll(bool on)
     {
         foreach (var h in S.Hosts) h.Config.IsSelected = on;
+        S.CheckedFolders.Clear();
+        if (on) foreach (var f in S.Folders) S.CheckedFolders.Add(f.Id);
         Changed();
     }
 
