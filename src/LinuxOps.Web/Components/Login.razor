@@ -1,0 +1,87 @@
+@page "/login"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@using LinuxOps.Web.Services.Auth
+@inject LoginService Svc
+@inject WebStore Store
+
+<div class="login-page">
+    <div class="login-card">
+        <div class="login-brand">LinuxOps <span>web</span></div>
+        @if (_lab)
+        {
+            <div class="lab-badge wide">ЛАБА: admin / admin без второго фактора</div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="login-msg">@_message</div>
+        }
+
+        @if (Step == "totp" && _pending is not null)
+        {
+            <form method="post" action="/auth/totp">
+                <AntiforgeryToken />
+                <div class="login-hint">Код из приложения-аутентификатора для <b>@_pending</b></div>
+                <input class="input" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="7" autofocus placeholder="000000" />
+                <button class="btn primary" type="submit">Войти</button>
+                <a class="login-link" href="/login">Другой пользователь</a>
+            </form>
+        }
+        else if (Step == "setup" && _pending is not null && _secret is not null)
+        {
+            <form method="post" action="/auth/totp">
+                <AntiforgeryToken />
+                <input type="hidden" name="setup" value="1" />
+                <div class="login-hint">
+                    Привязка второго фактора для <b>@_pending</b>. Добавьте учётку в приложение-аутентификатор
+                    (Google / Microsoft Authenticator, FreeOTP): «Ввести ключ вручную», тип — по времени.
+                </div>
+                <div class="login-secret" title="Секрет TOTP">@Totp.Pretty(_secret)</div>
+                <div class="login-hint small">Имя учётки: LinuxOps Web — @_pending. Ссылка для приложений, которые её принимают:</div>
+                <div class="login-uri">@Totp.Uri(_secret, _pending)</div>
+                <div class="login-hint">Введите код из приложения, чтобы закончить привязку:</div>
+                <input class="input" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="7" autofocus placeholder="000000" />
+                <button class="btn primary" type="submit">Привязать и войти</button>
+            </form>
+        }
+        else
+        {
+            <form method="post" action="/auth/login">
+                <AntiforgeryToken />
+                <label class="login-label">Логин</label>
+                <input class="input" name="login" autocomplete="username" autofocus placeholder="@(_ad ? "логин AD или admin" : "admin")" />
+                <label class="login-label">Пароль</label>
+                <input class="input" name="password" type="password" autocomplete="current-password" />
+                <button class="btn primary" type="submit">Войти</button>
+            </form>
+            @if (!_ad && !_admin)
+            {
+                <div class="login-hint small">Вход не настроен. На сервере: <code>sudo linuxops-web</code> → «Local admin» → задать пароль.</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext? Ctx { get; set; }
+    [SupplyParameterFromQuery(Name = "step")] private string? Step { get; set; }
+
+    private string? _message, _pending, _secret;
+    private bool _ad, _admin, _lab;
+
+    protected override void OnInitialized()
+    {
+        if (Ctx is null) return;
+        _message = AuthEndpoints.TakeMessage(Ctx);
+        _pending = AuthEndpoints.Pending(Ctx);
+        _ad = Store.LoadAuth().AdEnabled;
+        var la = Store.LoadLocalAdmin();
+        _admin = la.Enabled && la.HasPassword;
+        _lab = _admin && la.NoTotp;
+        if (_pending is null && Step is "totp" or "setup")
+            _message ??= "Время на ввод кода вышло. Войдите снова.";
+        if (Step == "setup" && _pending is not null && Svc.IsLocalAdmin(_pending) && !la.TotpConfirmed)
+            _secret = Svc.TotpSetupSecret();
+        else if (Step == "setup") Step = _pending is null ? "" : "totp";
+    }
+}

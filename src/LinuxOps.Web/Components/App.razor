@@ -19,8 +19,28 @@
                 document.documentElement.dataset.theme = t;
                 try { localStorage.setItem('lo-theme', t); } catch (e) { }
             },
-            copy: function (text) { return navigator.clipboard ? navigator.clipboard.writeText(text) : null; }
+            copy: function (text) { return navigator.clipboard ? navigator.clipboard.writeText(text) : null; },
+            logout: function () { document.getElementById("lo-logout")?.submit(); }
         };
+        // Сессия: есть движение мыши / клавиши — раз в минуту продлить (/auth/ping); простой дольше IdleMinutes — на вход.
+        (function () {
+            var last = Date.now(), pinged = Date.now();
+            ["mousemove", "keydown", "mousedown", "wheel", "touchstart"].forEach(function (e) {
+                window.addEventListener(e, function () { last = Date.now(); }, { passive: true });
+            });
+            setInterval(function () {
+                var el = document.getElementById("lo-idle");
+                if (!el) return;
+                var idleMs = (parseInt(el.dataset.min, 10) || 30) * 60000;
+                if (Date.now() - last > idleMs) { location.href = "/login"; return; }
+                if (last > pinged) {
+                    pinged = Date.now();
+                    fetch("/auth/ping", { credentials: "same-origin", redirect: "manual" }).then(function (r) {
+                        if (r.type === "opaqueredirect" || r.status === 401) location.href = "/login";
+                    }).catch(function () { });
+                }
+            }, 60000);
+        })();
     </script>
 </head>
 <body>

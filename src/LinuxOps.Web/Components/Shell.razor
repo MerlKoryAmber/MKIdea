@@ -1,15 +1,24 @@
 @implements IDisposable
 @inject WebSession S
 @inject IJSRuntime JS
+@inject LoginService Login
+@inject NavigationManager Nav
+@inject WebStore Store
 
 <div class="app">
     <header class="header">
         <div class="brand">LinuxOps</div>
-        @foreach (var (key, text) in Tabs)
+        @if (Store.LoadLocalAdmin() is { NoTotp: true, Enabled: true })
+        {
+            <span class="lab-badge" title="Лабораторный режим: admin / admin без TOTP. Выключить: linuxops-web → Local admin">ЛАБА</span>
+        }
+        @foreach (var (key, text) in VisibleTabs)
         {
             <button class="chip @(S.Tab == key ? "on" : "")" @onclick="() => Go(key)">@text</button>
         }
         <div class="spacer"></div>
+        <span class="user-chip" title="@S.User.RolesText"><b>@S.User.Display</b> · @S.User.RolesText</span>
+        <button class="btn-header" title="Выйти" @onclick="Logout">&#x23FB;</button>
         <button class="btn-header" title="Настройки: тема" @onclick="Settings">&#9881;</button>
         <span class="ver">v@(Version) · web</span>
     </header>
@@ -20,6 +29,7 @@
             case "inventory": <InventoryTab S="S" />; break;
             case "actions": <ActionsTab S="S" />; break;
             case "history": <HistoryTab S="S" />; break;
+            case "settings": <SettingsTab S="S" />; break;
             case "ssh": <Placeholder Title="SSH Files" Stage="Ф5" Text="Файлы по SFTP с двумя панелями — следующий этап веб-версии." />; break;
             case "terminal": <Placeholder Title="Подключения" Stage="Ф3" Text="Терминал SSH и RDP через шлюз Guacamole — после стенда." />; break;
             case "powershell": <Placeholder Title="PowerShell" Stage="Ф5" Text="PowerCLI против vCenter — следующий этап веб-версии." />; break;
@@ -33,8 +43,8 @@
             <div class="footer-buttons">
                 <button class="btn" @onclick="S.ClearResults" disabled="@S.IsRunning">Очистить план</button>
                 <button class="btn" style="width:90px" @onclick="S.Cancel" disabled="@(!S.IsRunning)">Стоп</button>
-                <button class="btn" style="width:120px" @onclick="() => S.RunPlan(false)" disabled="@S.IsRunning">Dry-run</button>
-                <button class="btn primary" style="width:130px" @onclick="() => S.RunPlan(true)" disabled="@S.IsRunning">Применить</button>
+                <button class="btn" style="width:120px" @onclick="() => S.RunPlan(false)" disabled="@(S.IsRunning || !S.Can(Perm.RunCheck))">Dry-run</button>
+                <button class="btn primary" style="width:130px" @onclick="() => S.RunPlan(true)" disabled="@(S.IsRunning || !S.Can(Perm.RunApply))">Применить</button>
             </div>
         </footer>
     }
@@ -45,6 +55,7 @@
 
 @code {
     [Parameter] public string ClientIp { get; set; } = "?";
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
     private static readonly (string Key, string Text)[] Tabs =
     {
@@ -52,11 +63,21 @@
         ("terminal", "Подключения"), ("powershell", "PowerShell"), ("history", "History")
     };
 
+    private IEnumerable<(string Key, string Text)> VisibleTabs =>
+        Tabs.Where(t => S.Can(Perm.HostsView)).Concat(S.Can(Perm.Settings) ? new[] { ("settings", "Настройки") } : Array.Empty<(string, string)>());
+
     private static readonly string Version = typeof(WebSession).Assembly.GetName().Version?.ToString(3) ?? "?";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        S.Who = ClientIp;
+        // кто вошёл — из cookie; роли перечитываются (могли поменять после входа)
+        var p = AuthState is null ? null : (await AuthState).User;
+        var user = p?.Identity?.IsAuthenticated == true
+            ? Login.Resolve(p.Identity.Name ?? "", p.FindFirst("kind")?.Value ?? "", p.FindFirst("display")?.Value ?? "", p.FindAll("role").Select(c => c.Value))
+            : null;
+        if (user is null) { Nav.NavigateTo("/login", forceLoad: true); return; }
+        S.SetUser(user, ClientIp);
+        if (!S.Can(Perm.HostsView)) S.Tab = "settings";
         S.Dispatch = a => InvokeAsync(a);
         S.Changed += Redraw;
         S.Dialogs.Changed += Redraw;
@@ -66,6 +87,8 @@
     }
 
     private void Redraw() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task Logout() => await JS.InvokeVoidAsync("lo.logout");
 
     private void Go(string tab)
     {

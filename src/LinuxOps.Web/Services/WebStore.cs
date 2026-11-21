@@ -20,7 +20,7 @@ public sealed class StoredHost
 /// База сервиса (SQLite, WAL): хосты и папки, секреты (зашифрованы <see cref="SecretBox"/>), история, аудит.
 /// Аудит — только дописывание: удаления и правки в коде нет.
 /// </summary>
-public sealed class WebStore
+public sealed partial class WebStore
 {
     private readonly SecretBox _box;
     private readonly string _cs;

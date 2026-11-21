@@ -6,11 +6,11 @@
         <div class="surface-header">
             <div class="row">
                 <span class="section-title grow">Хосты и vCenter</span>
-                <button class="btn sm" style="margin:0 10px 0 8px" title="Хосты — SSH: дистрибутив и статус" @onclick="Probe" disabled="@_probing">Опросить</button>
+                <button class="btn sm" style="margin:0 10px 0 8px" title="Хосты — SSH: дистрибутив и статус" @onclick="Probe" disabled="@(_probing || !S.Can(Perm.RunCheck))">Опросить</button>
                 <span class="muted small">@S.HostsSelectedText</span>
             </div>
             <div class="wrap" style="margin-top:8px">
-                <button class="btn sm" @onclick="AddUser" disabled="@S.IsRunning">Добавить пользователя</button>
+                <button class="btn sm" @onclick="AddUser" disabled="@(S.IsRunning || !S.Can(Perm.RunApply))">Добавить пользователя</button>
                 <button class="btn sm" disabled title="Следующая версия веба">Закрыть доступ</button>
                 <button class="btn sm" disabled title="Следующая версия веба">Базовые пользователи (0)</button>
             </div>

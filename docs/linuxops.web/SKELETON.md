@@ -25,6 +25,17 @@
 - `WebSession` — перенос `ActionsViewModel`: выбор хостов и плана, предпросмотр, запуск (строки RUN, живой вывод, время), опрос, «Добавить пользователя», «Обновить отмеченное», хосты и папки.
 - `UiDialogs` — стек модальных окон с `TaskCompletionSource` (как `ShowDialog`).
 
+## Вход и права (`Services/Auth`)
+
+- `LoginService` — шаги входа: пароль → (локальный админ) TOTP или привязка; AD → роли по группам. Пауза после 5 неудач. `Resolve` — права при открытии окна и на каждом запросе.
+- `AuthEndpoints` — POST `/auth/login`, `/auth/totp`, `/auth/logout` (антиподделка), cookie `lo.auth`; «ждём код» и сообщение — защищённые cookie. `Validate` — простой, общий срок, админ включён, роли есть. `/auth/ping` — продление из открытого окна (`App.razor`).
+- `LdapAuth` — bind учёткой пользователя, группы через `member:1.2.840.113556.1.4.1941:`; `Probe` — rootDSE анонимно. На Linux подсказывает загрузчику `libldap.so.2`.
+- `Totp` (RFC 6238), `PasswordHash` (PBKDF2-SHA256, 600 000), `AuthModels` — `Perm`, `Role` (встроенные: admin, operator, auditor), `AuthSettings`, `LocalAdmin`, `UserInfo`.
+- `AdminCli` — `LinuxOps.Web admin status | password [--generate] | totp-reset | enable | disable | lab on|off` (лаба: admin/admin без TOTP, плашка «ЛАБА»); меню сервера зовёт его через `runuser -u linuxops-web`.
+- `WebStore.Auth.cs` — настройки `auth`, `local_admin` (секрет TOTP зашифрован `SecretBox`), таблица `roles`.
+- `WebSession.Access.cs` — `User`, `Can`, отказ с аудитом, папки роли (`ApplyFolderScope`, `InScope`).
+- Страницы: `Login.razor` (статическая, без WebSocket), `Home.razor` (`[Authorize]`, форма выхода, `lo-idle`), `SettingsTab.razor`.
+
 ## Компоненты
 
 `App` → `Routes` → `Home` (адрес клиента) → `Shell` (шапка, вкладки, подвал) → `InventoryTab` / `ActionsTab` (+ `DetailView`) / `HistoryTab` / `Placeholder`; `HostTree` — дерево с папками; `DialogHost` (+ `HostDialog`, `AddUserDialog`), `PromptHost`. Стили — `wwwroot/app.css`: цвета тем `Themes/Light.xaml` и `Dark.xaml` настольной версии.

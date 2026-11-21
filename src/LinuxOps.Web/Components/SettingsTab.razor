@@ -1,0 +1,232 @@
+@inject WebStore Store
+@inject AuditLog Audit
+
+@if (!S.Can(Perm.Settings))
+{
+    <div class="page single"><section class="surface"><div class="tree-empty">Настройки — только для роли с правом «Настройки».</div></section></div>
+}
+else
+{
+<div class="page settings-page">
+    <section class="surface">
+        <div class="surface-header"><div class="section-title">Вход через AD</div></div>
+        <div class="settings-body">
+            <label class="check"><input type="checkbox" @bind="_a.AdEnabled" /> Пускать пользователей AD (роль — по группам ниже)</label>
+            <div class="form-grid">
+                <label>Контроллеры</label><input class="input" @bind="_a.AdServers" placeholder="dc-01.merl.loc, 192.168.0.175" />
+                <label>Защита</label>
+                <select class="input" value="@_a.AdSecurity" @onchange="SetSecurity">
+                    <option value="@LdapSecurity.Ldaps">LDAPS (636)</option>
+                    <option value="@LdapSecurity.StartTls">StartTLS (389)</option>
+                    <option value="@LdapSecurity.None">Без шифрования (389) — только лаба</option>
+                </select>
+                <label>Порт</label><input class="input" type="number" @bind="_a.AdPort" style="width:100px" />
+                <label>Домен</label><input class="input" @bind="_a.AdDomain" placeholder="merl.loc" />
+                <label>Где искать</label><input class="input" @bind="_a.AdBaseDn" placeholder="@(_a.BaseDn.Length > 0 ? _a.BaseDn : "DC=merl,DC=loc")" />
+            </div>
+            @if (_a.AdSecurity == LdapSecurity.None)
+            {
+                <div class="login-msg">Без шифрования пароли пользователей идут по сети открытым текстом. Только для лабы; на боевом — LDAPS или StartTLS.</div>
+            }
+            <div class="wrap" style="margin-top:8px">
+                <button class="btn" @onclick="Probe">Проверить соединение</button>
+                <span class="muted small" style="margin-left:8px">@_probe</span>
+            </div>
+            <div class="wrap" style="margin-top:8px">
+                <input class="input" style="width:180px" @bind="_tryLogin" placeholder="логин AD" autocomplete="off" />
+                <input class="input" style="width:180px" type="password" @bind="_tryPassword" placeholder="пароль" autocomplete="new-password" />
+                <button class="btn" @onclick="TryLogin">Проверить вход</button>
+            </div>
+            @if (_try is not null) { <div class="muted small" style="margin-top:6px;white-space:pre-wrap">@_try</div> }
+
+            <div class="section-title" style="margin-top:16px">Сессия</div>
+            <div class="form-grid">
+                <label>Простой, минут</label><input class="input" type="number" @bind="_a.IdleMinutes" style="width:100px" />
+                <label>Всего, часов</label><input class="input" type="number" @bind="_a.MaxHours" style="width:100px" />
+            </div>
+            <div class="wrap" style="margin-top:10px"><button class="btn primary" @onclick="SaveAuth">Сохранить</button> <span class="muted small" style="margin-left:8px">@_saved</span></div>
+
+            <div class="section-title" style="margin-top:16px">Локальный админ</div>
+            <div class="muted small">
+                «@_la.Login»: вход @(_la.Enabled ? "включён" : "выключен"), пароль @(_la.HasPassword ? "задан" : "не задан"), TOTP @(_la.NoTotp ? "выключен — лабораторный режим" : _la.TotpConfirmed ? "привязан" : "не привязан").
+                Управление — только на сервере: <code>sudo linuxops-web</code> → «Local admin» (пароль, новый TOTP, включить / выключить).
+            </div>
+        </div>
+    </section>
+
+    <section class="surface">
+        <div class="surface-header">
+            <div class="section-title">Роли</div>
+            <div class="wrap" style="margin-top:6px">
+                <button class="btn sm" @onclick="NewRole">Новая роль</button>
+                <button class="btn sm" @onclick="CopyRole" disabled="@(_role is null)">Копировать</button>
+                <button class="btn sm" @onclick="DeleteRole" disabled="@(_role is null || _role.Builtin)">Удалить</button>
+            </div>
+        </div>
+        <div class="settings-body">
+            <table class="grid">
+                <thead><tr><th>Роль</th><th>Права</th><th>Группы AD и люди</th><th>Папки</th></tr></thead>
+                <tbody>
+                @foreach (var r in _roles)
+                {
+                    <tr class="@(r == _role ? "selected" : "")" @onclick="() => Pick(r)">
+                        <td>@r.Name @(r.Builtin ? "(встроенная)" : "")</td>
+                        <td>@r.Perms.Count из @Perm.All.Length</td>
+                        <td>@string.Join(", ", r.AdGroups.Concat(r.AdUsers))</td>
+                        <td>@(r.Folders.Count == 0 ? "все" : string.Join(", ", r.Folders.Select(FolderName)))</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+
+            @if (_edit is not null)
+            {
+                <div class="role-edit">
+                    <div class="form-grid">
+                        <label>Имя</label><input class="input" @bind="_edit.Name" disabled="@_edit.Builtin" />
+                    </div>
+                    <div class="section-title" style="margin-top:8px">Права @(_edit.Builtin ? "(у встроенной роли не меняются — скопируйте её)" : "")</div>
+                    @foreach (var (id, text) in Perm.All)
+                    {
+                        <label class="check"><input type="checkbox" checked="@_edit.Perms.Contains(id)" disabled="@_edit.Builtin" @onchange="e => Toggle(_edit.Perms, id, e)" /> @text</label>
+                    }
+                    <div class="section-title" style="margin-top:8px">Группы AD (по одной в строке; вложенные группы учитываются)</div>
+                    <textarea class="input" rows="3" @bind="_groups"></textarea>
+                    <div class="section-title" style="margin-top:8px">Отдельные люди (логин AD, по одному в строке)</div>
+                    <textarea class="input" rows="2" @bind="_users"></textarea>
+                    <div class="section-title" style="margin-top:8px">Папки хостов (ничего не отмечено — все)</div>
+                    @foreach (var f in _folders)
+                    {
+                        <label class="check"><input type="checkbox" checked="@_edit.Folders.Contains(f.Id)" @onchange="e => Toggle(_edit.Folders, f.Id, e)" /> @FolderPath(f)</label>
+                    }
+                    <div class="wrap" style="margin-top:10px">
+                        <button class="btn primary" @onclick="SaveRole">Сохранить роль</button>
+                        <span class="muted small" style="margin-left:8px">@_roleMsg</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private AuthSettings _a = new();
+    private LocalAdmin _la = new();
+    private List<Role> _roles = new();
+    private List<HostFolder> _folders = new();
+    private Role? _role, _edit;
+    private string _groups = "", _users = "", _probe = "", _saved = "", _roleMsg = "", _tryLogin = "", _tryPassword = "";
+    private string? _try;
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload()
+    {
+        _a = Store.LoadAuth();
+        _la = Store.LoadLocalAdmin();
+        _roles = Store.LoadRoles();
+        _folders = Store.LoadFolders();
+    }
+
+    private void SetSecurity(ChangeEventArgs e)
+    {
+        _a.AdSecurity = Enum.Parse<LdapSecurity>(e.Value?.ToString() ?? "Ldaps");
+        _a.AdPort = _a.AdSecurity == LdapSecurity.Ldaps ? 636 : 389;
+    }
+
+    private async Task Probe()
+    {
+        _probe = "проверяю…";
+        var (ok, text) = await Task.Run(() => LdapAuth.Probe(_a));
+        _probe = (ok ? "OK: " : "Ошибка: ") + text;
+    }
+
+    private async Task TryLogin()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        _try = "проверяю…";
+        var r = await Task.Run(() => LdapAuth.Authenticate(_a, _tryLogin, _tryPassword));
+        _tryPassword = "";
+        if (!r.Ok) { _try = r.Error; Audit.Write(S.Who, "настройки: пробный вход AD", $"{_tryLogin} — {r.Error}"); return; }
+        var roles = _roles.Where(role => role.AdUsers.Any(u => string.Equals(u.Trim(), r.Login, StringComparison.OrdinalIgnoreCase)) ||
+                                         role.AdGroups.Any(g => r.Groups.Contains(g.Trim(), StringComparer.OrdinalIgnoreCase))).ToList();
+        _try = $"Вход OK: {r.Display} ({r.Login}).\nГруппы: {string.Join(", ", r.Groups)}\nРоли в LinuxOps Web: {(roles.Count == 0 ? "нет — войти не сможет" : string.Join(", ", roles.Select(x => x.Name)))}";
+        Audit.Write(S.Who, "настройки: пробный вход AD", $"{r.Login} — OK, роли: {(roles.Count == 0 ? "нет" : string.Join(", ", roles.Select(x => x.Name)))}");
+    }
+
+    private void SaveAuth()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        _a.IdleMinutes = Math.Clamp(_a.IdleMinutes, 5, 480);
+        _a.MaxHours = Math.Clamp(_a.MaxHours, 1, 24);
+        Store.SaveAuth(_a);
+        Audit.Write(S.Who, "настройки: вход", $"AD {(_a.AdEnabled ? "вкл" : "выкл")}, {_a.AdServers}:{_a.AdPort} {_a.AdSecurity}, домен {_a.AdDomain}, база {_a.BaseDn}; простой {_a.IdleMinutes} мин, всего {_a.MaxHours} ч");
+        _saved = "сохранено " + DateTime.Now.ToString("HH:mm:ss");
+    }
+
+    private void Pick(Role r)
+    {
+        _role = r;
+        _edit = new Role { Id = r.Id, Name = r.Name, Builtin = r.Builtin, Perms = r.Perms.ToList(), Folders = r.Folders.ToList(), AdGroups = r.AdGroups.ToList(), AdUsers = r.AdUsers.ToList() };
+        _groups = string.Join("\n", r.AdGroups);
+        _users = string.Join("\n", r.AdUsers);
+        _roleMsg = "";
+    }
+
+    private void NewRole() { var r = new Role { Name = "Новая роль", Perms = { Perm.HostsView } }; _roles.Add(r); Pick(r); }
+
+    private void CopyRole()
+    {
+        if (_role is null) return;
+        var r = new Role { Name = _role.Name + " (копия)", Perms = _role.Perms.ToList(), Folders = _role.Folders.ToList() };
+        _roles.Add(r);
+        Pick(r);
+    }
+
+    private void DeleteRole()
+    {
+        if (_role is null || _role.Builtin || !S.Can(Perm.Settings)) return;
+        Store.DeleteRole(_role.Id);
+        Audit.Write(S.Who, "настройки: роль удалена", _role.Name);
+        _role = _edit = null;
+        Reload();
+    }
+
+    private void SaveRole()
+    {
+        if (_edit is null || !S.Can(Perm.Settings)) return;
+        if (string.IsNullOrWhiteSpace(_edit.Name)) { _roleMsg = "Введите имя."; return; }
+        _edit.AdGroups = Lines(_groups);
+        _edit.AdUsers = Lines(_users);
+        // нельзя остаться без админа: встроенный «Админ» — всегда со всеми правами, локальный админ — тоже
+        Store.SaveRole(_edit);
+        Audit.Write(S.Who, "настройки: роль сохранена",
+            $"{_edit.Name}: права {string.Join(",", _edit.Perms)}; группы {string.Join(",", _edit.AdGroups)}; люди {string.Join(",", _edit.AdUsers)}; папки {(_edit.Folders.Count == 0 ? "все" : string.Join(",", _edit.Folders.Select(FolderName)))}");
+        var id = _edit.Id;
+        Reload();
+        if (_roles.FirstOrDefault(r => r.Id == id) is { } saved) Pick(saved);
+        _roleMsg = "сохранено. Новые права — при следующем входе пользователя.";
+    }
+
+    private static List<string> Lines(string s) =>
+        s.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private static void Toggle(List<string> list, string id, ChangeEventArgs e)
+    {
+        if (e.Value is true) { if (!list.Contains(id)) list.Add(id); }
+        else list.Remove(id);
+    }
+
+    private string FolderName(string id) => _folders.FirstOrDefault(f => f.Id == id)?.Name ?? "?";
+
+    private string FolderPath(HostFolder f)
+    {
+        var parts = new List<string> { f.Name };
+        var p = f.ParentId;
+        while (!string.IsNullOrEmpty(p) && _folders.FirstOrDefault(x => x.Id == p) is { } parent) { parts.Insert(0, parent.Name); p = parent.ParentId; }
+        return string.Join(" / ", parts);
+    }
+}

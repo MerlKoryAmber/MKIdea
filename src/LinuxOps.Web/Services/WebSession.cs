@@ -9,7 +9,7 @@ namespace LinuxOps.Web.Services;
 /// запуск (строки RUN, живой вывод, время), «Версии ПО» и «Обновить отмеченное», опрос, «Добавить пользователя».
 /// Хосты и папки — общие в базе сервиса; отметки хостов и плана — свои у окна.
 /// </summary>
-public sealed class WebSession : IDisposable
+public sealed partial class WebSession : IDisposable
 {
     private readonly WebStore _store;
     private readonly HostLocks _locks;
@@ -67,6 +67,7 @@ public sealed class WebSession : IDisposable
             if (was is not null) h.Config.Status = was.Config.Status;
         }
         Folders = _store.LoadFolders();
+        ApplyFolderScope();
         LoadCatalog();
     }
 
@@ -161,6 +162,7 @@ public sealed class WebSession : IDisposable
 
     public async Task RunPlan(bool apply)
     {
+        if (!Allowed(apply ? Auth.Perm.RunApply : Auth.Perm.RunCheck, apply ? "Применить" : "Dry-run")) return;
         var hosts = SelectedHosts.ToList();
         var actions = PlannedActions.ToList();
         if (actions.Count == 0) { Warn("Отметьте действие."); return; }
@@ -416,6 +418,7 @@ public sealed class WebSession : IDisposable
 
     public async Task Probe()
     {
+        if (!Allowed(Auth.Perm.RunCheck, "Опросить")) return;
         var targets = SelectedHosts.ToList();
         if (targets.Count == 0) targets = Hosts.ToList();
         if (targets.Count == 0) return;
@@ -450,6 +453,8 @@ public sealed class WebSession : IDisposable
 
     public async Task AddUser(AddUserRequest request, List<StoredHost> hosts)
     {
+        if (!Allowed(Auth.Perm.RunApply, "Добавить пользователя")) return;
+        hosts = hosts.Where(InScope).ToList();
         Results.Clear();
         Selected = null;
         StartRunning("пользователь…");
@@ -514,6 +519,7 @@ public sealed class WebSession : IDisposable
 
     public async Task UpdateSelected()
     {
+        if (!Allowed(Auth.Perm.RunApply, "Обновить отмеченное")) return;
         if (Selected?.Versions is not { } report) return;
         var packages = report.Items.Where(i => i.CanUpdate && i.IsChecked).Select(i => i.Package).Distinct(StringComparer.Ordinal).ToList();
         if (packages.Count == 0) return;
@@ -626,6 +632,8 @@ public sealed class WebSession : IDisposable
 
     public void SaveHost(StoredHost h, string? password, string? key, string? keyName)
     {
+        if (!Allowed(Auth.Perm.HostsEdit, "хост: сохранить")) return;
+        if (!InScope(h)) { Warn("Эта папка вам недоступна — выберите свою."); return; }
         var isNew = !Hosts.Contains(h);
         _store.SaveHost(h, password, key, keyName);
         if (isNew) Hosts.Add(h);
@@ -639,6 +647,7 @@ public sealed class WebSession : IDisposable
     /// <summary>«Проверить подключение» в окне «Хост»: поля окна + секреты из хранилища, если их не меняли.</summary>
     public async Task<(bool Ok, string Text)> TestConnect(StoredHost existing, HostConfig cfg, string? password, string? key)
     {
+        if (!Can(Auth.Perm.HostsEdit)) return (false, "Нет права менять хосты.");
         var stored = Hosts.Contains(existing) ? _store.ForConnect(existing) : null;
         var test = new HostConfig
         {
@@ -666,6 +675,7 @@ public sealed class WebSession : IDisposable
 
     public void DeleteHost(StoredHost h)
     {
+        if (!Allowed(Auth.Perm.HostsEdit, "хост: удалить") || !InScope(h)) return;
         _store.DeleteHost(h.Id);
         Hosts.Remove(h);
         _audit.Write(Who, "хост: удалён", $"{h.Config.Title} ({h.Config.Host})");
@@ -674,6 +684,7 @@ public sealed class WebSession : IDisposable
 
     public void SaveFolder(HostFolder f)
     {
+        if (!Allowed(Auth.Perm.HostsEdit, "папка: сохранить")) return;
         var isNew = !Folders.Contains(f);
         _store.SaveFolder(f);
         if (isNew) Folders.Add(f);
@@ -682,6 +693,7 @@ public sealed class WebSession : IDisposable
 
     public void DeleteFolder(HostFolder f)
     {
+        if (!Allowed(Auth.Perm.HostsEdit, "папка: удалить")) return;
         // хосты и вложенные папки — в родителя
         foreach (var h in Hosts.Where(h => h.Config.FolderId == f.Id)) { h.Config.FolderId = f.ParentId; _store.SaveHost(h); }
         foreach (var sub in Folders.Where(x => x.ParentId == f.Id)) { sub.ParentId = f.ParentId; _store.SaveFolder(sub); }

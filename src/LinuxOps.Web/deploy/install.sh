@@ -27,7 +27,7 @@ VER=$(release_version "$SRC")
 log "LinuxOps Web $VER from $SRC"
 
 # --- пакеты ---
-pkgs=(nginx openssl curl tar jq sqlite policycoreutils-python-utils)
+pkgs=(nginx openssl curl tar jq sqlite openldap policycoreutils-python-utils)
 ((FIREWALL)) && pkgs+=(firewalld)
 missing=()
 for p in "${pkgs[@]}"; do rpm -q "$p" >/dev/null 2>&1 || missing+=("$p"); done

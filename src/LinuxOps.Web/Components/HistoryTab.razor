@@ -10,7 +10,10 @@
                         ? "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog."
                         : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса.")</div>
                 </div>
-                <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="() => { _audit = !_audit; Reload(); }">@(_audit ? "History" : "Аудит")</button>
+                @if (S.Can(Perm.AuditView))
+                {
+                    <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="() => { _audit = !_audit; Reload(); }">@(_audit ? "History" : "Аудит")</button>
+                }
                 <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="Reload">Обновить</button>
                 <button class="btn sm" style="min-width:90px" disabled title="История сервиса не стирается — это след для аудита">Очистить</button>
             </div>
@@ -75,6 +78,12 @@
         else
         {
             _rows = Store.LoadHistory();
+            // роль ограничена папками — только история своих хостов
+            if (S.User.Folders is not null)
+            {
+                var mine = S.Hosts.Select(h => h.Config.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                _rows = _rows.Where(r => mine.Contains(r.Entry.Host.Split(" · ")[0].Trim())).ToList();
+            }
             _sel = null;
         }
     }

@@ -1,14 +1,16 @@
 @page "/"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@inject WebStore Store
 
 <Shell @rendermode="Mode" ClientIp="@Ip" />
+@* простой окна: через IdleMinutes без мыши и клавиатуры — на вход (App.razor, lo.idle) *@
+<div id="lo-idle" data-min="@Store.LoadAuth().IdleMinutes" hidden></div>
+<form id="lo-logout" method="post" action="/auth/logout" hidden><AntiforgeryToken /></form>
 
 @code {
     private static readonly IComponentRenderMode Mode = new InteractiveServerRenderMode(prerender: false);
 
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
 
-    /// <summary>На стенде без входа «кто» в аудите — адрес клиента.</summary>
-    private string Ip => HttpContext?.Connection.RemoteIpAddress is { } a
-        ? (a.IsIPv4MappedToIPv6 ? a.MapToIPv4().ToString() : a.ToString())
-        : "?";
+    private string Ip => HttpContext is null ? "?" : LinuxOps.Web.Services.Auth.AuthEndpoints.ClientIp(HttpContext);
 }

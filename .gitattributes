@@ -1,2 +1,3 @@
 # Файлы для Linux-сервера — всегда LF (systemd и sh не любят CRLF)
 src/LinuxOps.Web/deploy/** text eol=lf
+tools/lab/*.sh text eol=lf

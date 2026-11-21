@@ -22,7 +22,7 @@ RELEASE_CONF=$ETC_DIR/release.conf
 TOKEN_FILE=$ETC_DIR/git-token
 LOCAL_URL=http://127.0.0.1:5080/
 
-if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then green=$'\033[0;32m'; plain=$'\033[0m'; else green=""; plain=""; fi
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then green=$'\033[0;32m'; red=$'\033[0;31m'; plain=$'\033[0m'; else green=""; red=""; plain=""; fi
 
 log()  { printf '[linuxops-web] %s\n' "$*"; }
 warn() { printf '[linuxops-web] WARN: %s\n' "$*" >&2; }

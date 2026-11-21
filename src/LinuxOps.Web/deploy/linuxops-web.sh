@@ -99,6 +99,43 @@ $LINE"
   logger -t linuxops-web "сертификат: $sub" 2>/dev/null || true
 }
 
+# --- local admin (аварийный вход; пароль и TOTP — только отсюда) ---
+_app_admin() { runuser -u "$SVC_USER" -- "$CURRENT_LINK/LinuxOps.Web" admin "$@"; }
+cmd_admin() {
+  local sub="${1:-}"
+  if [[ -z "$sub" ]]; then
+    _app_admin status || true
+    echo -e "
+  ${green}Local admin${plain} (emergency login when AD or MK 2FA is down)
+$LINE
+  ${green} 1.${plain} Set password (type)
+  ${green} 2.${plain} Set password (generate)
+  ${green} 3.${plain} New TOTP (bind again at next login)
+  ${green} 4.${plain} Enable login
+  ${green} 5.${plain} Disable login
+  ${red} 6.${plain} Lab mode ON: admin / admin, no TOTP (lab only!)
+  ${green} 7.${plain} Lab mode OFF
+$LINE"
+    ask sub "Select [1-7]"
+    case "$sub" in 1) sub=password ;; 2) sub=generate ;; 3) sub=totp-reset ;; 4) sub=enable ;; 5) sub=disable ;; 6) sub=lab-on ;; 7) sub=lab-off ;; *) return 0 ;; esac
+  fi
+  case "$sub" in
+    status) _app_admin status ;;
+    password)
+      local p1 p2; ask_secret p1 "New password (12+ chars)"; ask_secret p2 "Repeat"
+      [[ "$p1" == "$p2" ]] || die "passwords do not match"
+      printf "%s
+" "$p1" | _app_admin password ;;
+    generate) confirm "Generate a new password for the local admin? It is shown once" || die "cancelled"; _app_admin password --generate ;;
+    totp-reset) confirm "Reset local admin TOTP? The old code stops working" || die "cancelled"; _app_admin totp-reset ;;
+    enable) _app_admin enable ;;
+    disable) confirm "Disable local admin login?" || die "cancelled"; _app_admin disable ;;
+    lab-on) confirm "LAB MODE: admin / admin without TOTP. Lab only, never production. Continue?" || die "cancelled"; _app_admin lab on ;;
+    lab-off) _app_admin lab off ;;
+    *) die "admin: status | password | generate | totp-reset | enable | disable | lab-on | lab-off" ;;
+  esac
+}
+
 # --- runtime ---
 cmd_status() {
   release_conf_load
@@ -179,7 +216,7 @@ cmd_help() {
   cat <<EOF
 Usage: linuxops-web [command]   (no command = menu)
   update [--version V | --file F | --force]   rollback   uninstall   purge
-  git-token   cert [show|local|pem|pfx|csr|signed]
+  git-token   cert [show|local|pem|pfx|csr|signed]   admin [status|password|generate|totp-reset|enable|disable|lab-on|lab-off]
   status   start   stop   restart   logs [service|audit|nginx|guacd]
   backup   restore [STAMP]   url   help
 EOF
@@ -200,16 +237,17 @@ $LINE
 $LINE
   ${green} 7.${plain} Release source token (git)
   ${green} 8.${plain} Certificate
+  ${green} 9.${plain} Local admin (password, TOTP, on/off)
 $LINE
-  ${green} 9.${plain} Status
-  ${green}10.${plain} Start
-  ${green}11.${plain} Stop
-  ${green}12.${plain} Restart
-  ${green}13.${plain} Logs
+  ${green}10.${plain} Status
+  ${green}11.${plain} Start
+  ${green}12.${plain} Stop
+  ${green}13.${plain} Restart
+  ${green}14.${plain} Logs
 $LINE
-  ${green}14.${plain} Backup
-  ${green}15.${plain} Restore from backup
-  ${green}16.${plain} URL / health
+  ${green}15.${plain} Backup
+  ${green}16.${plain} Restore from backup
+  ${green}17.${plain} URL / health
 $LINE"
 }
 
@@ -219,16 +257,16 @@ run_menu() {
   local num
   while true; do
     show_menu
-    ask num "Please enter your selection [0-16]"
+    ask num "Please enter your selection [0-17]"
     case "$num" in
       0|"") exit 0 ;;
       1) run cmd_update ;; 2) run cmd_update_version ;; 3) run cmd_update_file ;; 4) run cmd_rollback ;;
       5) run cmd_uninstall; [[ -L $CURRENT_LINK ]] || exit 0 ;;
       6) run cmd_purge; [[ -L $CURRENT_LINK ]] || exit 0 ;;
-      7) run cmd_git_token ;; 8) run cmd_cert ;;
-      9) run cmd_status ;; 10) run cmd_start ;; 11) run cmd_stop ;; 12) run cmd_restart ;; 13) run cmd_logs ;;
-      14) run cmd_backup ;; 15) run cmd_restore ;; 16) run cmd_url ;;
-      *) echo "Please enter the correct number [0-16]" ;;
+      7) run cmd_git_token ;; 8) run cmd_cert ;; 9) run cmd_admin ;;
+      10) run cmd_status ;; 11) run cmd_start ;; 12) run cmd_stop ;; 13) run cmd_restart ;; 14) run cmd_logs ;;
+      15) run cmd_backup ;; 16) run cmd_restore ;; 17) run cmd_url ;;
+      *) echo "Please enter the correct number [0-17]" ;;
     esac
   done
 }
@@ -242,6 +280,7 @@ case "${1:-}" in
   purge) cmd_purge ;;
   git-token) cmd_git_token ;;
   cert) shift; cmd_cert "${1:-}" ;;
+  admin) shift; cmd_admin "${1:-status}" ;;
   status) cmd_status ;;
   start) cmd_start ;;
   stop) cmd_stop ;;

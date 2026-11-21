@@ -61,7 +61,7 @@
                 <button class="btn sm dark" style="min-width:150px" title="Отметить пакеты с обновлениями безопасности или незакрытыми CVE (если таких нет — все с обновлениями)"
                         @onclick="S.PickSecurity" disabled="@S.IsRunning">Отметить безопасности</button>
                 <button class="btn sm primary" style="min-width:190px" title="Сначала покажет, что поставится, и спросит подтверждение"
-                        @onclick="S.UpdateSelected" disabled="@(S.IsRunning || S.CheckedCount == 0)">@S.UpdateSelectedText</button>
+                        @onclick="S.UpdateSelected" disabled="@(S.IsRunning || S.CheckedCount == 0 || !S.Can(Perm.RunApply))">@S.UpdateSelectedText</button>
                 <label class="check dark" title="Пакеты скачиваются через сервер LinuxOps и его прокси. Туннель могут заметить SIEM / EDR — по согласованию с ИБ">
                     <input type="checkbox" checked="@S.UpdateViaPc" @onchange="e => S.UpdateViaPc = (bool)e.Value!" /> через сервер (туннель SSH)
                 </label>

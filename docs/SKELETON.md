@@ -31,6 +31,7 @@
 
 - `tools/rehydrate.ps1` — статус репо одним вызовом для агента: git, версии и dist, верхние записи `docs/<app>/CURRENT.md`, хвосты 👀 из последнего отчёта, карта docs. Только чтение; `-Fetch` — сверка с origin.
 - `tools/package-linuxops-web.ps1`, `tools/deploy-linuxops-web.ps1` — релиз LinuxOps Web (архив + `.sha256`) и выкладка на стенд.
+- `tools/lab/` — автоматизация лабы Merl.loc: `Initialize-LabAd.ps1` (разово, владелец: OU=LinuxOps-Lab, svc-lo-lab, keytab на стенде), `lab-ad.sh` (на стенде `/usr/local/sbin/lab-ad`: тестовые учётки и группы только в этой OU), `lab-keytab.sh`.
 - `tools/AdSmoke`, `tools/LinuxOpsSmoke`, `tools/LinuxOpsLabCheck`, `tools/RunAsDomain` — проверочные утилиты.
 
 ## Лабы (не путать)

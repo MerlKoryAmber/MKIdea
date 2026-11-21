@@ -4,13 +4,13 @@
             <div class="section-title">Inventory · хосты и vCenter</div>
             <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку.</div>
             <div class="wrap">
-                <button class="btn" style="min-width:110px" title="Новый хост — в выделенную папку" @onclick="AddHost">+ Хост Linux</button>
+                <button class="btn" style="min-width:110px" title="Новый хост — в выделенную папку" @onclick="AddHost" disabled="@Ro">+ Хост Linux</button>
                 <button class="btn" style="min-width:120px" disabled title="Хосты Windows (RDP) — этап Ф3, после стенда">+ Хост Windows</button>
                 <button class="btn" style="min-width:96px" disabled title="vCenter (PowerShell) — этап Ф5">+ vCenter</button>
-                <button class="btn" style="min-width:90px;margin-right:16px" title="Новая папка — внутри выделенной" @onclick="AddFolder">+ Папка</button>
-                <button class="btn" style="min-width:96px" title="Хост — правка, папка — переименовать (или двойной щелчок)" @onclick="Edit" disabled="@(_sel is null)">Изменить</button>
-                <button class="btn" style="min-width:110px" @onclick="Duplicate" disabled="@(_sel is not StoredHost)">Дублировать</button>
-                <button class="btn" style="min-width:96px" title="Папка удаляется без хостов: они переезжают на уровень выше" @onclick="Remove" disabled="@(_sel is null)">Удалить</button>
+                <button class="btn" style="min-width:90px;margin-right:16px" title="Новая папка — внутри выделенной" @onclick="AddFolder" disabled="@Ro">+ Папка</button>
+                <button class="btn" style="min-width:96px" title="Хост — правка, папка — переименовать (или двойной щелчок)" @onclick="Edit" disabled="@(Ro || _sel is null)">Изменить</button>
+                <button class="btn" style="min-width:110px" @onclick="Duplicate" disabled="@(Ro || _sel is not StoredHost)">Дублировать</button>
+                <button class="btn" style="min-width:96px" title="Папка удаляется без хостов: они переезжают на уровень выше" @onclick="Remove" disabled="@(Ro || _sel is null)">Удалить</button>
             </div>
         </div>
         <div class="scroll tree-wrap" style="margin:8px">
@@ -23,6 +23,9 @@
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
 
     private object? _sel;
+
+    /// <summary>Нет права менять Inventory — кнопки выключены (и сервер не даст).</summary>
+    private bool Ro => !S.Can(Perm.HostsEdit);
 
     private string TargetFolder => _sel switch
     {
