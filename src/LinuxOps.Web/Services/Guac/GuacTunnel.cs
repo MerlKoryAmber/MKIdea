@@ -72,6 +72,11 @@ public static partial class GuacTunnel
 
             store.SessionStart(sessionId, ticket.Who, ticket.Protocol, ticket.HostTitle);
             audit.Write(ticket.Who, (ticket.Protocol == "rdp" ? "RDP" : "терминал") + ": открыт", $"{ticket.HostTitle}, сеанс {sessionId}");
+            if (ticket.NoRecording is { } noRec)
+            {
+                store.SessionNote(sessionId, "без записи: " + noRec);
+                audit.Write(ticket.Who, "сеанс без записи", $"{ticket.HostTitle}, сеанс {sessionId}: {noRec}");
+            }
             // первая инструкция туннеля — служебная, с его номером (так ждёт Guacamole.WebSocketTunnel)
             await WsSend(ws, GuacProtocol.Encode("", sessionId), ctx.RequestAborted);
 
@@ -149,8 +154,8 @@ public static partial class GuacTunnel
         if (id.Length != 32 || !id.All(Uri.IsHexDigit) || store.FindSession(id) is not { } s) return Results.NotFound();
         var text = kind == "text";
         // имена задаёт OpenTerminal: экран — <id>.guac, текст терминала — <id>.txt (+ .txt.timing)
-        var file = Path.Combine(WebPaths.RecordingsDir, id + (text ? ".txt" : ".guac"));
-        if (!File.Exists(file)) return Results.NotFound();
+        // в буфере или уже в хранилище (SMB, NFS, диск)
+        if (RecordingStorage.Find(id + (text ? ".txt" : ".guac")) is not { } file) return Results.NotFound();
         var who = string.IsNullOrEmpty(user.Display) ? user.Login : user.Display;
         audit.Write(who, text ? "запись: скачан текст" : "запись: просмотр", $"{s.Host}, {s.Who}, {s.Start}, сеанс {id}");
         if (text)

@@ -54,7 +54,7 @@ public sealed partial class WebSession
         // имя записи = номер сеанса: по нему запись находится в журнале сеансов
         p["recording-name"] = t.Id + ".guac";
         p["typescript-name"] = t.Id + ".txt";
-        RecordKeys(p);
+        Recording(p, t);
         return tickets.Issue(t);
     }
 
@@ -103,7 +103,7 @@ public sealed partial class WebSession
         var t = new GuacTicket { Login = User.Login, Who = Who, Protocol = "ssh", HostId = "powershell", HostTitle = "PowerShell (сервер)", Params = p };
         p["recording-name"] = t.Id + ".guac";
         p["typescript-name"] = t.Id + ".txt";
-        RecordKeys(p);
+        Recording(p, t);
         return tickets.Issue(t);
     }
 
@@ -171,14 +171,25 @@ public sealed partial class WebSession
         };
         var t = new GuacTicket { Login = User.Login, Who = Who, Protocol = "rdp", HostId = h.Id, HostTitle = h.Config.Title, Params = p };
         p["recording-name"] = t.Id + ".guac";
-        RecordKeys(p);
+        Recording(p, t);
         _audit.Write(Who, "RDP: вход", $"{h.Config.Title}: учётка {(domain.Length > 0 ? domain + "\\" : "")}{user}");
         return tickets.Issue(t);
     }
 
-    /// <summary>Нажатия клавиш — в запись, если включено в настройках (пароли, набранные внутри сеанса, тоже попадут).</summary>
-    private void RecordKeys(Dictionary<string, string> p)
+    /// <summary>
+    /// Запись сеанса. Нажатия клавиш — если включено в настройках (пароли, набранные внутри сеанса, тоже попадут).
+    /// Буфер недоступен или полон — сеанс идёт без записи (решение владельца 22.11.2026: пускать с тревогой).
+    /// </summary>
+    private void Recording(Dictionary<string, string> p, GuacTicket t)
     {
+        if (RecordingStorage.CannotRecord() is { } why)
+        {
+            foreach (var k in p.Keys.Where(k => k.StartsWith("recording-", StringComparison.Ordinal) || k.StartsWith("typescript-", StringComparison.Ordinal)
+                                             || k is "create-recording-path" or "create-typescript-path").ToList())
+                p.Remove(k);
+            t.NoRecording = why;
+            return;
+        }
         if (_store.GetSetting("rec.keys") == "1") p["recording-include-keys"] = "true";
     }
 

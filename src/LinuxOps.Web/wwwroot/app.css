@@ -397,7 +397,13 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
     .page { padding: 12px; }
     .chip { padding: 0 8px; }
     .user-chip { max-width: 120px; }
+    .rec-alert-t { display: none; }
     .ver { display: none; }
     .actions-grid { grid-template-columns: minmax(330px, .95fr) minmax(240px, 1.1fr) minmax(260px, 1.2fr); gap: 10px; }
     .footer { padding: 10px 12px; }
 }
+/* Тревога записей сеансов в шапке: пишутся без записи или не переносятся в хранилище (видно тем, у кого «Настройки») */
+.rec-alert { background:#e65100; color:#fff; border:0; font-weight:600; font-size:12px; padding:3px 9px; border-radius:4px; margin-right:8px; cursor:pointer; white-space:nowrap; }
+.rec-alert:hover { filter:brightness(1.1); }
+.storage-box { border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:14px; }
+.storage-box h4 { margin:0 0 8px; font-size:13px; }

@@ -25,7 +25,7 @@
                     else
                     {
                         <div>Консоль PowerShell 7 на сервере LinuxOps Web: PowerCLI — <code>Connect-VIServer -Server &lt;vcenter&gt;</code>.</div>
-                        <div class="small">Сеанс записывается (History → Сеансы). PowerCLI ставится в ⚙ → «PowerShell и PowerCLI».</div>
+                        <div class="small">@(RecordingStorage.CannotRecord() is { } noRec ? "Сейчас сеансы идут без записи: " + noRec + "." : "Сеанс записывается (History → Сеансы).") PowerCLI ставится в ⚙ → «PowerShell и PowerCLI».</div>
                     }
                 </div>
             }

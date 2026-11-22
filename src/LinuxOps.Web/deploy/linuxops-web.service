@@ -19,7 +19,8 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 # записи сеансов: сервис удаляет старые (срок и объём); «-» — каталога может не быть (установка без guacd)
-ReadWritePaths=/var/lib/linuxops-web /etc/linuxops-web -/var/lib/linuxops-web-rec -/var/lib/linuxops-web-ps
+# хранилище записей (SMB, NFS, диск) монтирует помощник root в -/var/lib/linuxops-web-archive; служба переносит туда готовые записи
+ReadWritePaths=/var/lib/linuxops-web /etc/linuxops-web -/var/lib/linuxops-web-rec -/var/lib/linuxops-web-ps -/var/lib/linuxops-web-archive
 
 [Install]
 WantedBy=multi-user.target

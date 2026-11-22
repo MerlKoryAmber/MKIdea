@@ -125,6 +125,90 @@ else
                     <span class="muted small" style="margin-left:8px">@_recMsg</span>
                 </div>
                 <div class="muted small" style="margin-top:6px">@_recUsage</div>
+
+                <div class="storage-box">
+                    <h4>Где хранить</h4>
+                    <div class="muted small" style="margin-bottom:8px">
+                        Сеансы пишутся на этот сервер (буфер), готовые записи раз в минуту переносятся в хранилище. Хранилище пропало — записи ждут в буфере и переносятся, когда оно вернётся.
+                        Записи, сделанные до подключения, остаются на сервере и доживают по сроку. History проигрывает из обоих мест.
+                    </div>
+                    <div class="small"><b>Сейчас:</b> @_stText</div>
+                    @if (_st.Configured)
+                    {
+                        <div class="wrap" style="margin-top:8px">
+                            <button class="btn" @onclick="CheckStorage" disabled="@_stBusy">Проверить</button>
+                            @if (!_stConfirmOff)
+                            {
+                                <button class="btn" style="margin-left:6px" @onclick="() => _stConfirmOff = true" disabled="@_stBusy">Отключить</button>
+                            }
+                            else
+                            {
+                                <span class="small" style="margin-left:8px">Записи в хранилище перестанут проигрываться, пока его не подключат снова. Новые — на этом сервере.</span>
+                                <button class="btn danger" style="margin-left:6px" @onclick="DisconnectStorage" disabled="@_stBusy">Да, отключить</button>
+                                <button class="btn" style="margin-left:6px" @onclick="() => _stConfirmOff = false">Нет</button>
+                            }
+                        </div>
+                    }
+                    <div class="form-grid" style="margin-top:10px">
+                        <label>@(_st.Configured ? "Подключить другое" : "Подключить")</label>
+                        <select class="input" @bind="_stType" style="width:auto">
+                            <option value="">— выберите —</option>
+                            <option value="smb">Сетевая папка SMB</option>
+                            <option value="nfs">NFS</option>
+                            <option value="disk">Отдельный диск этого сервера</option>
+                        </select>
+                        @if (_stType == "smb")
+                        {
+                            <label>Путь</label><input class="input" @bind="_stSource" placeholder="//сервер/папка" />
+                            <label>Учётка</label><input class="input" @bind="_stUser" placeholder="svc-rec" autocomplete="off" />
+                            <label>Домен</label><input class="input" @bind="_stDomain" placeholder="необязательно" autocomplete="off" />
+                            <label>Пароль</label><input class="input" type="password" @bind="_stPass" autocomplete="new-password" />
+                        }
+                        else if (_stType == "nfs")
+                        {
+                            <label>Путь</label><input class="input" @bind="_stSource" placeholder="сервер:/экспорт/папка" />
+                        }
+                    </div>
+                    @if (_stType == "smb")
+                    {
+                        <div class="muted small">Пароль хранит только root на сервере (файл 0600), в базу сервиса он не попадает.</div>
+                    }
+                    else if (_stType == "nfs")
+                    {
+                        <div class="muted small">На NFS-сервере дайте запись пользователю службы (uid и gid «linuxops-web» на этом сервере) или all_squash с его anonuid.</div>
+                    }
+                    else if (_stType == "disk")
+                    {
+                        <div class="wrap" style="margin-top:6px"><button class="btn" @onclick="FindDisks" disabled="@_stBusy">Найти свободные диски</button></div>
+                        @if (_disks is { Count: 0 })
+                        {
+                            <div class="muted small" style="margin-top:6px">Свободных дисков нет. Подходит только целый диск без разделов и файловой системы: добавьте его ВМ и нажмите ещё раз.</div>
+                        }
+                        else if (_disks is not null)
+                        {
+                            @foreach (var d in _disks)
+                            {
+                                <label class="check"><input type="radio" name="disk" checked="@(_stSource == d.Path)" @onchange="() => PickDisk(d)" /> @d.Path — @RecordingsKeeper.FileSize(d.Size)@(d.Model.Length > 0 ? " · " + d.Model : "")</label>
+                            }
+                            @if (_stSource.StartsWith("/dev/", StringComparison.Ordinal))
+                            {
+                                <div class="small" style="margin-top:6px">Диск будет размечен (XFS), всё на нём сотрётся. Введите его имя — <b>@_stSource[5..]</b>:</div>
+                                <input class="input" @bind="_stConfirm" style="width:140px" autocomplete="off" />
+                            }
+                        }
+                    }
+                    @if (_stType.Length > 0)
+                    {
+                        @if (_st.Configured)
+                        {
+                            <div class="muted small" style="margin-top:6px">Новое хранилище заменит текущее: записи в текущем перестанут проигрываться (сами файлы там останутся). Не подключится — останется текущее.</div>
+                        }
+                        <div class="wrap" style="margin-top:10px">
+                            <button class="btn primary" @onclick="ConnectStorage" disabled="@_stBusy">@(_stBusy ? "Подключаю…" : "Проверить и подключить")</button>
+                        </div>
+                    }
+                    @if (_stMsg.Length > 0) { <div class="small" style="margin-top:6px">@_stMsg</div> }
+                </div>
                 break;
         }
         </div>
@@ -291,7 +375,7 @@ else
 
     private async Task SetTheme(string t) { _theme = t; await JS.InvokeVoidAsync("lo.setTheme", t); }
 
-    protected override void OnInitialized() { Reload(); LoadFleet(); LoadRec(); }
+    protected override void OnInitialized() { Reload(); LoadFleet(); LoadRec(); LoadStorage(); }
 
     // ---------- записи сеансов ----------
     private int _recDays;
@@ -328,6 +412,115 @@ else
     }
 
     private Task CleanRec() => CleanRecords(true);
+
+    // ---------- хранилище записей (SMB, NFS, диск) ----------
+    private sealed record Disk(string Path, long Size, string Model);
+    private StorageState _st = new("", "", false, false, null);
+    private string _stText = "", _stType = "", _stSource = "", _stUser = "", _stDomain = "", _stPass = "", _stConfirm = "", _stMsg = "";
+    private bool _stBusy, _stConfirmOff;
+    private List<Disk>? _disks;
+
+    private void LoadStorage()
+    {
+        _st = RecordingStorage.State();
+        var buf = RecordingStorage.FreeBytes(WebPaths.RecordingsDir);
+        var bufText = $"буфер {WebPaths.RecordingsDir}" + (buf is { } b ? $", свободно {RecordingsKeeper.FileSize(b)}" : "");
+        if (!_st.Configured) { _stText = "только этот сервер — " + bufText + "."; return; }
+        _stText = $"{_st.TypeName} {_st.Source} — " + (_st.Mounted
+            ? $"подключено, свободно {(_st.Free is { } f ? RecordingsKeeper.FileSize(f) : "?")}"
+            : "НЕ ПОДКЛЮЧЕНО, записи ждут в буфере") + "; " + bufText
+            + (Keeper.Waiting > 0 ? $"; ждут переноса: {Keeper.Waiting}" : "")
+            + (Keeper.MovedAt is { } m ? $"; последний перенос {m:HH:mm}" : "")
+            + (Keeper.MoveError.Length > 0 ? $"; ошибка переноса: {Keeper.MoveError}" : "") + ".";
+    }
+
+    private async Task CheckStorage()
+    {
+        _stBusy = true;
+        try
+        {
+            await Keeper.MoveAsync();
+            LoadStorage();
+            if (!_st.Mounted) { _stMsg = "Хранилище не подключено. Проверьте его доступность с сервера; подключится само при загрузке или кнопкой ниже."; return; }
+            var f = Path.Combine(RecordingStorage.ArchiveDir, ".linuxops-web-check");
+            await Task.Run(() => { File.WriteAllText(f, "ok"); if (File.ReadAllText(f) != "ok") throw new IOException("прочитано не то"); File.Delete(f); });
+            _stMsg = "Запись и чтение — в порядке.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _stMsg = "Не пишется: " + ex.Message; }
+        finally { _stBusy = false; }
+    }
+
+    private void PickDisk(Disk d) { _stSource = d.Path; _stConfirm = ""; }
+
+    private async Task FindDisks()
+    {
+        _stBusy = true; _stMsg = ""; _stSource = ""; _stConfirm = "";
+        try
+        {
+            var r = await RecordingStorage.RequestAsync(new() { ["op"] = "disks" }, TimeSpan.FromSeconds(30));
+            if (!r.Ok) { _stMsg = r.Message; _disks = null; return; }
+            _disks = (r.Data?["disks"] as System.Text.Json.Nodes.JsonArray ?? [])
+                .Select(d => new Disk(d?["path"]?.GetValue<string>() ?? "", d?["size"]?.GetValue<long>() ?? 0, d?["model"]?.GetValue<string>() ?? ""))
+                .Where(d => d.Path.Length > 0).ToList();
+        }
+        finally { _stBusy = false; }
+    }
+
+    private async Task ConnectStorage()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        var src = _stSource.Trim().Replace('\\', '/');
+        string? err = _stType switch
+        {
+            "smb" when !src.StartsWith("//", StringComparison.Ordinal) => "Путь SMB: //сервер/папка.",
+            "smb" when _stUser.Trim().Length == 0 || _stPass.Length == 0 => "Нужны учётка и пароль.",
+            "nfs" when !src.Contains(":/", StringComparison.Ordinal) => "Путь NFS: сервер:/экспорт.",
+            "disk" when !src.StartsWith("/dev/", StringComparison.Ordinal) => "Выберите диск.",
+            "disk" when _stConfirm.Trim() != src[5..] => "Имя диска введено неверно.",
+            _ => null
+        };
+        if (err is not null) { _stMsg = err; return; }
+        _stBusy = true; _stMsg = "";
+        StateHasChanged();
+        try
+        {
+            var req = new Dictionary<string, string> { ["op"] = "mount", ["type"] = _stType, ["source"] = src };
+            if (_stType == "smb") { req["user"] = _stUser.Trim(); req["domain"] = _stDomain.Trim(); req["password"] = _stPass; }
+            if (_stType == "disk") req["confirm"] = _stConfirm.Trim();
+            var r = await RecordingStorage.RequestAsync(req, TimeSpan.FromMinutes(10));
+            _stPass = "";
+            var what = $"{(_stType == "disk" ? "диск" : _stType.ToUpperInvariant())} {src}" + (_stType == "smb" ? $", учётка {(_stDomain.Trim().Length > 0 ? _stDomain.Trim() + "\\" : "")}{_stUser.Trim()}" : "");
+            if (r.Ok)
+            {
+                Store.PutSetting(RecordingsKeeper.SinceKey, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+                Audit.Write(S.Who, "записи сеансов: хранилище подключено", what);
+                _stMsg = "Подключено. Новые записи будут переноситься туда.";
+                _stType = ""; _stSource = ""; _stConfirm = ""; _disks = null;
+            }
+            else
+            {
+                Audit.Write(S.Who, "записи сеансов: хранилище не подключено", $"{what}: {r.Message}");
+                _stMsg = "Не подключено: " + r.Message;
+            }
+            LoadStorage();
+        }
+        finally { _stBusy = false; }
+    }
+
+    private async Task DisconnectStorage()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        _stBusy = true; _stConfirmOff = false;
+        try
+        {
+            var was = $"{_st.TypeName} {_st.Source}";
+            var r = await RecordingStorage.RequestAsync(new() { ["op"] = "unmount" }, TimeSpan.FromMinutes(1));
+            Audit.Write(S.Who, r.Ok ? "записи сеансов: хранилище отключено" : "записи сеансов: хранилище не отключено", was + (r.Ok ? "" : ": " + r.Message));
+            _stMsg = r.Ok ? "Отключено. Записи снова только на этом сервере." : "Не отключено: " + r.Message;
+            LoadStorage();
+        }
+        finally { _stBusy = false; }
+    }
 
     private async Task CleanRecords(bool say)
     {

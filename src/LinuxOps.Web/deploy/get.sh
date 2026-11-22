@@ -43,7 +43,11 @@ TMP=$(mktemp -d /var/tmp/linuxops-web-get.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 
 if [[ -z "$VERSION" ]]; then
-  fetch "$RAW_BASE/LATEST" "$TMP/LATEST" || die "cannot read $RAW_BASE/LATEST (no network or no access)"
+  if ! fetch "$RAW_BASE/LATEST" "$TMP/LATEST"; then
+    code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "${H[@]}" "$RAW_BASE/LATEST" || true)
+    [[ "$code" == 404 ]] && die "nothing published in $RAW_BASE (no LATEST): build with package-linuxops-web.ps1 -Publish and push; a private repo also answers 404 without a token"
+    die "cannot read $RAW_BASE/LATEST (HTTP ${code:-none}: no network or no access)"
+  fi
   VERSION=$(tr -d ' \r\n' <"$TMP/LATEST")
 fi
 [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad version: $VERSION"

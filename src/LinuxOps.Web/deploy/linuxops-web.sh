@@ -143,6 +143,8 @@ cmd_status() {
   echo "  Service:  $(systemctl is-active "$UNIT" 2>/dev/null || true)   nginx: $(systemctl is-active nginx 2>/dev/null || true)   guacd: $(systemctl is-active guacd 2>/dev/null || true)"
   if curl -fs -o /dev/null --max-time 3 "$LOCAL_URL"; then echo "  Health:   OK ($LOCAL_URL)"; else echo "  Health:   NO ANSWER ($LOCAL_URL)"; fi
   echo "  Data:     $DATA_DIR ($(du -sh "$DATA_DIR" 2>/dev/null | cut -f1))"
+  echo "  Records:  buffer $REC_DIR ($(du -sh "$REC_DIR" 2>/dev/null | cut -f1), free $(df -h --output=avail "$REC_DIR" 2>/dev/null | tail -1 | tr -d " "))"
+  echo "  Storage:  $(storage_status)"
   echo "  Releases: $PROVIDER $(release_where), token: $([[ -f $TOKEN_FILE ]] && echo set || echo none)"
   echo "  Certificate:"; cert_show
 }
@@ -282,6 +284,7 @@ case "${1:-}" in
   cert) shift; cmd_cert "${1:-}" ;;
   admin) shift; cmd_admin "${1:-status}" ;;
   status) cmd_status ;;
+  storage) shift; case "${1:-status}" in apply) cmd_storage_apply ;; status) storage_status ;; *) die "storage: status | apply (apply runs from linuxops-web-storage.service)" ;; esac ;;
   start) cmd_start ;;
   stop) cmd_stop ;;
   restart) cmd_restart ;;

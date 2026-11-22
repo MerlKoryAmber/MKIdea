@@ -4,6 +4,7 @@
 @inject LoginService Login
 @inject NavigationManager Nav
 @inject WebStore Store
+@inject RecordingsKeeper Keeper
 
 <div class="app">
     <header class="header">
@@ -17,6 +18,10 @@
             <button class="chip @(S.Tab == key ? "on" : "")" @onclick="() => Go(key)">@text</button>
         }
         <div class="spacer"></div>
+        @if (S.Can(Perm.Settings) && Keeper.Alert() is { Length: > 0 } recAlert)
+        {
+            <button class="rec-alert" title="@recAlert" @onclick='() => Go("settings")'>⚠<span class="rec-alert-t"> Записи</span></button>
+        }
         @if (_canChangePw)
         {
             <button class="user-chip as-button" title="@S.User.RolesText — нажмите, чтобы сменить пароль" @onclick="() => _pwOpen = true"><b>@S.User.Display</b> · @S.User.RolesText</button>

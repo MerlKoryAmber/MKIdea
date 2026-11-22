@@ -28,6 +28,7 @@ if ((PURGE)); then
 fi
 
 systemctl disable --now "$UNIT" 2>/dev/null || true
+storage_remove_units
 rm -f "$UNIT_FILE"
 systemctl daemon-reload
 rm -f "$NGINX_CONF"
@@ -40,6 +41,8 @@ logger -t linuxops-web "служба удалена$( ((PURGE)) && echo " вме
 log "removed program, service, nginx config and menu"
 
 if ((PURGE)); then
+  # хранилище записей: отмонтировать и убрать строку из fstab (сами записи на SMB, NFS или диске остаются)
+  _st_umount || true; _st_fstab_set ""; rmdir "$ARCH_DIR" 2>/dev/null || true
   rm -rf "$DATA_DIR" "$ETC_DIR" "$PKI_DIR"
   userdel "$SVC_USER" 2>/dev/null || true
   userdel -r "$PS_USER" 2>/dev/null || true

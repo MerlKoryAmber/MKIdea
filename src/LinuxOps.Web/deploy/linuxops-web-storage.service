@@ -1,0 +1,9 @@
+# LinuxOps Web — помощник хранилища записей (root): подключить SMB, NFS или диск в /var/lib/linuxops-web-archive, отключить, найти свободные диски.
+# Запускается по запросу службы (linuxops-web-storage.path); запрос проверяется полем за полем — lib/storage.sh.
+[Unit]
+Description=LinuxOps Web: recordings storage helper
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/linuxops-web storage apply
+TimeoutStartSec=15min

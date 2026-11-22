@@ -164,10 +164,12 @@
         _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
         _self ??= DotNetObjectReference.Create(this);
         // запись удалена по сроку или объёму (RecordingsKeeper) — проигрывать нечего
-        if (s.Status.Contains("запись удалена", StringComparison.Ordinal))
+        // или сеанс шёл без записи (буфер был недоступен или полон)
+        foreach (var why in new[] { "запись удалена", "без записи" })
         {
+            if (!s.Status.Contains(why, StringComparison.Ordinal)) continue;
             await _mod.InvokeVoidAsync("stop", PlayerId);
-            _recError = "— " + s.Status[s.Status.IndexOf("запись удалена", StringComparison.Ordinal)..];
+            _recError = "— " + s.Status[s.Status.IndexOf(why, StringComparison.Ordinal)..];
             return;
         }
         await _mod.InvokeVoidAsync("play", PlayerId, $"guac/recording/{s.Id}", _self);

@@ -1,0 +1,11 @@
+# LinuxOps Web — хранилище записей сеансов: служба кладёт запрос, этот юнит запускает помощника (root).
+# Ставится deploy/install.sh и update.sh (storage_ensure в lib/storage.sh).
+[Unit]
+Description=LinuxOps Web: recordings storage requests
+
+[Path]
+PathExists=/var/lib/linuxops-web/storage/request
+Unit=linuxops-web-storage.service
+
+[Install]
+WantedBy=paths.target

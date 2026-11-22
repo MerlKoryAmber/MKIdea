@@ -240,7 +240,7 @@ release_find() {
     # LATEST — одна строка с номером; версия указана — проверяем, что её .sha256 есть
     local ver="$want"
     if [[ -z "$ver" ]]; then
-      ver=$(_api "$RAW_BASE/LATEST") || die "release source unreachable or access denied (token?): $RAW_BASE"
+      ver=$(_api "$RAW_BASE/LATEST") || { [[ $(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "${AUTH_H[@]}" "$RAW_BASE/LATEST") == 404 ]] && die "nothing published in $RAW_BASE (no LATEST) or no access to a private repo (token?)"; die "release source unreachable or access denied (token?): $RAW_BASE"; }
       ver=$(tr -d ' \r\n' <<<"$ver")
       [[ "$ver" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad LATEST in $RAW_BASE: $ver"
     fi
@@ -415,6 +415,7 @@ activate_release() {
   ln -sfn "$dir" "$CURRENT_LINK"
   if [[ -n "$old" && "$old" != "$dir" ]]; then echo "$old" >"$PREVIOUS_FILE"; fi
   recordings_dir_ensure
+  storage_ensure "$dir"
   # SELinux: релиз распакован во временный каталог и унёс метку user_tmp_t — служба шла бы в init_t.
   # По штатным меткам (usr_t, var_lib_t, etc_t) — в unconfined_service_t, как любая служба из /opt.
   if have_cmd restorecon; then restorecon -R "$dir" "$DATA_DIR" "$ETC_DIR" 2>/dev/null || true; fi
@@ -455,3 +456,7 @@ prune_releases() {
 
 # Откуда берутся релизы — для сообщений меню.
 release_where() { if [[ $PROVIDER == repo ]]; then echo "$RAW_BASE"; else echo "$API_URL $PROJECT"; fi; }
+
+# Хранилище записей сеансов (SMB, NFS, диск) — помощник root по запросу службы.
+# shellcheck source=storage.sh
+source "$(dirname "${BASH_SOURCE[0]}")/storage.sh"

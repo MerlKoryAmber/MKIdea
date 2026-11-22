@@ -46,7 +46,7 @@
             }
             else             @if (_title is null)
             {
-                <div class="conn-empty"><div>Выберите хост слева и нажмите «Подключиться».</div><div class="small">Сеанс записывается.</div></div>
+                <div class="conn-empty"><div>Выберите хост слева и нажмите «Подключиться».</div><div class="small">@(RecordingStorage.CannotRecord() is { } noRec ? "Сейчас сеансы идут без записи: " + noRec + "." : "Сеанс записывается.")</div></div>
             }
         </div>
     </section>

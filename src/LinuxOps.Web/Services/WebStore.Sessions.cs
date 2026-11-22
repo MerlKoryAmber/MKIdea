@@ -13,7 +13,7 @@ public sealed partial class WebStore
         using var c = Open();
         Exec(c, "CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, start TEXT NOT NULL, end TEXT NOT NULL DEFAULT '', who TEXT NOT NULL, protocol TEXT NOT NULL, host TEXT NOT NULL, status TEXT NOT NULL DEFAULT '')");
         // служба остановилась посреди сеанса — такие сеансы уже не идут
-        Exec(c, "UPDATE sessions SET status='прерван (перезапуск службы)' WHERE status='идёт'");
+        Exec(c, "UPDATE sessions SET status='прерван (перезапуск службы)' || CASE WHEN instr(status, ' · ') > 0 THEN substr(status, instr(status, ' · ')) ELSE '' END WHERE status='идёт' OR status LIKE 'идёт · %'");
         _sessionsReady = true;
     }
 
@@ -29,7 +29,9 @@ public sealed partial class WebStore
     {
         EnsureSessions();
         using var c = Open();
-        Exec(c, "UPDATE sessions SET end=$e, status=$st WHERE id=$id", ("$id", id), ("$e", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")), ("$st", status));
+        // пометки, сделанные во время сеанса («без записи: …»), остаются после итогового статуса
+        Exec(c, "UPDATE sessions SET end=$e, status = $st || CASE WHEN instr(status, ' · ') > 0 THEN substr(status, instr(status, ' · ')) ELSE '' END WHERE id=$id",
+            ("$id", id), ("$e", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")), ("$st", status));
     }
 
     /// <summary>Пометка к статусу сеанса (запись удалена и т. п.): «статус · пометка».</summary>
