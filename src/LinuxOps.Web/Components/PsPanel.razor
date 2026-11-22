@@ -49,7 +49,7 @@
         {
             var (ok, text) = await Ps.InstallOnline(_proxy);
             _msg = text;
-            Audit.Write(S.Who, "PowerCLI: установка из интернета", (ok ? "OK: " : "ошибка: ") + text + (_proxy.Trim().Length > 0 ? $", прокси {_proxy.Trim()}" : ""));
+            Audit.Write(S.Who, "PowerCLI: установка из интернета", (ok ? "OK: " : "ошибка: ") + text + (_proxy.Trim().Length > 0 ? $", прокси {PsConsole.SafeProxy(_proxy)}" : ""));
         }
         finally { _busy = false; _status = await Ps.GetStatus(); }
     }
@@ -74,9 +74,9 @@
     {
         if (!S.Can(Perm.Vcenter)) return;
         _confirmRemove = false;
-        var n = Ps.RemoveAll();
-        Audit.Write(S.Who, "PowerCLI: модули удалены", $"папок: {n}");
-        _msg = $"Удалено папок модулей: {n}.";
+        var (ok, text) = await Ps.RemoveAll();
+        Audit.Write(S.Who, "PowerCLI: удаление модулей", (ok ? "OK: " : "ошибка: ") + text);
+        _msg = text;
         _status = await Ps.GetStatus();
     }
 }

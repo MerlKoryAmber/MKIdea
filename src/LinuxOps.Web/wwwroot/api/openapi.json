@@ -50,7 +50,7 @@
         "properties": {
           "action": { "type": "string", "example": "versions-check" },
           "hosts": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "id из /hosts" },
-          "params": { "type": "object", "additionalProperties": { "type": "string" }, "description": "только объявленные у действия; нет — значение по умолчанию" }
+          "params": { "type": "object", "additionalProperties": { "type": "string" }, "description": "только объявленные у действия (GET /actions); нет — значение по умолчанию. Туннель «через этот ПК» (UPD_VIA_PC) через API не задаётся — 403 param_forbidden" }
         }
       },
       "HostResult": {
@@ -108,16 +108,17 @@
           "202": { "description": "задание создано, результат — GET /jobs/{id}", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } },
           "400": { "description": "bad_request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "description": "action_not_readonly — действие меняет хост или не встроенное; forbidden — нет права на хост; no_access", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "action_not_readonly — действие меняет хост или не встроенное; param_forbidden — параметр закрыт для API (UPD_VIA_PC); forbidden — нет права на хост; no_access", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "404": { "description": "action_not_found, host_not_found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "429": { "description": "too_many_jobs — у учётки уже идут 3 задания", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "429": { "description": "too_many_jobs — у учётки уже идут 3 задания", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "store_busy — задание не записалось, повторите", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "get": {
         "summary": "Последние задания учётки (без результатов)",
         "responses": {
           "200": { "description": "до 50, свежие сверху", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/NoAccess" }
         }
       }
     },
@@ -127,7 +128,7 @@
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
           "200": { "description": "задание; status=running — опросить позже", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/NoAccess" },
           "404": { "description": "job_not_found (и чужое задание)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }

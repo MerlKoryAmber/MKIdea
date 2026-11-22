@@ -7,17 +7,24 @@ namespace LinuxOps.Web.Services;
 /// <summary>API (Ф8): сервисные учётки (токен — только хэш) и задания с результатами (хранятся 7 дней).</summary>
 public sealed partial class WebStore
 {
-    private bool _apiReady;
+    private volatile bool _apiReady;
+    private readonly object _apiInit = new();
 
     private void EnsureApiSchema()
     {
         if (_apiReady) return;
-        using (var c = Open())
+        lock (_apiInit)
         {
-            Exec(c, "CREATE TABLE IF NOT EXISTS api_clients(name TEXT PRIMARY KEY COLLATE NOCASE, json TEXT NOT NULL)");
-            Exec(c, "CREATE TABLE IF NOT EXISTS api_jobs(id TEXT PRIMARY KEY, client TEXT NOT NULL COLLATE NOCASE, created TEXT NOT NULL, json TEXT NOT NULL)");
+            if (_apiReady) return;
+            using (var c = Open())
+            {
+                Exec(c, "CREATE TABLE IF NOT EXISTS api_clients(name TEXT PRIMARY KEY COLLATE NOCASE, json TEXT NOT NULL)");
+                Exec(c, "CREATE TABLE IF NOT EXISTS api_jobs(id TEXT PRIMARY KEY, client TEXT NOT NULL COLLATE NOCASE, created TEXT NOT NULL, json TEXT NOT NULL)");
+                // первое обращение после старта службы: «running» из прошлого запуска уже не идут
+                FailInterruptedApiJobs(c);
+            }
+            _apiReady = true;
         }
-        _apiReady = true;
     }
 
     public List<ApiClient> LoadApiClients()
@@ -44,15 +51,57 @@ public sealed partial class WebStore
             System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(a.TokenHash), hash));
     }
 
-    public void SaveApiClient(ApiClient a)
+    /// <summary>Новая учётка. false — такая уже есть.</summary>
+    public bool AddApiClient(ApiClient a)
     {
         EnsureApiSchema();
         using var c = Open();
-        Exec(c, "INSERT INTO api_clients(name, json) VALUES($n, $j) ON CONFLICT(name) DO UPDATE SET json=$j",
-            ("$n", a.Name), ("$j", JsonSerializer.Serialize(a)));
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "INSERT INTO api_clients(name, json) VALUES($n, $j) ON CONFLICT(name) DO NOTHING";
+        cmd.Parameters.AddWithValue("$n", a.Name);
+        cmd.Parameters.AddWithValue("$j", JsonSerializer.Serialize(a));
+        return cmd.ExecuteNonQuery() == 1;
     }
 
-    /// <summary>Удалить учётку и её назначения. Задания остаются до общей чистки (для разбора).</summary>
+    /// <summary>
+    /// Изменить учётку по свежей копии из базы: запись — только если строка не поменялась с чтения (иначе ещё раз).
+    /// Так правка админа не затирает другую правку, а удалённая учётка не воскресает. null — учётки нет.
+    /// </summary>
+    public ApiClient? UpdateApiClient(string name, Action<ApiClient> change)
+    {
+        EnsureApiSchema();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            using var c = Open();
+            string? old;
+            using (var get = c.CreateCommand())
+            {
+                get.CommandText = "SELECT json FROM api_clients WHERE name=$n";
+                get.Parameters.AddWithValue("$n", name);
+                old = get.ExecuteScalar() as string;
+            }
+            if (old is null || JsonSerializer.Deserialize<ApiClient>(old, AuthJson) is not { } a) return null;
+            change(a);
+            using var put = c.CreateCommand();
+            put.CommandText = "UPDATE api_clients SET json=$j WHERE name=$n AND json=$old";
+            put.Parameters.AddWithValue("$n", name);
+            put.Parameters.AddWithValue("$old", old);
+            put.Parameters.AddWithValue("$j", JsonSerializer.Serialize(a));
+            if (put.ExecuteNonQuery() == 1) return a;
+        }
+        throw new InvalidOperationException($"Учётку API {name} меняют одновременно — повторите.");
+    }
+
+    /// <summary>Время последнего запроса — только это поле: запрос с токеном не перепишет учётку, которую в это время меняет админ.</summary>
+    public void TouchApiClient(string name, DateTime utc)
+    {
+        EnsureApiSchema();
+        using var c = Open();
+        Exec(c, "UPDATE api_clients SET json=json_set(json, '$.LastUsed', $t) WHERE name=$n",
+            ("$n", name), ("$t", utc.ToUniversalTime().ToString("O")));
+    }
+
+    /// <summary>Удалить учётку, её назначения и задания: новая учётка с тем же именем не увидит чужих результатов.</summary>
     public int DeleteApiClient(string name)
     {
         EnsureApiSchema();
@@ -60,8 +109,14 @@ public sealed partial class WebStore
         foreach (var a in gone) DeleteAssignment(a.Id);
         using var c = Open();
         Exec(c, "DELETE FROM api_clients WHERE name=$n", ("$n", name));
+        Exec(c, "DELETE FROM api_jobs WHERE client=$n", ("$n", name));
         return gone.Count;
     }
+
+    /// <summary>Задания, оборванные остановкой службы (остались «running»), — в «failed». Из EnsureApiSchema под замком, раз за запуск.</summary>
+    private static void FailInterruptedApiJobs(Microsoft.Data.Sqlite.SqliteConnection c) =>
+        Exec(c, "UPDATE api_jobs SET json=json_set(json, '$.status', 'failed', '$.message', $m, '$.finished', $t) WHERE json_extract(json, '$.status')='running'",
+            ("$m", "прервано: служба LinuxOps Web перезапускалась во время задания"), ("$t", DateTime.UtcNow.ToString("O")));
 
     public void SaveApiJob(ApiJob j)
     {
@@ -81,7 +136,7 @@ public sealed partial class WebStore
         return cmd.ExecuteScalar() is string s ? JsonSerializer.Deserialize<ApiJob>(s, ApiJob.Json) : null;
     }
 
-    /// <summary>Задания учётки за последние сутки (свежие сверху) — для списка в API.</summary>
+    /// <summary>Последние задания учётки (свежие сверху, не больше limit; старше 7 дней убирает PruneApiJobs) — для списка в API.</summary>
     public List<ApiJob> LoadApiJobs(string client, int limit = 50)
     {
         EnsureApiSchema();

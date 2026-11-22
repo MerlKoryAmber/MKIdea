@@ -29,6 +29,7 @@ public static class WebPaths
     /// <summary>
     /// Консоль PowerShell (Ф5): учётка ОС с оболочкой pwsh, вход guacd по SSH на этот сервер ключом сервиса;
     /// модули (PowerCLI) — в каталоге, который пишет сервис и читает учётка. Всё создаёт install.sh (ps_account_ensure).
+    /// На сервере пути закреплены установщиком (профиль консоли, ReadWritePaths юнита) — переменные окружения только для разработки.
     /// </summary>
     public static string PsUser { get; } = Resolve("LINUXOPS_WEB_PS_USER", "linuxops-ps");
     public static string PsKey { get; } = Resolve("LINUXOPS_WEB_PS_KEY", "/etc/linuxops-web/ps_ed25519");

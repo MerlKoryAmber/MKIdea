@@ -326,13 +326,14 @@ SH
   install -d -o "$PS_USER" -g "$PS_USER" -m 700 "$PS_HOME/.config" "$PS_HOME/.config/powershell"
   cat >"$PS_HOME/.config/powershell/Microsoft.PowerShell_profile.ps1" <<'PS1'
 # LinuxOps Web: модули, поставленные из ⚙ (PowerCLI), — первыми в пути поиска.
-$env:PSModulePath = '/var/lib/linuxops-web-ps/Modules' + [IO.Path]::PathSeparator + $env:PSModulePath
+$env:PSModulePath = '__PS_MODULES__' + [IO.Path]::PathSeparator + $env:PSModulePath
 if (Get-Module -ListAvailable -Name VMware.VimAutomation.Core) {
     Write-Host 'PowerCLI есть: Connect-VIServer -Server <vcenter>' -ForegroundColor DarkGray
 } else {
     Write-Host 'PowerCLI не установлен: шестерёнка (настройки LinuxOps Web) → «PowerShell и PowerCLI».' -ForegroundColor DarkGray
 }
 PS1
+  sed -i "s#__PS_MODULES__#$PS_MOD_DIR/Modules#" "$PS_HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
   chown "$PS_USER:$PS_USER" "$PS_HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
   # PowerCLI: без программы сбора данных VMware (CEIP) по умолчанию. Файл уже есть — выбор админа не трогаем.
   local cli_dir="$PS_HOME/.local/share/VMware/PowerCLI"
@@ -342,8 +343,27 @@ PS1
     chown "$PS_USER:$PS_USER" "$cli_dir/PowerCLI_Settings.xml"; chmod 600 "$cli_dir/PowerCLI_Settings.xml"
   fi
   if have_cmd restorecon; then restorecon -R "$PS_HOME" "$PS_MOD_DIR" "$PS_SHELL" 2>/dev/null || true; fi
-  local allow; allow=$(sshd -T 2>/dev/null | awk '$1=="allowusers"{ $1=""; print }')
-  if [[ -n $allow && " $allow " != *" $PS_USER "* ]]; then warn "sshd AllowUsers does not include $PS_USER — PowerShell console will not connect"; fi
+  ps_sshd_check
+}
+
+# Пустит ли sshd учётку консоли с 127.0.0.1: настройки для этого входа (с учётом блоков Match) —
+# AllowUsers / AllowGroups / DenyUsers / DenyGroups. Только предупреждение: sshd_config — дело админа сервера.
+ps_sshd_check() {
+  local cfg groups g
+  cfg=$(sshd -T -C "user=$PS_USER,host=localhost,addr=127.0.0.1" 2>/dev/null) || return 0
+  groups=" $(id -Gn "$PS_USER" 2>/dev/null) "
+  _ps_list() { awk -v k="$1" '$1==k{ $1=""; print }' <<<"$cfg" | tr -s ' ' '\n' | sed '/^$/d'; }
+  _ps_has() { local x; for x in $1; do [[ $x == "$2" || $x == "*" ]] && return 0; done; return 1; }
+  local au ag du dg why=""
+  au=$(_ps_list allowusers); ag=$(_ps_list allowgroups); du=$(_ps_list denyusers); dg=$(_ps_list denygroups)
+  [[ -n $au ]] && ! _ps_has "$au" "$PS_USER" && why="AllowUsers"
+  if [[ -n $ag ]]; then
+    local ok=0; for g in $groups; do _ps_has "$ag" "$g" && ok=1; done
+    (( ok )) || why="${why:+$why, }AllowGroups"
+  fi
+  _ps_has "$du" "$PS_USER" && why="${why:+$why, }DenyUsers"
+  for g in $groups; do _ps_has "$dg" "$g" && { why="${why:+$why, }DenyGroups"; break; }; done
+  [[ -z $why ]] || warn "sshd ($why) does not let $PS_USER in from 127.0.0.1 — PowerShell console will not connect"
 }
 
 # Сделать релиз текущим: юнит из него, перезапуск, проверка. Не поднялся — назад на прежний.

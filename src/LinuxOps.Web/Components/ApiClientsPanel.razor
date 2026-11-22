@@ -95,13 +95,21 @@
         _name = ""; _desc = c?.Description ?? "";
     }
 
-    private void Issue(ApiClient c)
+    private static string SetToken(ApiClient c)
     {
         var token = ApiClient.NewToken();
         c.TokenHash = ApiClient.Hash(token);
         c.TokenHint = token[..8];
-        Store.SaveApiClient(c);
-        _token = token; _tokenFor = c.Name;
+        return token;
+    }
+
+    /// <summary>Правка выбранной учётки по свежей копии из базы; её уже нет — сообщение и обновлённый список.</summary>
+    private ApiClient? Change(Action<ApiClient> change)
+    {
+        var name = _sel!.Name;
+        var c = Store.UpdateApiClient(name, change);
+        if (c is null) { _msg = $"«{name}» уже удалена."; Pick(null); Reload(); }
+        return c;
     }
 
     private async Task Create()
@@ -109,9 +117,10 @@
         if (!S.Can(Perm.Settings)) return;
         var name = _name.Trim();
         if (!LocalUser.ValidLogin(name)) { _msg = "Имя: латиница, цифры, . _ - ; от 2 до 64 символов."; return; }
-        if (Store.LoadApiClient(name) is not null) { _msg = "Такая учётка уже есть."; return; }
         var c = new ApiClient { Name = name, Description = _desc.Trim() };
-        Issue(c);
+        var token = SetToken(c);
+        if (!Store.AddApiClient(c)) { _msg = "Такая учётка уже есть."; return; }
+        _token = token; _tokenFor = c.Name;
         Audit.Write(S.Who, "API: учётка заведена", $"{c.Name} ({c.Description}), токен {c.TokenHint}…");
         Reload();
         Pick(_clients.FirstOrDefault(x => x.Name == c.Name));
@@ -122,8 +131,10 @@
     private void Reissue()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
-        Issue(_sel);
-        Audit.Write(S.Who, "API: новый токен", $"{_sel.Name}, токен {_sel.TokenHint}… — старый не действует");
+        string token = "";
+        if (Change(c => token = SetToken(c)) is not { } done) return;
+        _token = token; _tokenFor = done.Name;
+        Audit.Write(S.Who, "API: новый токен", $"{done.Name}, токен {done.TokenHint}… — старый не действует");
         _msg = "Выпущен новый токен; старый уже не действует.";
         Reload();
     }
@@ -131,9 +142,9 @@
     private void SaveSel()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
-        _sel.Description = _desc.Trim();
-        Store.SaveApiClient(_sel);
-        Audit.Write(S.Who, "API: учётка изменена", $"{_sel.Name}: {_sel.Description}");
+        var desc = _desc.Trim();
+        if (Change(c => c.Description = desc) is not { } done) return;
+        Audit.Write(S.Who, "API: учётка изменена", $"{done.Name}: {done.Description}");
         _msg = "Сохранено.";
         Reload();
     }
@@ -141,10 +152,11 @@
     private void ToggleEnabled()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
-        _sel.Enabled = !_sel.Enabled;
-        Store.SaveApiClient(_sel);
-        Audit.Write(S.Who, _sel.Enabled ? "API: учётка включена" : "API: учётка выключена", _sel.Name);
-        _msg = _sel.Enabled ? "Включена." : "Выключена: запросы с её токеном — отказ (401).";
+        // кнопка показывает состояние на момент отрисовки — его и меняем, а не то, что успело стать в базе
+        var enable = !_sel.Enabled;
+        if (Change(c => c.Enabled = enable) is not { } done) return;
+        Audit.Write(S.Who, done.Enabled ? "API: учётка включена" : "API: учётка выключена", done.Name);
+        _msg = done.Enabled ? "Включена." : "Выключена: запросы с её токеном — отказ (401).";
         Reload();
     }
 

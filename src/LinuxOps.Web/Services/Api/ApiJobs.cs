@@ -49,8 +49,9 @@ public sealed class ApiJob
 }
 
 /// <summary>
-/// Запуск действий через API (Ф8). Только встроенные действия с пометкой «только чтение» и без пометки «опасное»,
-/// и всегда в режиме dry-run (меняющее действие в нём только описывает, что сделало бы) — две защиты, а не одна.
+/// Запуск действий через API (Ф8). Только встроенные действия с пометкой «только чтение» и без пометки «опасное».
+/// Защита — именно этот список: режим dry-run (apply:false) сдерживает только «опасные» действия, а их здесь нет,
+/// так что скрипт действия выполняется целиком. Параметры, которые меняют что-то вне хоста (туннель «через этот ПК»), закрыты.
 /// Нужно право «Опрос и Dry-run» на каждом хосте. Ключи хостов — только уже подтверждённые (спросить некого).
 /// Хосты на время — под замком, как у людей; итог — в History и аудит от имени учётки.
 /// </summary>
@@ -62,6 +63,14 @@ public sealed class ApiJobs(WebStore store, HostLocks locks, AuditLog audit, ILo
     /// <summary>Что доступно через API: встроенное, «только чтение», не «опасное», bash.</summary>
     public static IEnumerable<ActionDefinition> ReadOnlyActions =>
         BuiltinActions.All.Where(a => a.ReadOnly && !a.Destructive && !a.IsPowerShell);
+
+    /// <summary>
+    /// Параметры, которых в API нет: туннель «через этот ПК» открывает хосту выход в интернет через сервер —
+    /// по подсказке действия только по согласованию с ИБ, решает человек, а не внешний сервис. Всегда — значение по умолчанию.
+    /// </summary>
+    public static readonly HashSet<string> ClosedParams = new(StringComparer.OrdinalIgnoreCase) { VersionsCheck.ViaPcParam };
+
+    public static IEnumerable<ActionParam> ApiParams(ActionDefinition a) => a.Parameters.Where(p => !ClosedParams.Contains(p.Name));
 
     public sealed record StartResult(int Code, string Error = "", string Message = "", ApiJob? Job = null);
 
@@ -95,12 +104,17 @@ public sealed class ApiJobs(WebStore store, HostLocks locks, AuditLog audit, ILo
             }
             hosts.Add(h);
         }
-        // параметры — только объявленные у действия; остальное — значения по умолчанию
-        var p = new Dictionary<string, string>();
-        foreach (var prm in action.Parameters)
-            p[prm.Name] = args is not null && args.TryGetValue(prm.Name, out var v) ? v : prm.Default;
+        // параметры — только объявленные у действия и открытые для API; остальное — значения по умолчанию
+        if (args?.Keys.FirstOrDefault(k => ClosedParams.Contains(k)) is { } closed)
+        {
+            audit.Write(who, "API: отказ", $"{action.Name}: параметр «{closed}» через API не задаётся");
+            return new(403, "param_forbidden", $"Параметр «{closed}» через API не задаётся (туннель через сервер — только из панели).");
+        }
         if (args?.Keys.FirstOrDefault(k => action.Parameters.All(x => x.Name != k)) is { } extra)
             return new(400, "bad_request", $"У действия нет параметра «{extra}».");
+        var p = new Dictionary<string, string>();
+        foreach (var prm in action.Parameters)
+            p[prm.Name] = !ClosedParams.Contains(prm.Name) && args is not null && args.TryGetValue(prm.Name, out var v) ? v : prm.Default;
 
         try { store.PruneApiJobs(TimeSpan.FromDays(7)); } catch (Exception ex) { log.LogWarning(ex, "API: чистка заданий"); }
         var n = _running.AddOrUpdate(client.Name, 1, (_, c) => c + 1);
@@ -114,7 +128,14 @@ public sealed class ApiJobs(WebStore store, HostLocks locks, AuditLog audit, ILo
             Client = client.Name, Action = action.Id, ActionName = action.Name, Params = p,
             Hosts = hosts.Select(h => h.Config.Title).ToList()
         };
-        store.SaveApiJob(job);
+        try { store.SaveApiJob(job); }
+        catch (Exception ex)
+        {
+            // задание не началось — место в лимите учётки вернуть
+            _running.AddOrUpdate(client.Name, 0, (_, c) => Math.Max(0, c - 1));
+            log.LogError(ex, "API: сохранить новое задание");
+            return new(503, "store_busy", "Не удалось записать задание — повторите позже.");
+        }
         audit.Write(who, "API: запуск", $"{action.Name} на {string.Join(", ", job.Hosts)} · задание {job.Id}");
         _ = Task.Run(() => Run(job, action, hosts, who));
         return new(202, Job: job);
@@ -131,7 +152,14 @@ public sealed class ApiJobs(WebStore store, HostLocks locks, AuditLog audit, ILo
             foreach (var b in busy)
                 if (keys.TryGetValue(b.Key, out var bh))
                     job.Results.Add(new ApiHostResult { HostId = bh.Id, Host = bh.Config.Title, Status = "SKIP", Summary = $"занят: {b.By.Who}, {b.By.What}" });
-            var free = hosts.Where(h => got.Contains(HostLocks.Key(h.Config.Host, h.Config.Port), StringComparer.OrdinalIgnoreCase)).ToList();
+            // две записи Inventory на один адрес и порт — одна машина: идёт первая, остальные — SKIP (замок у них общий)
+            foreach (var dup in hosts.Where(h => !ReferenceEquals(keys[HostLocks.Key(h.Config.Host, h.Config.Port)], h)))
+                job.Results.Add(new ApiHostResult
+                {
+                    HostId = dup.Id, Host = dup.Config.Title, Status = "SKIP",
+                    Summary = $"тот же адрес, что у {keys[HostLocks.Key(dup.Config.Host, dup.Config.Port)].Config.Title}, — проверяется один раз"
+                });
+            var free = keys.Values.Where(h => got.Contains(HostLocks.Key(h.Config.Host, h.Config.Port), StringComparer.OrdinalIgnoreCase)).ToList();
             var map = new Dictionary<HostConfig, StoredHost>();
             var connect = free.Select(h => { var c = store.ForConnect(h); map[c] = h; return c; }).ToList();
             var gate = new object();

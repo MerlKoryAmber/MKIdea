@@ -18,7 +18,21 @@ public static class ApiEndpoints
 
     public sealed record JobRequest(string? Action, List<string>? Hosts, Dictionary<string, string>? Params);
 
-    private static readonly ConcurrentDictionary<string, DateTime> BadTokenLogged = new();
+    // отказы в аудит — не чаще раза в минуту на ключ (адрес или учётку): перебор токенов не засорит журнал
+    private static readonly ConcurrentDictionary<string, DateTime> DenyLogged = new();
+    private const int DenyLoggedMax = 10_000;
+
+    private static bool ShouldLogDeny(string key)
+    {
+        var now = DateTime.UtcNow;
+        if (DenyLogged.TryGetValue(key, out var last) && now - last <= TimeSpan.FromMinutes(1)) return false;
+        if (DenyLogged.Count >= DenyLoggedMax)
+            foreach (var kv in DenyLogged)
+                if (now - kv.Value > TimeSpan.FromMinutes(1)) DenyLogged.TryRemove(kv.Key, out _);
+        // и после чистки полно (идёт перебор с тысяч адресов) — пишем, но не запоминаем: журнал важнее памяти
+        if (DenyLogged.Count < DenyLoggedMax) DenyLogged[key] = now;
+        return true;
+    }
 
     private static IResult Error(int status, string code, string message) =>
         Results.Json(new { error = new { code, message } }, ApiJob.Json, statusCode: status);
@@ -32,25 +46,19 @@ public static class ApiEndpoints
         var client = token.StartsWith(ApiClient.Prefix) ? store.FindApiClient(token) : null;
         if (client is null || !client.Enabled)
         {
-            // неверный токен — в аудит не чаще раза в минуту с одного адреса
-            if (BadTokenLogged.TryGetValue(ip, out var last) is false || DateTime.UtcNow - last > TimeSpan.FromMinutes(1))
-            {
-                BadTokenLogged[ip] = DateTime.UtcNow;
+            if (ShouldLogDeny("ip:" + ip))
                 audit.Write($"api ({ip})", "API: отказ", client is null ? (token.Length == 0 ? "нет токена" : "неверный токен") : $"учётка {client.Name} выключена");
-            }
             return (null, Error(401, "unauthorized", "Нужен действующий токен: Authorization: Bearer lo_…"));
         }
         var user = UserInfo.Build(client.Name, client.Name, UserKind.Api, new List<string>(), store.LoadRoles(), store.LoadAssignments());
         if (user.Grants.Count == 0)
         {
-            audit.Write($"api:{client.Name} ({ip})", "API: отказ", "у учётки нет назначений");
+            if (ShouldLogDeny("client:" + client.Name))
+                audit.Write($"api:{client.Name} ({ip})", "API: отказ", "у учётки нет назначений");
             return (null, Error(403, "no_access", "У учётки нет назначений в LinuxOps Web."));
         }
         if (client.LastUsed is null || DateTime.UtcNow - client.LastUsed > TimeSpan.FromMinutes(1))
-        {
-            client.LastUsed = DateTime.UtcNow;
-            store.SaveApiClient(client);
-        }
+            store.TouchApiClient(client.Name, DateTime.UtcNow);
         return (new Caller(client, user, ip), null);
     }
 
@@ -68,7 +76,7 @@ public static class ApiEndpoints
             return Results.Json(ApiJobs.ReadOnlyActions.Select(a => new
             {
                 id = a.Id, name = a.Name, description = a.Description, distros = a.Distros, timeout_seconds = a.TimeoutSeconds,
-                @params = a.Parameters.Select(p => new { name = p.Name, label = p.Label, kind = p.Kind.Length > 0 ? p.Kind : "text", @default = p.Default })
+                @params = ApiJobs.ApiParams(a).Select(p => new { name = p.Name, label = p.Label, kind = p.Kind.Length > 0 ? p.Kind : "text", @default = p.Default })
             }), ApiJob.Json);
         });
 

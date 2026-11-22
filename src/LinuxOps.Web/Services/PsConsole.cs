@@ -12,6 +12,8 @@ namespace LinuxOps.Web.Services;
 public sealed class PsConsole(ILogger<PsConsole> log)
 {
     public const string CoreModule = "VMware.VimAutomation.Core";
+    /// <summary>Распакованный ZIP — не больше (PowerCLI целиком ≈ 300 МБ).</summary>
+    public const long MaxUnpacked = 2L * 1024 * 1024 * 1024;
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     public sealed record Status(string? Pwsh, string? PowerCli, bool Ready, string Problem);
@@ -77,6 +79,15 @@ public sealed class PsConsole(ILogger<PsConsole> log)
                 }
             }
             var dir = Path.Combine(temp, "x");
+            // распакованный размер — по оглавлению, до распаковки: ZIP-бомба не заполнит /tmp
+            try
+            {
+                using var z = ZipFile.OpenRead(file);
+                long unpacked = 0;
+                foreach (var en in z.Entries) unpacked += en.Length;
+                if (unpacked > MaxUnpacked) return (false, $"Распакованный архив больше {MaxUnpacked / 1024 / 1024} МБ.");
+            }
+            catch (InvalidDataException) { return (false, "Это не ZIP."); }
             try { ZipFile.ExtractToDirectory(file, dir); }
             catch (InvalidDataException) { return (false, "Это не ZIP."); }
             catch (IOException ex) { return (false, "Архив не распаковался: " + ex.Message); }
@@ -92,13 +103,31 @@ public sealed class PsConsole(ILogger<PsConsole> log)
         }
     }
 
-    /// <summary>Убрать все модули из каталога консоли.</summary>
-    public int RemoveAll()
+    /// <summary>Убрать все модули из каталога консоли. Идёт установка — не трогаем.</summary>
+    public async Task<(bool Ok, string Text)> RemoveAll()
     {
-        if (!Directory.Exists(WebPaths.PsModules)) return 0;
-        var dirs = Directory.GetDirectories(WebPaths.PsModules);
-        foreach (var d in dirs) Directory.Delete(d, true);
-        return dirs.Length;
+        if (!await Gate.WaitAsync(0)) return (false, "Идёт установка — удалить модули после неё.");
+        try
+        {
+            if (!Directory.Exists(WebPaths.PsModules)) return (true, "Модулей нет.");
+            var dirs = Directory.GetDirectories(WebPaths.PsModules);
+            foreach (var d in dirs) Directory.Delete(d, true);
+            return (true, $"Удалено папок модулей: {dirs.Length}.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.LogWarning(ex, "PowerCLI: удаление модулей");
+            return (false, "Не удалось удалить: " + ex.Message);
+        }
+        finally { Gate.Release(); }
+    }
+
+    /// <summary>Адрес прокси без логина и пароля — для аудита и сообщений.</summary>
+    public static string SafeProxy(string proxy)
+    {
+        proxy = proxy.Trim();
+        return Uri.TryCreate(proxy, UriKind.Absolute, out var u) && u.UserInfo.Length > 0
+            ? $"{u.Scheme}://***@{u.Authority.Split('@')[^1]}" : proxy;
     }
 
     private static IEnumerable<string> FindModules(string dir, int depth)
@@ -114,15 +143,25 @@ public sealed class PsConsole(ILogger<PsConsole> log)
         }
     }
 
+    // Права файлов из архива не берём: учётка консоли читает модули через группу — файлы 640.
+    // Папки не трогаем: новая папка в каталоге модулей (2750, группа linuxops-ps) сама наследует группу и setgid,
+    // а chmod от сервиса setgid снял бы (сервис не в группе linuxops-ps) — и папки глубже получили бы чужую группу.
+    private const UnixFileMode FileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead;
+
     private static void CopyDir(string from, string to)
     {
         Directory.CreateDirectory(to);
-        foreach (var f in Directory.EnumerateFiles(from)) File.Copy(f, Path.Combine(to, Path.GetFileName(f)), overwrite: true);
+        foreach (var f in Directory.EnumerateFiles(from))
+        {
+            var dest = Path.Combine(to, Path.GetFileName(f));
+            File.Copy(f, dest, overwrite: true);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(dest, FileMode);
+        }
         foreach (var d in Directory.EnumerateDirectories(from)) CopyDir(d, Path.Combine(to, Path.GetFileName(d)));
     }
 
     private static string FirstLine(string s) =>
-        s.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(l => l.Length > 0) ?? "нет ответа";
+        System.Text.RegularExpressions.Regex.Replace(s, @"\x1B\[[0-9;?]*[A-Za-z]", "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(l => l.Length > 0) ?? "нет ответа";
 
     /// <summary>pwsh -NoProfile -Command; без телеметрии; прокси — переменными окружения.</summary>
     private static async Task<(int Code, string Out, string Err)> Run(string script, TimeSpan timeout, string proxy = "")
@@ -135,6 +174,8 @@ public sealed class PsConsole(ILogger<PsConsole> log)
         foreach (var a in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script }) psi.ArgumentList.Add(a);
         psi.Environment["POWERSHELL_TELEMETRY_OPTOUT"] = "1";
         psi.Environment["POWERSHELL_UPDATECHECK"] = "Off";
+        // ошибки — простым текстом, без цветовых кодов терминала: уходят в окно и аудит
+        psi.Environment["NO_COLOR"] = "1";
         if (proxy.Trim().Length > 0) { psi.Environment["HTTPS_PROXY"] = proxy.Trim(); psi.Environment["HTTP_PROXY"] = proxy.Trim(); }
         try
         {

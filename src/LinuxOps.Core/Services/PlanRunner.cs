@@ -131,7 +131,7 @@ public sealed class PlanRunner
                         $"не для family={distro.Family}",
                         $"Действие {action.Id} не поддерживает {distro.Family}.",
                         ok: true);
-                    progress.Report(new PlanProgress { Row = skip });
+                    progress.Report(new PlanProgress { Row = skip, Host = host });
                     Remember(history, ToHistory(mode, host.Name, action.Name, skip));
                     continue;
                 }
@@ -145,7 +145,7 @@ public sealed class PlanRunner
                 {
                     var scriptFail = MakeRow("FAIL", $"{host.Name} · {action.Name}",
                         ex.Message, ex.ToString(), ok: false);
-                    progress.Report(new PlanProgress { Row = scriptFail });
+                    progress.Report(new PlanProgress { Row = scriptFail, Host = host });
                     Remember(history, ToHistory(mode, host.Name, action.Name, scriptFail));
                     continue;
                 }
@@ -172,7 +172,7 @@ public sealed class PlanRunner
                         sim.ActionName = action.Name;
                         var simRow = FromActionResult(host.Name, action.Name, sim, simTunnel, isPreview: true);
                         simRow = MakeRow("DRY-RUN", simRow.Title, simRow.Preview, simRow.Detail, sim.Ok, simRow.PackageUpdate);
-                        progress.Report(new PlanProgress { Row = simRow });
+                        progress.Report(new PlanProgress { Row = simRow, Host = host });
                         Remember(history, ToHistory(mode, host.Name, action.Name, simRow));
                     }
                     else
@@ -180,7 +180,7 @@ public sealed class PlanRunner
                         var dry = MakeRow("DRY-RUN", $"{host.Name} · {action.Name}",
                             "скрипт не выполнялся",
                             script, ok: true);
-                        progress.Report(new PlanProgress { Row = dry });
+                        progress.Report(new PlanProgress { Row = dry, Host = host });
                         Remember(history, ToHistory(mode, host.Name, action.Name, dry));
                     }
 
