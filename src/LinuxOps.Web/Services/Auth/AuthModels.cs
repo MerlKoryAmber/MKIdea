@@ -25,7 +25,7 @@ public static class Perm
         (FleetView, "Vulnerabilities: версии ПО и CVE по своим хостам"),
         (RunCheck, "Опрос и Dry-run (только чтение на хостах)"),
         (RunApply, "Применять: изменения на хостах, обновления, пользователи"),
-        (HostsEdit, "Inventory: добавлять и менять хосты, папки, пароли и ключи"),
+        (HostsEdit, "Inventory: хосты, папки, пароли и ключи (только встроенная «Админ»)"),
         (Terminal, "Терминал SSH (под учёткой хоста — обычно полный доступ)"),
         (Rdp, "RDP (вход своей доменной учёткой)"),
         (FilesRead, "Файлы: смотреть и скачивать"),
@@ -36,10 +36,11 @@ public static class Perm
     };
 
     /// <summary>Действуют только из назначения на «всё»: у них нет объекта.</summary>
-    public static readonly HashSet<string> Global = new() { AuditView, Settings, Vcenter };
+    public static readonly HashSet<string> Global = new() { AuditView, Settings, Vcenter, HostsEdit };
 
     /// <summary>В своих ролях не выдаются.</summary>
-    public static readonly HashSet<string> AdminOnly = new() { Vcenter };
+    /// Inventory — только админы (владелец, 22.11.2026): остальным вкладка не показывается.
+    public static readonly HashSet<string> AdminOnly = new() { Vcenter, HostsEdit };
 
     public static string Short(string id) => id switch
     {
@@ -62,7 +63,7 @@ public sealed class Role
     {
         new() { Id = "admin", Name = "Админ", Builtin = true, Perms = Perm.All.Select(p => p.Id).ToList() },
         new() { Id = "operator", Name = "Оператор", Builtin = true,
-                Perms = { Perm.HostsView, Perm.FleetView, Perm.RunCheck, Perm.RunApply, Perm.HostsEdit, Perm.Terminal, Perm.Rdp, Perm.FilesRead, Perm.FilesWrite } },
+                Perms = { Perm.HostsView, Perm.FleetView, Perm.RunCheck, Perm.RunApply, Perm.Terminal, Perm.Rdp, Perm.FilesRead, Perm.FilesWrite } },
         new() { Id = "auditor", Name = "Аудитор", Builtin = true, Perms = { Perm.HostsView, Perm.FleetView, Perm.RunCheck, Perm.FilesRead, Perm.AuditView } },
         new() { Id = "viewer", Name = "Просмотр", Builtin = true, Perms = { Perm.HostsView } }
     };

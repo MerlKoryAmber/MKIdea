@@ -38,7 +38,7 @@
     <main class="body">
         @switch (S.Tab)
         {
-            case "inventory": <InventoryTab S="S" />; break;
+            case "inventory" when S.Can(Perm.HostsEdit): <InventoryTab S="S" />; break;
             case "actions": <ActionsTab S="S" />; break;
             case "history": <HistoryTab S="S" />; break;
             case "fleet": <FleetTab S="S" />; break;
@@ -89,6 +89,7 @@
             "terminal" => S.Can(Perm.Terminal) || S.Can(Perm.Rdp),
             "powershell" => S.Can(Perm.Vcenter),
             "fleet" => S.Can(Perm.FleetView),
+            "inventory" => S.Can(Perm.HostsEdit),
             _ => true
         });
 

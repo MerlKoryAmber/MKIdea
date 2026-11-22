@@ -35,6 +35,14 @@
                 if (!p) { legacy(); return; }
                 p.then(function () { show('Скопировано'); }, legacy);
             },
+            // файл из памяти (base64) — шаблон CSV и т. п.
+            saveData: function (name, type, b64) {
+                const bin = atob(b64), buf = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+                const url = URL.createObjectURL(new Blob([buf], { type: type }));
+                const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+            },
             download: function (url) { const a = document.createElement("a"); a.href = url; a.download = ""; document.body.appendChild(a); a.click(); a.remove(); },
             logout: function () { document.getElementById("lo-logout")?.submit(); }
         };

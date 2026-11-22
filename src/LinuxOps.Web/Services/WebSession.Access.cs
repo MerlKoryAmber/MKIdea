@@ -28,7 +28,7 @@ public sealed partial class WebSession
     private bool Under(string id, string ancestor) => Access.Under(id, ancestor, _allFolders);
 
     /// <summary>Право на папке (folderId "" — корень: только назначение на «всё»).</summary>
-    public bool CanOnFolder(string perm, string folderId) => User.Grants.Any(g => g.Perms.Contains(perm) &&
+    public bool CanOnFolder(string perm, string folderId) => User.Grants.Any(g => g.Perms.Contains(perm) && (!Perm.Global.Contains(perm) || g.Scope == Scope.All) &&
         (g.Scope == Scope.All || (g.Scope == Scope.Folder && folderId.Length > 0 && Under(folderId, g.ObjectId))));
 
     /// <summary>Право на хосте: на «всё», на сам хост или на папку над ним.</summary>

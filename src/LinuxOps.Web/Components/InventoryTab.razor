@@ -10,7 +10,9 @@
                 <button class="btn" style="min-width:90px;margin-right:16px" title="Новая папка — внутри выделенной" @onclick="AddFolder" disabled="@(!CanAdd)">+ Папка</button>
                 <button class="btn" style="min-width:96px" title="Хост — правка, папка — переименовать (или двойной щелчок)" @onclick="Edit" disabled="@(!CanEdit(_sel))">Изменить</button>
                 <button class="btn" style="min-width:110px" @onclick="Duplicate" disabled="@(_sel is not StoredHost || !CanAdd)">Дублировать</button>
-                <button class="btn" style="min-width:96px" title="Папка удаляется без хостов: они переезжают на уровень выше" @onclick="Remove" disabled="@(!CanDelete(_sel))">Удалить</button>
+                <button class="btn" style="min-width:96px;margin-right:16px" title="Папка удаляется без хостов: они переезжают на уровень выше" @onclick="Remove" disabled="@(!CanDelete(_sel))">Удалить</button>
+                <button class="btn" style="min-width:96px" title="Хосты списком из CSV: шаблон — в окне импорта" @onclick="() => _import = true" disabled="@Ro">Импорт…</button>
+                <button class="btn" style="min-width:120px" title="Логин и ключ или пароль сразу на несколько хостов Linux (выделенная папка — все её хосты)" @onclick="() => _creds = true" disabled="@Ro">Учётка SSH…</button>
             </div>
         </div>
         <div class="scroll tree-wrap" style="margin:8px">
@@ -45,6 +47,14 @@
 {
     <AccessPanel S="S" Item="_access" OnClose="() => _access = null" />
 }
+@if (_import)
+{
+    <ImportPanel S="S" OnClose="() => _import = false" />
+}
+@if (_creds)
+{
+    <CredsPanel S="S" Start="_sel" OnClose="() => _creds = false" />
+}
 
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
@@ -52,6 +62,7 @@
     private object? _sel;
     private (object Item, double X, double Y)? _menu;
     private object? _access;
+    private bool _import, _creds;
 
     private void ShowMenu((object Item, double X, double Y) m) => _menu = m;
 

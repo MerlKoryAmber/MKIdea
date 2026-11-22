@@ -14,7 +14,8 @@ public static class Access
     }
 
     public static bool CanOn(UserInfo user, string perm, StoredHost h, IReadOnlyList<HostFolder> folders) =>
-        user.Grants.Any(g => g.Perms.Contains(perm) &&
+        // глобальные права (Inventory, настройки, аудит, vCenter) — только из назначения на «всё»
+        user.Grants.Any(g => g.Perms.Contains(perm) && (!Perm.Global.Contains(perm) || g.Scope == Scope.All) &&
             (g.Scope == Scope.All || (g.Scope == Scope.Host && g.ObjectId == h.Id) ||
              (g.Scope == Scope.Folder && Under(h.Config.FolderId, g.ObjectId, folders))));
 }

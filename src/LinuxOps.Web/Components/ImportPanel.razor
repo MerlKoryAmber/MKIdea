@@ -1,0 +1,91 @@
+@* Inventory → «Импорт…»: хосты из CSV (0.7.5). Файл → предпросмотр с итогом по каждой строке → «Добавить». Сохраняет только строки «добавить». *@
+@inject IJSRuntime JS
+
+<div class="overlay" @onclick="Close">
+    <div class="window import-window" @onclick:stopPropagation="true">
+        <div class="window-title">Импорт хостов из CSV</div>
+        <div class="window-body">
+            <div class="muted small" style="margin-bottom:8px">
+                Колонки: <b>имя; адрес; порт; тип; папка; логин</b>. Обязателен только адрес. Тип — linux (по умолчанию) или windows; порт по умолчанию 22 или 3389.
+                Папка — путь «Отдел А/Web», нет такой — будет создана. Хост с адресом, который уже есть, пропускается. Пароли и ключи — потом, кнопкой «Учётка SSH…».
+            </div>
+            <div class="wrap">
+                <label class="btn file-btn">Выбрать файл…<InputFile OnChange="Pick" accept=".csv,.txt,text/csv" style="display:none" /></label>
+                <button class="btn" style="margin-left:6px" @onclick="Template">Скачать шаблон</button>
+                <span class="small" style="margin-left:8px">@_file</span>
+            </div>
+            @if (_error.Length > 0) { <div class="error">@_error</div> }
+            @if (_rows.Count > 0)
+            {
+                <div class="small" style="margin:10px 0 6px">
+                    Добавить: <b>@_rows.Count(r => r.Ok)</b>
+                    @if (_rows.Any(r => !r.Ok))
+                    {
+                        <span> · пропустить: <b>@_rows.Count(r => !r.Ok)</b></span>
+                    }
+                </div>
+                <div class="scroll import-table">
+                    <table class="grid">
+                        <thead><tr><th style="width:52px">Стр.</th><th>Имя</th><th>Адрес</th><th style="width:60px">Порт</th><th style="width:70px">Тип</th><th>Папка</th><th>Логин</th><th>Итог</th></tr></thead>
+                        <tbody>
+                        @foreach (var r in _rows)
+                        {
+                            <tr class="@(r.Ok ? "" : "muted")">
+                                <td>@r.Line</td><td>@r.Name</td><td>@r.Host</td><td>@(r.Port > 0 ? r.Port : "")</td>
+                                <td>@(r.Windows ? "Windows" : "Linux")</td><td>@(r.Folder.Length > 0 ? r.Folder : "(корень)")</td><td>@r.User</td>
+                                <td class="small @(r.Ok ? "ok-text" : "")">@(r.Ok ? "добавить" + (r.Note.Length > 0 ? " · " + r.Note : "") : r.Note)</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            @if (_done.Length > 0) { <div class="ok-text small" style="margin-top:8px">@_done</div> }
+        </div>
+        <div class="window-buttons">
+            <button class="btn" style="width:100px" @onclick="Close">@(_done.Length > 0 ? "Закрыть" : "Отмена")</button>
+            <button class="btn primary" style="width:160px" @onclick="Apply" disabled="@(_busy || _done.Length > 0 || !_rows.Any(r => r.Ok))">Добавить @_rows.Count(r => r.Ok)</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private List<ImportRow> _rows = new();
+    private string _file = "", _error = "", _done = "";
+    private bool _busy;
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    private async Task Pick(InputFileChangeEventArgs e)
+    {
+        _error = _done = ""; _rows = new();
+        _file = e.File.Name;
+        try
+        {
+            if (e.File.Size > 2 * 1024 * 1024) { _error = "Файл больше 2 МБ."; return; }
+            using var r = new StreamReader(e.File.OpenReadStream(2 * 1024 * 1024), System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var text = await r.ReadToEndAsync();
+            // Excel без UTF-8 сохраняет в 1251: кириллица превращается в «�» — подсказать
+            if (text.Contains('�')) { _error = "Файл не в UTF-8. В Excel: «Сохранить как» → «CSV UTF-8 (разделитель — запятая)»."; return; }
+            _rows = S.ImportPreview(text, out var err);
+            _error = err;
+        }
+        catch (Exception ex) { _error = "Файл не прочитан: " + ex.Message; }
+    }
+
+    private async Task Template()
+    {
+        var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(WebSession.ImportTemplate));
+        await JS.InvokeVoidAsync("lo.saveData", "hosts-template.csv", "text/csv;charset=utf-8", b64);
+    }
+
+    private void Apply()
+    {
+        _busy = true;
+        try { _done = "Готово: " + S.ImportApply(_rows, _file) + "."; }
+        finally { _busy = false; }
+    }
+}

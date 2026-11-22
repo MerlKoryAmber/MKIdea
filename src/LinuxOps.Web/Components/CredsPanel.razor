@@ -1,0 +1,151 @@
+@* Inventory → «Учётка SSH…» (0.7.5): логин и ключ или пароль сразу на много хостов Linux. Пишется только в хранилище сервиса.
+   Отмечены заранее: выделенная папка — все её хосты (с вложенными), выделенный хост — он сам. *@
+
+<div class="overlay" @onclick="Close">
+    <div class="window creds-window" @onclick:stopPropagation="true">
+        <div class="window-title">Учётка SSH на несколько хостов</div>
+        <div class="window-body">
+            <div class="creds-grid">
+                <div>
+                    <div class="row" style="gap:6px;margin-bottom:6px">
+                        <input class="input grow" placeholder="Фильтр: имя, адрес, папка" @bind="_filter" @bind:event="oninput" />
+                        <button class="btn sm" @onclick="() => Mark(true)" title="Отметить все видимые в списке">Все</button>
+                        <button class="btn sm" @onclick="() => Mark(false)">Снять</button>
+                    </div>
+                    <div class="scroll creds-list">
+                        @foreach (var g in Visible.GroupBy(h => S.FolderPath(h.Config.FolderId)).OrderBy(g => g.Key))
+                        {
+                            <div class="creds-folder">📁 @g.Key</div>
+                            @foreach (var h in g.OrderBy(h => h.Config.Title))
+                            {
+                                var can = S.CanOn(Perm.HostsEdit, h);
+                                <label class="check creds-host @(can ? "" : "muted")" title="@(can ? h.Config.Display : "Нет права «Inventory» на этот хост")">
+                                    <input type="checkbox" checked="@_on.Contains(h.Id)" disabled="@(!can)" @onchange="e => Toggle(h, (bool)e.Value!)" />
+                                    @h.Config.Title <span class="muted small">@(h.Config.Username.Length > 0 ? h.Config.Username + "@" : "")@h.Config.Host · @(h.HasKey ? "ключ" : h.HasPassword ? "пароль" : "нет секрета")</span>
+                                </label>
+                            }
+                        }
+                    </div>
+                    <div class="small" style="margin-top:6px">Отмечено: <b>@_on.Count</b></div>
+                </div>
+                <div>
+                    <div class="lbl">Логин</div>
+                    <input class="input" @bind="_user" placeholder="пусто — не менять" autocomplete="off" />
+                    <div class="lbl">Вход</div>
+                    <select class="input" @bind="_auth">
+                        <option value="Key">Key</option>
+                        <option value="Password">Password</option>
+                    </select>
+                    @if (_auth == "Key")
+                    {
+                        <div class="lbl">Закрытый ключ</div>
+                        <div class="row" style="gap:8px">
+                            <div class="input grow readonly ell">@(_key is { Length: > 0 } ? "загружен: " + _keyName : "не выбран — у хостов останется их ключ")</div>
+                            <label class="btn file-btn" style="width:90px">Файл…<InputFile OnChange="PickKey" style="display:none" /></label>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="lbl">Пароль</div>
+                        <input class="input" type="password" autocomplete="new-password" @bind="_password" />
+                    }
+                    <div class="lbl">sudo</div>
+                    <select class="input" @bind="_sudo">
+                        <option value="">не менять</option>
+                        <option value="1">выполнять через sudo</option>
+                        <option value="0">без sudo</option>
+                    </select>
+                    <div class="muted small" style="margin-top:10px">На сами хосты ничего не пишется — только в хранилище сервиса (зашифровано). Ключ должен уже быть в authorized_keys на хостах.</div>
+                    @if (_error.Length > 0) { <div class="error">@_error</div> }
+                    @if (_done.Length > 0) { <div class="ok-text small" style="margin-top:8px">@_done</div> }
+                </div>
+            </div>
+        </div>
+        <div class="window-buttons">
+            <button class="btn" style="width:100px" @onclick="Close">@(_done.Length > 0 ? "Закрыть" : "Отмена")</button>
+            <button class="btn primary" style="width:180px" @onclick="Apply" disabled="@(_on.Count == 0)">Применить к @_on.Count</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>Что выделено в дереве: папка — её хосты с вложенными, хост — он.</summary>
+    [Parameter] public object? Start { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private readonly HashSet<string> _on = new();
+    private string _filter = "", _user = "", _auth = "Key", _password = "", _sudo = "", _error = "", _done = "";
+    private string? _key, _keyName;
+
+    private List<StoredHost> Linux => S.Hosts.Where(h => !h.IsWindows).ToList();
+
+    private IEnumerable<StoredHost> Visible => _filter.Trim().Length == 0 ? Linux
+        : Linux.Where(h => $"{h.Config.Title} {h.Config.Host} {S.FolderPath(h.Config.FolderId)}".Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        switch (Start)
+        {
+            case StoredHost h when !h.IsWindows && S.CanOn(Perm.HostsEdit, h):
+                _on.Add(h.Id);
+                break;
+            case HostFolder f:
+                foreach (var h in Linux.Where(h => InFolder(h.Config.FolderId, f.Id) && S.CanOn(Perm.HostsEdit, h))) _on.Add(h.Id);
+                break;
+        }
+    }
+
+    private bool InFolder(string id, string ancestor)
+    {
+        for (var p = id; !string.IsNullOrEmpty(p); p = S.Folders.FirstOrDefault(x => x.Id == p)?.ParentId ?? "")
+            if (p == ancestor) return true;
+        return false;
+    }
+
+    private void Toggle(StoredHost h, bool on) { if (on) _on.Add(h.Id); else _on.Remove(h.Id); }
+
+    private void Mark(bool on)
+    {
+        foreach (var h in Visible.Where(h => S.CanOn(Perm.HostsEdit, h)))
+            if (on) _on.Add(h.Id); else _on.Remove(h.Id);
+    }
+
+    private async Task PickKey(InputFileChangeEventArgs e)
+    {
+        _error = "";
+        try
+        {
+            using var r = new StreamReader(e.File.OpenReadStream(64 * 1024));
+            var text = await r.ReadToEndAsync();
+            if (!text.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            {
+                _error = text.StartsWith("ssh-", StringComparison.Ordinal) ? "Это открытый ключ. Нужен закрытый (-----BEGIN … PRIVATE KEY-----)." : "Не похоже на закрытый ключ SSH.";
+                return;
+            }
+            _key = text; _keyName = e.File.Name;
+        }
+        catch (Exception ex) { _error = "Файл не прочитан: " + ex.Message; }
+    }
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    private void Apply()
+    {
+        _error = _done = "";
+        var user = _user.Trim();
+        if (user.Any(char.IsWhiteSpace) || user.Length > 64) { _error = "Логин без пробелов, до 64 знаков."; return; }
+        if (_auth == "Password" && _password.Length == 0) { _error = "Введите пароль."; return; }
+        var hosts = S.Hosts.Where(h => _on.Contains(h.Id)).ToList();
+        if (_auth == "Key" && _key is not { Length: > 0 } && hosts.Any(h => !h.HasKey))
+        {
+            _error = $"У {hosts.Count(h => !h.HasKey)} отмеченных хостов ключа нет — загрузите ключ.";
+            return;
+        }
+        var r = S.BulkCredential(hosts, user, _auth == "Key", _key, _keyName, _auth == "Password" ? _password : null,
+            _sudo switch { "1" => true, "0" => false, _ => null });
+        // успех — «Готово: …», остальное — отказ (красным)
+        if (r.StartsWith("Готово", StringComparison.Ordinal)) _done = r; else _error = r;
+        _password = "";
+    }
+}

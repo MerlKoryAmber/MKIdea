@@ -407,3 +407,13 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .rec-alert:hover { filter:brightness(1.1); }
 .storage-box { border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:14px; }
 .storage-box h4 { margin:0 0 8px; font-size:13px; }
+/* Inventory: импорт CSV и учётка SSH на несколько хостов (0.7.5) */
+.import-window { width: 980px; max-width: calc(100vw - 32px); }
+.import-table { max-height: 50vh; border: 1px solid var(--line); border-radius: 6px; }
+.import-table td { white-space: nowrap; }
+.creds-window { width: 900px; max-width: calc(100vw - 32px); }
+.creds-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+.creds-list { height: 50vh; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.creds-folder { font-size: 12px; font-weight: 600; margin: 8px 0 2px; color: var(--muted); }
+.creds-host { display: flex; gap: 6px; align-items: center; padding: 2px 0 2px 12px; }
+@media (max-width: 760px) { .creds-grid { grid-template-columns: 1fr; } }
