@@ -37,3 +37,14 @@
 |---|---|
 | `lo-dept-test` (Оператор на папку): вкладок Inventory нет — Actions / Vulnerabilities / SSH Files / Connections / History; сохранённая вкладка «inventory» не открывается | ✅ |
 | `admin`: Inventory есть; в «Права» у «Оператора» Inventory больше нет | ✅ |
+
+## Версия в шапке и кэш браузера (по замечанию владельца)
+
+Шапка показывала v0.7.3 при установленной 0.7.5: в csproj `AssemblyVersion`, `FileVersion`, `InformationalVersion` были прописаны числом и не поднимались. Теперь — из `Version`. Статика отдаётся с `Cache-Control: no-cache` (ETag, ответ 304).
+
+| Что | Итог |
+|---|---|
+| Шапка — v0.7.5, стили — `app.css?v=0.7.5.0` | ✅ |
+| Через nginx: `app.css`, `_framework/blazor.web.js`, `guac.js` — `cache-control: no-cache` и ETag | ✅ |
+| Повтор с `If-None-Match` — 304, 0 байт | ✅ |
+| RDP до рабочего стола dc-01 — проверил владелец (скриншот) | ✅ |

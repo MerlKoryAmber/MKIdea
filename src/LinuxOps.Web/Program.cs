@@ -64,7 +64,12 @@ var app = builder.Build();
 // За обратным прокси на этом же сервере: адрес клиента — из X-Forwarded-For (доверяем только 127.0.0.1 и ::1).
 app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto });
 app.Services.GetRequiredService<AuditLog>().Write("сервис", "запуск", $"LinuxOps Web {typeof(WebSession).Assembly.GetName().Version?.ToString(3)}, данные {WebPaths.DataDir}");
-app.UseStaticFiles();
+// Статика (стили, скрипты, _framework Blazor): браузер хранит, но каждый раз сверяет с сервером (ETag → 304).
+// После обновления у всех сразу свежие файлы, даже если в адресе нет ?v= (у _framework его нет). Пользователей мало — проверки ничего не стоят.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache"
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
