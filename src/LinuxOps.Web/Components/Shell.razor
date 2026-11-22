@@ -29,6 +29,7 @@
             case "inventory": <InventoryTab S="S" />; break;
             case "actions": <ActionsTab S="S" />; break;
             case "history": <HistoryTab S="S" />; break;
+            case "fleet": <FleetTab S="S" />; break;
             case "settings": <SettingsTab S="S" />; break;
             case "ssh": <FilesTab S="S" />; break;
             case "terminal": <TerminalTab S="S" />; break;
@@ -64,8 +65,8 @@
 
     private static readonly (string Key, string Text)[] Tabs =
     {
-        ("inventory", "Inventory"), ("actions", "Actions"), ("ssh", "SSH Files"),
-        ("terminal", "Подключения"), ("powershell", "PowerShell"), ("history", "History")
+        ("inventory", "Inventory"), ("actions", "Actions"), ("fleet", "Vulnerabilities"), ("ssh", "SSH Files"),
+        ("terminal", "Connections"), ("powershell", "PowerShell"), ("history", "History")
     };
 
     private IEnumerable<(string Key, string Text)> VisibleTabs =>
@@ -74,6 +75,7 @@
             "ssh" => S.Can(Perm.FilesRead),
             "terminal" => S.Can(Perm.Terminal) || S.Can(Perm.Rdp),
             "powershell" => S.Can(Perm.Vcenter),
+            "fleet" => S.Can(Perm.FleetView),
             _ => true
         });
 

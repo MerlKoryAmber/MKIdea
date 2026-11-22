@@ -24,6 +24,7 @@ public sealed partial class WebStore
                 Exec(c, "CREATE TABLE IF NOT EXISTS local_users(login TEXT PRIMARY KEY COLLATE NOCASE, json TEXT NOT NULL)");
             }
             if (GetSetting("auth_model") != "2") MigrateRoles();
+            if (GetSetting("perm_fleet") != "1") GrantFleetView();
             _authReady = true;
         }
     }
@@ -67,6 +68,33 @@ public sealed partial class WebStore
         }
         PutSetting("auth_model", "2");
         if (made > 0 || raw.Count > 0) Console.WriteLine($"auth: roles migrated to assignments ({made})");
+    }
+
+    /// <summary>
+    /// 0.7.2: у вкладки «Уязвимости» своё право. Раньше её видел любой с «Видеть хосты» — свои роли с этим правом
+    /// получают «Уязвимости» один раз, чтобы ни у кого ничего не пропало; дальше админ снимает сам. Встроенные — в коде.
+    /// </summary>
+    private void GrantFleetView()
+    {
+        var raw = new List<(string Id, string Json)>();
+        using (var c = Open())
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "SELECT id, json FROM roles";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) raw.Add((r.GetString(0), r.GetString(1)));
+        }
+        var n = 0;
+        using (var c = Open())
+            foreach (var (id, json) in raw)
+                if (JsonSerializer.Deserialize<Role>(json, AuthJson) is { } role && role.Perms.Contains(Perm.HostsView) && !role.Perms.Contains(Perm.FleetView))
+                {
+                    role.Perms.Insert(role.Perms.IndexOf(Perm.HostsView) + 1, Perm.FleetView);
+                    Exec(c, "UPDATE roles SET json=$j WHERE id=$id", ("$id", id), ("$j", JsonSerializer.Serialize(role)));
+                    n++;
+                }
+        PutSetting("perm_fleet", "1");
+        if (n > 0) Console.WriteLine($"auth: fleet.view granted to {n} custom roles");
     }
 
     // ---------- назначения ----------

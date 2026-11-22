@@ -57,7 +57,7 @@
         _testing = true;
         _testText = "проверка…";
         StateHasChanged();
-        (_testOk, _testText) = await S.TestRdpPort(cfg.Host, cfg.Port);
+        (_testOk, _testText) = await S.TestRdpPort(D.Host!, cfg.Host, cfg.Port);
         _testing = false;
     }
 

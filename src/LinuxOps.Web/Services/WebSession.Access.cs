@@ -64,6 +64,11 @@ public sealed partial class WebSession
         return false;
     }
 
+    /// <summary>Проверки в окне хоста: существующий — право «Inventory» на него, новый — на папку, куда его кладут.</summary>
+    private bool CanTestHost(StoredHost h, string what) => Hosts.Contains(h)
+        ? AllowedOn(Perm.HostsEdit, h, what)
+        : AllowedOnFolder(Perm.HostsEdit, h.Config.FolderId, what + ": новый хост в эту папку");
+
     /// <summary>Запуск по нескольким хостам: право нужно на каждом, иначе — отказ со списком (без частичного запуска).</summary>
     private bool AllHostsAllowed(string perm, IEnumerable<StoredHost> hosts, string what)
     {

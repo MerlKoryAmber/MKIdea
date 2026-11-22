@@ -30,8 +30,15 @@ public sealed class FileDownloads
 
     private static IResult Download(HttpContext ctx, string id, FileDownloads tickets, AuditLog audit)
     {
-        if (!tickets._map.TryRemove(id, out var t) || t.Expires < DateTime.UtcNow
-            || !string.Equals(t.Login, ctx.User.Identity?.Name, StringComparison.OrdinalIgnoreCase))
+        // логин сверяется до удаления: чужой запрос с известным номером ссылку не сжигает
+        if (!tickets._map.TryGetValue(id, out var t)) return Results.StatusCode(403);
+        if (t.Expires < DateTime.UtcNow)
+        {
+            tickets._map.TryRemove(new KeyValuePair<string, Ticket>(id, t));
+            return Results.StatusCode(403);
+        }
+        if (!string.Equals(t.Login, ctx.User.Identity?.Name, StringComparison.OrdinalIgnoreCase)
+            || !tickets._map.TryRemove(new KeyValuePair<string, Ticket>(id, t)))
             return Results.StatusCode(403);
         var name = System.IO.Path.GetFileName(t.Path.TrimEnd('/'));
         // ключ хоста уже подтверждён в окне (KnownHostsStore); без окна новый ключ не примется

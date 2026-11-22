@@ -6,10 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LinuxOps.Web</RootNamespace>
-    <Version>0.7.1</Version>
-    <AssemblyVersion>0.7.1.0</AssemblyVersion>
-    <FileVersion>0.7.1.0</FileVersion>
-    <InformationalVersion>0.7.1</InformationalVersion>
+    <Version>0.7.2</Version>
+    <AssemblyVersion>0.7.2.0</AssemblyVersion>
+    <FileVersion>0.7.2.0</FileVersion>
+    <InformationalVersion>0.7.2</InformationalVersion>
     <Company>Merl</Company>
     <Product>LinuxOps Web</Product>
     <Copyright>Copyright © Merl 2026</Copyright>
@@ -22,7 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.34" />
+    <!-- явно: Microsoft.Data.Sqlite тянет e_sqlite3 2.1.6 (CVE-2025-6965), исправлено в 2.1.12+ -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.14" />
     <PackageReference Include="QRCoder" Version="1.9.0" />
     <PackageReference Include="System.DirectoryServices.Protocols" Version="8.0.1" />
   </ItemGroup>
@@ -30,6 +32,21 @@
   <ItemGroup>
     <None Include="deploy/**" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!--
+    .NET внутри сборки (self-contained): на сервере ничего не скачивается, среда выполнения едет в архиве релиза.
+    Последнее исправление .NET 8 — здесь, а не версия, вшитая в SDK на ПК сборки: пакеты среды берутся с NuGet.
+    Новое исправление вышло — поднять LinuxOpsRuntimePatch (скрипт сборки предупредит).
+  -->
+  <PropertyGroup>
+    <LinuxOpsRuntimePatch>8.0.34</LinuxOpsRuntimePatch>
+  </PropertyGroup>
+  <Target Name="PinRuntimePatch" BeforeTargets="ProcessFrameworkReferences">
+    <ItemGroup>
+      <KnownFrameworkReference Update="Microsoft.NETCore.App;Microsoft.AspNetCore.App" Condition="'%(TargetFramework)' == 'net8.0'"
+                               LatestRuntimeFrameworkVersion="$(LinuxOpsRuntimePatch)" />
+    </ItemGroup>
+  </Target>
 
   <!-- Версия рядом со скриптами установки: deploy/VERSION -->
   <Target Name="WriteDeployVersion" AfterTargets="Publish">

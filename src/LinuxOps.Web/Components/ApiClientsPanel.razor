@@ -4,7 +4,6 @@
 @inject WebStore Store
 @inject AuditLog Audit
 
-<div class="section-title" style="margin-top:16px">Сервисы API</div>
 <div class="muted small" style="margin-bottom:6px">
     Внешний сервис по токену запускает только встроенные действия, которые получают информацию (@string.Join(", ", ApiJobs.ReadOnlyActions.Select(a => "«" + a.Name + "»"))),
     и забирает результат. Меняющие действия через API не видны и не запускаются. Права — назначением «сервису API» (хватит «Видеть хосты» и «Опрос и Dry-run»).
@@ -124,7 +123,7 @@
         Audit.Write(S.Who, "API: учётка заведена", $"{c.Name} ({c.Description}), токен {c.TokenHint}…");
         Reload();
         Pick(_clients.FirstOrDefault(x => x.Name == c.Name));
-        _msg = $"«{c.Name}» заведена. Дайте ей роль: «Назначения» → «сервису API».";
+        _msg = $"«{c.Name}» заведена. Дайте ей роль: «Права» → «Назначения» → «сервису API».";
         await Changed.InvokeAsync();
     }
 

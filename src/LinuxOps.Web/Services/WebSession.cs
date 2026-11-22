@@ -682,7 +682,7 @@ public sealed partial class WebSession : IDisposable
     /// <summary>«Проверить подключение» в окне «Хост»: поля окна + секреты из хранилища, если их не меняли.</summary>
     public async Task<(bool Ok, string Text)> TestConnect(StoredHost existing, HostConfig cfg, string? password, string? key)
     {
-        if (!Can(Auth.Perm.HostsEdit)) return (false, "Нет права менять хосты.");
+        if (!CanTestHost(existing, "хост: проверка подключения")) return (false, "Нет права менять этот хост.");
         var stored = Hosts.Contains(existing) ? _store.ForConnect(existing) : null;
         var test = new HostConfig
         {
@@ -747,10 +747,13 @@ public sealed partial class WebSession : IDisposable
         Notify();
     }
 
+    /// <summary>Раскрыть или свернуть папку — только видимую этому пользователю (своя копия, не присланный объект).</summary>
     public void ToggleFolder(HostFolder f)
     {
-        f.IsExpanded = !f.IsExpanded;
-        _store.SaveFolder(f);
+        var mine = Folders.FirstOrDefault(x => x.Id == f.Id);
+        if (mine is null) return;
+        mine.IsExpanded = !mine.IsExpanded;
+        _store.SaveFolder(mine);
     }
 
     public void Dispose()

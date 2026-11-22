@@ -110,6 +110,33 @@ public sealed partial class WebSession
     /// <summary>Учётка для RDP по умолчанию: вошли через AD — свой логин (домен подставится сам).</summary>
     public string RdpDefaultLogin => User.Kind == "ad" ? User.Login : "";
 
+    /// <summary>Домен из настроек AD — подставляется в RDP, если в логине его нет.</summary>
+    public string RdpDomain => _store.LoadAuth().AdDomain.Trim();
+
+    /// <summary>
+    /// Логин RDP → (пользователь, домен): DOMAIN\user и .\user (локальная учётка хоста) — как написано;
+    /// user@domain — домен внутри логина; просто user — домен из настроек AD.
+    /// </summary>
+    public static (string User, string Domain) SplitRdpLogin(string login, string adDomain)
+    {
+        login = login.Trim();
+        var slash = login.IndexOf('\\');
+        if (slash > 0) return (login[(slash + 1)..], login[..slash]);
+        if (login.Contains('@')) return (login, "");
+        return (login, adDomain);
+    }
+
+    /// <summary>Под формой входа: как именно войдём (по мере ввода).</summary>
+    public static string RdpLoginPreview(string? login, string adDomain)
+    {
+        if (string.IsNullOrWhiteSpace(login)) return "";
+        var (user, domain) = SplitRdpLogin(login, adDomain);
+        if (user.Length == 0) return "";
+        if (domain == ".") return $"войдёт как локальная учётка хоста: {user}";
+        if (domain.Length > 0) return $"войдёт как {domain}\\{user}";
+        return login.Contains('@') ? $"войдёт как {user}" : $"войдёт как {user} — домен в настройках AD не задан";
+    }
+
     /// <summary>
     /// Открыть RDP: право «RDP» на хост; вход — учётка пользователя (DOMAIN\user, user@domain или user — тогда домен из настроек AD).
     /// Пароль живёт только в пропуске (60 с, в памяти) и уходит в guacd; нигде не сохраняется. null — отказ.
@@ -120,10 +147,7 @@ public sealed partial class WebSession
         if (!AllowedOn(Perm.Rdp, h, "RDP")) return null;
         login = login.Trim();
         if (login.Length == 0 || password.Length == 0) { ShowNotice("Введите учётную запись и пароль."); return null; }
-        string user = login, domain = "";
-        var slash = login.IndexOf('\\');
-        if (slash > 0) { domain = login[..slash]; user = login[(slash + 1)..]; }
-        else if (!login.Contains('@')) domain = _store.LoadAuth().AdDomain;
+        var (user, domain) = SplitRdpLogin(login, RdpDomain);
 
         var p = new Dictionary<string, string>
         {
@@ -159,9 +183,9 @@ public sealed partial class WebSession
     }
 
     /// <summary>«Проверить порт» в окне «Хост Windows»: TCP до RDP за 3 с.</summary>
-    public async Task<(bool Ok, string Text)> TestRdpPort(string host, int port)
+    public async Task<(bool Ok, string Text)> TestRdpPort(StoredHost existing, string host, int port)
     {
-        if (!Can(Perm.HostsEdit)) return (false, "Нет права менять хосты.");
+        if (!CanTestHost(existing, "хост: проверка порта RDP")) return (false, "Нет права менять этот хост.");
         try
         {
             using var tcp = new System.Net.Sockets.TcpClient();

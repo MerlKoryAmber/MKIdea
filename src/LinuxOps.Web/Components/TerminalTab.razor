@@ -33,7 +33,8 @@
                         <div class="section-title" style="margin-bottom:4px">RDP: @rh.Config.Title</div>
                         <div class="muted small" style="margin-bottom:10px">Своя доменная учётная запись. Пароль уходит только на этот хост и нигде не сохраняется.</div>
                         <div class="lbl">Учётная запись</div>
-                        <input class="input" @bind="_rdpLogin" placeholder="DOMAIN\user или user@domain" autocomplete="username" />
+                        <input class="input" @bind="_rdpLogin" @bind:event="oninput" placeholder="@(_rdpDomain.Length > 0 ? $"логин — домен {_rdpDomain} подставится сам" : "DOMAIN\\user или user@domain")" autocomplete="username" />
+                        <div class="muted small" style="margin-top:4px;min-height:16px">@RdpHow</div>
                         <div class="lbl">Пароль</div>
                         <input class="input" type="password" @bind="_rdpPass" autocomplete="current-password" id="rdp-pass" />
                         <div class="row" style="gap:8px;margin-top:12px;justify-content:flex-end">
@@ -80,6 +81,12 @@
 
     private StoredHost? Host => _sel as StoredHost;
     private string? _rdpLogin, _rdpPass;
+    private string _rdpDomain = "";
+
+    /// <summary>Под полем логина: как войдём; пусто — подсказка про другой домен и локальную учётку.</summary>
+    private string RdpHow => WebSession.RdpLoginPreview(_rdpLogin, _rdpDomain) is { Length: > 0 } how ? how
+        : _rdpDomain.Length > 0 ? @"Другой домен — DOMAIN\user или user@domain; локальная учётка хоста — .\user"
+        : @"Локальная учётка хоста — .\user";
     private StoredHost? _rdpFor;
     private bool _rdp;
     private DateTime _startedAt;
@@ -115,6 +122,7 @@
             // RDP: сначала своя учётка — форма поверх экрана
             _rdpFor = h;
             _rdpLogin ??= S.RdpDefaultLogin;
+            _rdpDomain = S.RdpDomain;
             _rdpPass = "";
             return;
         }

@@ -58,19 +58,24 @@ public sealed class FleetCheck(WebStore store, HostLocks locks, AuditLog audit, 
                 await Run(Who, s.ViaServer, ct);
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception ex) { log.LogError(ex, "проверка парка по расписанию"); }
+            catch (Exception ex) { log.LogError(ex, "проверка уязвимостей по расписанию"); }
         }
     }
 
-    /// <summary>Запустить сейчас (из настроек). false — уже идёт.</summary>
-    public bool RunNow(string who)
+    /// <summary>
+    /// Запустить сейчас (из настроек). false — уже идёт. Проверка — та же, что по расписанию, и идёт от его имени
+    /// (History, «Уязвимости», замки); кто нажал — отдельной записью в аудите.
+    /// </summary>
+    public bool RunNow(string pressedBy)
     {
         if (Running) return false;
+        audit.Write(pressedBy, "проверка уязвимостей: запущена вручную", "проверка идёт от имени «" + Who + "»");
         var s = Load();
+        const string who = Who;
         _ = Task.Run(async () =>
         {
             try { await Run(who, s.ViaServer, CancellationToken.None); }
-            catch (Exception ex) { log.LogError(ex, "проверка парка"); }
+            catch (Exception ex) { log.LogError(ex, "проверка уязвимостей"); }
         });
         return true;
     }
@@ -88,9 +93,9 @@ public sealed class FleetCheck(WebStore store, HostLocks locks, AuditLog audit, 
 
             var keys = hosts.GroupBy(h => HostLocks.Key(h.Config.Host, h.Config.Port), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            got = locks.TryLock(keys.Keys, who, "Версии ПО (проверка парка)", out var busy);
+            got = locks.TryLock(keys.Keys, who, "Версии ПО (проверка уязвимостей)", out var busy);
             var free = hosts.Where(h => got.Contains(HostLocks.Key(h.Config.Host, h.Config.Port), StringComparer.OrdinalIgnoreCase)).ToList();
-            audit.Write(who, "проверка парка: начата", $"хостов {free.Count}" + (busy.Count > 0 ? $", заняты: {string.Join(", ", busy.Select(b => b.Key))}" : ""));
+            audit.Write(who, "проверка уязвимостей: начата", $"хостов {free.Count}" + (busy.Count > 0 ? $", заняты: {string.Join(", ", busy.Select(b => b.Key))}" : ""));
 
             var map = new Dictionary<HostConfig, StoredHost>();
             var connect = free.Select(h => { var c = store.ForConnect(h); map[c] = h; return c; }).ToList();
@@ -132,7 +137,7 @@ public sealed class FleetCheck(WebStore store, HostLocks locks, AuditLog audit, 
     private void Finish(string who, string text)
     {
         store.PutSetting("fleet.last", $"{DateTime.Now:yyyy-MM-dd HH:mm} · {who} · {text}");
-        audit.Write(who, "проверка парка: итог", text);
+        audit.Write(who, "проверка уязвимостей: итог", text);
     }
 
     /// <summary>Progress без контекста синхронизации: обработчик сразу, в потоке ядра (а не когда-нибудь потом в пуле).</summary>

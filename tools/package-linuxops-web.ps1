@@ -1,14 +1,44 @@
 ﻿# Релиз LinuxOps Web: publish linux-x64 → dist\LinuxOps.Web-<ver>-linux-x64.tar.gz + .sha256.
 # Эти два файла выкладываются в релиз Git с тегом linuxops-web-v<ver>; сервер берёт их командой linuxops-web update.
 # Пример: .\tools\package-linuxops-web.ps1
-param([switch]$NoBuild)
+#
+# Проверки перед релизом (решение 18): SQLite и .NET лежат внутри сервиса (self-contained), dnf их не обновляет —
+# на боевой исправления попадают только с нашим релизом.
+#   1. Уязвимые NuGet-пакеты (в том числе транзитивные) — сборка останавливается.
+#      Обойти — только с причиной: -AllowVulnerable "причина"; причину записать в отчёт версии.
+#   2. .NET внутри сборки старее последнего исправления .NET 8 — предупреждение (обновить SDK или RuntimeFrameworkVersion).
+#   3. Сторонний JS (guacamole-common-js) — SHA-256 файла сверяется с закреплённым в wwwroot/lib/guacamole/SOURCE.txt.
+param([switch]$NoBuild, [string]$AllowVulnerable = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $proj = Join-Path $root 'src\LinuxOps.Web\LinuxOps.Web.csproj'
 $ver = ([xml](Get-Content $proj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 $dist = Join-Path $root "dist\LinuxOps.Web-$ver"
 
+# 3. guacamole: файл в репозитории — тот, что взят из архива npm (sha512 архива — в SOURCE.txt); здесь — SHA-256 самого файла
+$guacDir = Join-Path $root 'src\LinuxOps.Web\wwwroot\lib\guacamole'
+$guacPin = [regex]::Match([IO.File]::ReadAllText((Join-Path $guacDir 'SOURCE.txt')), 'sha256 файла[^:\r\n]*:\s*([0-9a-f]{64})').Groups[1].Value
+if (-not $guacPin) { throw 'В wwwroot/lib/guacamole/SOURCE.txt нет строки «sha256 файла: …»' }
+$guacHash = (Get-FileHash (Join-Path $guacDir 'guacamole-common.min.js') -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($guacHash -ne $guacPin) { throw "guacamole-common.min.js: SHA-256 $guacHash, а закреплён $guacPin — файл изменён" }
+Write-Host "guacamole-common.min.js: SHA-256 совпал"
+
 if (-not $NoBuild) {
+    # 1. уязвимые пакеты — до сборки (нужен доступ к api.nuget.org)
+    Write-Host 'Проверка уязвимых пакетов…'
+    $json = dotnet list $proj package --vulnerable --include-transitive --format json 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "dotnet list package --vulnerable не выполнился:`n$json" }
+    $vuln = @(($json | ConvertFrom-Json).projects | ForEach-Object { $_.frameworks } | Where-Object { $_ } | ForEach-Object {
+        @($_.topLevelPackages) + @($_.transitivePackages) | Where-Object { $_ -and $_.vulnerabilities } | ForEach-Object {
+            $p = $_; $p.vulnerabilities | ForEach-Object { "$($p.id) $($p.resolvedVersion): $($_.severity) $($_.advisoryurl)" }
+        }
+    })
+    if ($vuln.Count -gt 0) {
+        $list = ($vuln | Sort-Object -Unique) -join "`n  "
+        if (-not $AllowVulnerable) { throw "Уязвимые пакеты:`n  $list`nОбновите их; выпустить всё равно — -AllowVulnerable ""причина"" (и запишите в отчёт версии)." }
+        Write-Warning "Уязвимые пакеты пропущены (причина: $AllowVulnerable):`n  $list"
+    } else { Write-Host 'Уязвимых пакетов нет' }
+
     Write-Host "Сборка $ver → $dist"
     dotnet publish $proj -c Release -r linux-x64 --self-contained true -p:DebugType=embedded -o $dist -nologo -v q
     if ($LASTEXITCODE -ne 0) { throw 'Сборка не прошла' }
@@ -16,6 +46,16 @@ if (-not $NoBuild) {
 foreach ($f in 'LinuxOps.Web', 'deploy\install.sh', 'deploy\VERSION') {
     if (-not (Test-Path (Join-Path $dist $f))) { throw "В $dist нет $f" }
 }
+
+# 2. .NET внутри сборки против последнего исправления .NET 8 (файл релизов Microsoft; нет сети — только предупреждение)
+$rt = ((Get-Content (Join-Path $dist 'LinuxOps.Web.runtimeconfig.json') -Raw | ConvertFrom-Json).runtimeOptions.includedFrameworks |
+    Where-Object name -eq 'Microsoft.NETCore.App').version
+try {
+    $rel = Invoke-RestMethod 'https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json' -TimeoutSec 20
+    if ([version]$rt -lt [version]$rel.'latest-runtime') {
+        Write-Warning ".NET внутри сборки $rt, последнее исправление .NET 8 — $($rel.'latest-runtime') от $($rel.'latest-release-date'). Обновите SDK (последний $($rel.'latest-sdk')) и пересоберите; в отчёте версии — отметить."
+    } else { Write-Host ".NET внутри сборки $rt — последнее исправление" }
+} catch { Write-Warning ".NET внутри сборки $rt; последнюю версию узнать не удалось: $($_.Exception.Message)" }
 # Пакеты в комплект (ставятся без сети). Скачиваются один раз в dist\vendor, сверяются по закреплённому SHA-256.
 # OpenH264 (сборка Cisco, подпись EPEL): без неё guacd (FreeRDP 2) не подключает RDP, а CDN Cisco с серверов бывает недоступен.
 # PowerShell 7 (Microsoft, MIT; LTS): консоль PowerShell и PowerCLI (Ф5). SHA-256 — из описания релиза на GitHub.

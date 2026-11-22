@@ -7,6 +7,7 @@ namespace LinuxOps.Web.Services.Auth;
 public static class Perm
 {
     public const string HostsView = "hosts.view";     // видеть хосты, детали, историю
+    public const string FleetView = "fleet.view";     // вкладка «Уязвимости»: версии ПО и CVE по своим хостам
     public const string RunCheck = "run.check";       // опрос и Dry-run (только чтение на хостах)
     public const string RunApply = "run.apply";       // «Применить», «Обновить отмеченное», «Добавить пользователя»
     public const string HostsEdit = "hosts.edit";     // Inventory: хосты, папки, секреты
@@ -21,6 +22,7 @@ public static class Perm
     public static readonly (string Id, string Text)[] All =
     {
         (HostsView, "Видеть хосты, результаты и историю"),
+        (FleetView, "Vulnerabilities: версии ПО и CVE по своим хостам"),
         (RunCheck, "Опрос и Dry-run (только чтение на хостах)"),
         (RunApply, "Применять: изменения на хостах, обновления, пользователи"),
         (HostsEdit, "Inventory: добавлять и менять хосты, папки, пароли и ключи"),
@@ -41,7 +43,7 @@ public static class Perm
 
     public static string Short(string id) => id switch
     {
-        HostsView => "просмотр", RunCheck => "Dry-run", RunApply => "Применить", HostsEdit => "Inventory",
+        HostsView => "просмотр", FleetView => "уязвимости", RunCheck => "Dry-run", RunApply => "Применить", HostsEdit => "Inventory",
         Terminal => "терминал", Rdp => "RDP", FilesRead => "файлы: чтение", FilesWrite => "файлы: запись",
         AuditView => "аудит", Settings => "настройки", Vcenter => "vCenter", _ => id
     };
@@ -60,8 +62,8 @@ public sealed class Role
     {
         new() { Id = "admin", Name = "Админ", Builtin = true, Perms = Perm.All.Select(p => p.Id).ToList() },
         new() { Id = "operator", Name = "Оператор", Builtin = true,
-                Perms = { Perm.HostsView, Perm.RunCheck, Perm.RunApply, Perm.HostsEdit, Perm.Terminal, Perm.Rdp, Perm.FilesRead, Perm.FilesWrite } },
-        new() { Id = "auditor", Name = "Аудитор", Builtin = true, Perms = { Perm.HostsView, Perm.RunCheck, Perm.FilesRead, Perm.AuditView } },
+                Perms = { Perm.HostsView, Perm.FleetView, Perm.RunCheck, Perm.RunApply, Perm.HostsEdit, Perm.Terminal, Perm.Rdp, Perm.FilesRead, Perm.FilesWrite } },
+        new() { Id = "auditor", Name = "Аудитор", Builtin = true, Perms = { Perm.HostsView, Perm.FleetView, Perm.RunCheck, Perm.FilesRead, Perm.AuditView } },
         new() { Id = "viewer", Name = "Просмотр", Builtin = true, Perms = { Perm.HostsView } }
     };
 }

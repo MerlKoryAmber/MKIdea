@@ -1,0 +1,114 @@
+@* Вкладка «Уязвимости» (Ф2+, право «Уязвимости»): последняя проверка «Версии ПО» каждого видимого хоста Linux — что закрыть сейчас и где обновления
+   безопасности. Слева узкий список хостов, справа — продукты хоста; номера CVE видны целиком (перенос строк). *@
+@inject WebStore Store
+
+<div class="page single">
+    <section class="surface">
+        <div class="surface-header">
+            <div class="row">
+                <div class="grow">
+                    <div class="section-title">Уязвимости и обновления ПО</div>
+                    <div class="muted small" style="margin-top:2px">Последняя проверка «Версии ПО» каждого хоста (из Actions, API или по расписанию): что закрыть сейчас и где есть обновления безопасности.</div>
+                </div>
+                <button class="btn sm" style="min-width:90px" @onclick="Reload">Обновить</button>
+            </div>
+        </div>
+        <div class="fleet">
+            <div class="scroll fleet-hosts">
+                <table class="grid fleet-list">
+                    <thead><tr>
+                        <th>Хост</th><th style="width:84px">Проверено</th><th style="width:84px">Кто</th>
+                        <th style="width:74px" title="CVE в KEV, EPSS ≥ 10% или CVSS ≥ 9 по сети">Закрыть</th>
+                        <th style="width:60px" title="Обновления пакетов (в скобках — безопасности)">Обновл.</th>
+                        <th style="width:52px" title="Строк, требующих внимания">Вним.</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var f in _fleet)
+                        {
+                            <tr class="@(ReferenceEquals(f, _sel) ? "selected" : "")" @onclick="() => _sel = f">
+                                <td class="ell fleet-host" title="@f.Host">@f.Host</td>
+                                @if (f.At == default)
+                                {
+                                    <td class="muted ell" colspan="5" title="«Версии ПО» в Actions или проверка по расписанию">не проверялся</td>
+                                }
+                                else
+                                {
+                                    <td title="@f.At.ToString("yyyy-MM-dd HH:mm")">@f.At.ToString("dd.MM HH:mm")</td><td class="ell" title="@f.Who">@f.Who</td>
+                                    <td>@if (f.Urgent > 0) { <span class="sbadge sev-bad strong">@f.Urgent CVE</span> } else { <span class="muted">—</span> }</td>
+                                    <td>@(f.Updates > 0 ? $"{f.Updates}" + (f.Security > 0 ? $" ({f.Security})" : "") : "—")</td>
+                                    <td>@(f.Bad + f.Warn > 0 ? (f.Bad + f.Warn).ToString() : "—")@(f.Errors.Length > 0 ? " ⚠" : "")</td>
+                                }
+                            </tr>
+                        }
+                        @if (_fleet.Count == 0) { <tr><td colspan="6" class="muted">Хостов Linux нет.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+            <div class="fleet-detail">
+                <div class="section-title" style="margin-bottom:6px">@(_sel?.Host ?? "Детали")</div>
+                @if (_sel is { At: var at } sf && at != default)
+                {
+                    <div class="small" style="margin-bottom:4px">@sf.Summary</div>
+                    <div class="muted small">@sf.UpdatesText</div>
+                    @if (sf.CveSummary.Length > 0) { <div class="small" style="margin-top:4px">@sf.CveSummary</div> }
+                    @if (sf.Errors.Length > 0) { <div class="error small" style="margin-top:4px">@sf.Errors</div> }
+                    <div class="scroll" style="flex:1;min-height:0;margin-top:8px">
+                        <table class="grid fleet-items">
+                            <thead><tr><th>Продукт</th><th>Версия</th><th>Обновление</th><th style="width:100%">CVE</th></tr></thead>
+                            <tbody>
+                                @foreach (var i in sf.Items)
+                                {
+                                    <tr title="@i.State">
+                                        <td title="@((i.Where == "хост" ? "" : i.Where + ": ") + i.Product)"><div class="ell fleet-product">@(i.Where == "хост" ? "" : i.Where + ": ")@i.Product</div></td>
+                                        <td class="ell" title="@i.Version">@i.Version</td>
+                                        <td class="ell" title="@i.Update">@i.Update@(i.Security ? " 🔒" : "")</td>
+                                        <td class="fleet-cve">
+                                            @if (i.Cve.Length > 0)
+                                            {
+                                                <span class="sbadge sev-bad strong">@i.Cve</span>
+                                                @foreach (var id in Ids(i.CveIds)) { <span class="fleet-cve-id">@id</span> }
+                                                @if (Hidden(i) is > 0 and var more) { <span class="muted small">и ещё @more — полный список после следующей проверки</span> }
+                                            }
+                                            else if (i.State.Length > 0) { <span class="muted small">@i.State</span> }
+                                        </td>
+                                    </tr>
+                                }
+                                @if (sf.Items.Count == 0) { <tr><td colspan="4" class="muted">Срочного нет.</td></tr> }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="muted small">Выберите хост.</div>
+                }
+            </div>
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private List<FleetSnapshot> _fleet = new();
+    private FleetSnapshot? _sel;
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload()
+    {
+        // только видимые пользователю хосты Linux; не проверявшиеся — тоже, внизу
+        var snaps = Store.LoadFleet().ToDictionary(x => x.HostId);
+        _fleet = S.LinuxHosts.Where(h => S.CanOn(Perm.FleetView, h))
+            .Select(h => snaps.TryGetValue(h.Id, out var x) ? x : new FleetSnapshot { HostId = h.Id, Host = h.Config.Title })
+            .OrderByDescending(x => x.Urgent).ThenByDescending(x => x.Security).ThenByDescending(x => x.At != default).ThenBy(x => x.Host, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        _sel = _fleet.FirstOrDefault(x => x.HostId == _sel?.HostId) ?? _fleet.FirstOrDefault(x => x.At != default);
+    }
+
+    private static string[] Ids(string s) => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Снимки до 0.7.2 хранили только 5 номеров: сколько не показано (плашка «N CVE» — полное число).</summary>
+    private static int Hidden(FleetItem i) =>
+        int.TryParse(i.Cve.Split(' ')[0], out var n) ? Math.Max(0, n - Ids(i.CveIds).Length) : 0;
+}

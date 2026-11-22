@@ -33,11 +33,16 @@ public sealed class GuacTickets
         return t.Id;
     }
 
-    /// <summary>Забрать пропуск (один раз). null — нет, истёк или чужой.</summary>
+    /// <summary>
+    /// Забрать пропуск (один раз). null — нет, истёк или чужой. Логин сверяется до удаления:
+    /// чужой запрос с известным номером пропуск не сжигает.
+    /// </summary>
     public GuacTicket? Take(string id, string login)
     {
-        if (string.IsNullOrEmpty(id) || !_map.TryRemove(id, out var t)) return null;
-        if (t.Expires < DateTime.UtcNow || !string.Equals(t.Login, login, StringComparison.OrdinalIgnoreCase)) return null;
-        return t;
+        if (string.IsNullOrEmpty(id) || !_map.TryGetValue(id, out var t)) return null;
+        if (t.Expires < DateTime.UtcNow) { _map.TryRemove(new KeyValuePair<string, GuacTicket>(id, t)); return null; }
+        if (!string.Equals(t.Login, login, StringComparison.OrdinalIgnoreCase)) return null;
+        // удалить именно этот пропуск: из двух одновременных запросов владельца сеанс получит один
+        return _map.TryRemove(new KeyValuePair<string, GuacTicket>(id, t)) ? t : null;
     }
 }

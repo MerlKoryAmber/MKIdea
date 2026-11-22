@@ -7,17 +7,15 @@
         <div class="surface-header">
             <div class="row">
                 <div class="grow">
-                    <div class="section-title">@(_mode switch { Mode.Audit => "Аудит", Mode.Sessions => "Сеансы", Mode.Fleet => "Парк — версии ПО и CVE", _ => "History" })</div>
+                    <div class="section-title">@(_mode switch { Mode.Audit => "Аудит", Mode.Sessions => "Сеансы", _ => "History" })</div>
                     <div class="muted small" style="margin-top:2px">@(_mode switch
                     {
                         Mode.Audit => "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog.",
                         Mode.Sessions => "Терминалы и RDP через шлюз: кто, куда, сколько. Запись экрана — проиграть, текст терминала — скачать.",
-                        Mode.Fleet => "Последняя проверка «Версии ПО» каждого хоста (из Actions или по расписанию): что закрыть сейчас и где есть обновления безопасности.",
                         _ => S.User.Limited ? "Последние dry-run / apply по вашим хостам — всех пользователей сервиса." : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса."
                     })</div>
                 </div>
                 <button class="btn sm @(_mode == Mode.History ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.History)">History</button>
-                <button class="btn sm @(_mode == Mode.Fleet ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.Fleet)" title="Сводка по парку: версии ПО и CVE">Парк</button>
                 @if (S.Can(Perm.AuditView))
                 {
                     <button class="btn sm @(_mode == Mode.Audit ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.Audit)">Аудит</button>
@@ -50,28 +48,6 @@
                                 {
                                     <tr class="@(ReferenceEquals(s, _selSess) ? "selected" : "")" @onclick="() => PickSession(s)">
                                         <td>@s.Start</td><td>@s.End</td><td>@(s.Protocol == "rdp" ? "RDP" : "SSH")</td><td class="ell">@s.Host</td><td class="ell">@s.Who</td><td class="ell">@s.Status</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            break;
-                        case Mode.Fleet:
-                            <thead><tr><th>Хост</th><th style="width:130px">Проверено</th><th style="width:110px">Кто</th><th style="width:110px" title="CVE в KEV, EPSS ≥ 10% или CVSS ≥ 9 по сети">Закрыть сейчас</th><th style="width:120px">Обновления</th><th style="width:90px">Внимание</th></tr></thead>
-                            <tbody>
-                                @foreach (var f in _fleet)
-                                {
-                                    <tr class="@(ReferenceEquals(f, _selFleet) ? "selected" : "")" @onclick="() => _selFleet = f">
-                                        <td class="ell">@f.Host</td>
-                                        @if (f.At == default)
-                                        {
-                                            <td class="muted" colspan="5">не проверялся — «Версии ПО» в Actions или проверка по расписанию</td>
-                                        }
-                                        else
-                                        {
-                                            <td>@f.At.ToString("yyyy-MM-dd HH:mm")</td><td class="ell">@f.Who</td>
-                                            <td>@if (f.Urgent > 0) { <span class="sbadge sev-bad strong">@f.Urgent CVE</span> } else { <span class="muted">—</span> }</td>
-                                            <td>@(f.Updates > 0 ? $"{f.Updates}" + (f.Security > 0 ? $" ({f.Security} безоп.)" : "") : "—")</td>
-                                            <td>@(f.Bad + f.Warn > 0 ? (f.Bad + f.Warn).ToString() : "—")@(f.Errors.Length > 0 ? " ⚠" : "")</td>
-                                        }
                                     </tr>
                                 }
                             </tbody>
@@ -115,37 +91,6 @@
                         <div class="muted small" style="margin-top:6px">Выберите сеанс.</div>
                     }
                 }
-                else if (_mode == Mode.Fleet)
-                {
-                    <div class="section-title" style="margin-bottom:8px">@(_selFleet?.Host ?? "Детали")</div>
-                    @if (_selFleet is { At: var at } sf && at != default)
-                    {
-                        <div class="small" style="margin-bottom:6px">@sf.Summary</div>
-                        <div class="muted small">@sf.UpdatesText</div>
-                        @if (sf.CveSummary.Length > 0) { <div class="small" style="margin-top:4px">@sf.CveSummary</div> }
-                        @if (sf.Errors.Length > 0) { <div class="error small" style="margin-top:4px">@sf.Errors</div> }
-                        <div class="scroll" style="flex:1;min-height:0;margin-top:8px">
-                            <table class="grid">
-                                <thead><tr><th>Продукт</th><th style="width:90px">Версия</th><th style="width:110px">Обновление</th><th style="width:150px">CVE</th></tr></thead>
-                                <tbody>
-                                    @foreach (var i in sf.Items)
-                                    {
-                                        <tr title="@i.State">
-                                            <td class="ell">@(i.Where == "хост" ? "" : i.Where + ": ")@i.Product</td><td class="ell">@i.Version</td>
-                                            <td class="ell">@i.Update@(i.Security ? " 🔒" : "")</td>
-                                            <td class="ell" title="@i.CveIds">@if (i.Cve.Length > 0) { <span class="sbadge sev-bad strong">@i.Cve</span> <span class="small">@i.CveIds</span> }</td>
-                                        </tr>
-                                    }
-                                    @if (sf.Items.Count == 0) { <tr><td colspan="4" class="muted">Срочного нет.</td></tr> }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="muted small">Выберите хост.</div>
-                    }
-                }
                 else
                 {
                     <div class="section-title" style="margin-bottom:8px">Детали</div>
@@ -159,7 +104,7 @@
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
 
-    private enum Mode { History, Audit, Sessions, Fleet }
+    private enum Mode { History, Audit, Sessions }
     private const string PlayerId = "guac-player";
 
     private Mode _mode;
@@ -168,8 +113,6 @@
     private List<AuditRow> _auditRows = new();
     private AuditRow? _selAudit;
     private List<SessionRow> _sessRows = new();
-    private List<FleetSnapshot> _fleet = new();
-    private FleetSnapshot? _selFleet;
     private SessionRow? _selSess;
     private IJSObjectReference? _mod;
     private DotNetObjectReference<HistoryTab>? _self;
@@ -198,15 +141,6 @@
                 break;
             case Mode.Sessions:
                 _sessRows = S.Can(Perm.AuditView) ? Store.LoadSessions() : new();
-                break;
-            case Mode.Fleet:
-                // только видимые пользователю хосты Linux; не проверявшиеся — тоже, внизу
-                var snaps = Store.LoadFleet().ToDictionary(x => x.HostId);
-                _fleet = S.LinuxHosts
-                    .Select(h => snaps.TryGetValue(h.Id, out var x) ? x : new FleetSnapshot { HostId = h.Id, Host = h.Config.Title })
-                    .OrderByDescending(x => x.Urgent).ThenByDescending(x => x.Security).ThenByDescending(x => x.At != default).ThenBy(x => x.Host, StringComparer.CurrentCultureIgnoreCase)
-                    .ToList();
-                _selFleet = _fleet.FirstOrDefault(x => x.HostId == _selFleet?.HostId);
                 break;
             default:
                 _rows = Store.LoadHistory();

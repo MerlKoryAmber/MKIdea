@@ -2,3 +2,4 @@ guacamole-common-js 1.5.0 (Apache License 2.0)
 Источник: https://registry.npmjs.org/guacamole-common-js/-/guacamole-common-js-1.5.0.tgz
 sha512 (integrity из реестра npm): zxztif3GGhKbg1RgOqwmqot8kXgv2HmHFg1EvWwd4q7UfEKvBcYZ0f+7G8HzvU+FUxF0Psqm9Kl5vCbgfrRgJg==
 Файл: package/dist/esm/guacamole-common.min.js без изменений.
+sha256 файла guacamole-common.min.js (для сверки при сборке): b510695a7d304887b7bff67985136df66ffc19b813efabe7c2eec2bba7a463e1
