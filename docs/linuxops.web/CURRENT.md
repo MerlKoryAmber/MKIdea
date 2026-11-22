@@ -1,6 +1,6 @@
 # LinuxOps Web — CURRENT
 
-**Версия:** 0.7.1 · ветка `feature/linuxops-web` · план — `docs/linuxops/PLAN-web.md`
+**Версия:** 0.7.1 · ветка `feature/linuxops-web` · план — `docs/linuxops/PLAN-web.md` · независимая проверка (Cursor) — `docs/linuxops.web/PLAN-cursor-verify.md`
 
 ## Отложено
 - **MK 2FA на живом сервере** не проверен (доступа нет): поток проверен заглушкой API в лабе. Для боевого — адрес API, секрет `mfa_…` и разрешённый адрес сервера на стороне MK 2FA.
