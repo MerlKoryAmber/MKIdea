@@ -125,13 +125,13 @@
         var role = _roles.FirstOrDefault(r => r.Id == _roleId);
         if (role is null) return;
         var w = _who;
-        if (_all.Any(a => a.Scope == ScopeKind && a.ObjectId == Id && a.RoleId == role.Id && a.Local == w.Local && a.IsGroup == w.IsGroup
+        if (_all.Any(a => a.Scope == ScopeKind && a.ObjectId == Id && a.RoleId == role.Id && a.Local == w.Local && a.Api == w.Api && a.IsGroup == w.IsGroup
                           && string.Equals(a.Who, w.Who, StringComparison.OrdinalIgnoreCase)))
         {
             _msg = "Такое назначение уже есть.";
             return;
         }
-        Store.SaveAssignment(new Assignment { Who = w.Who, IsGroup = w.IsGroup, Local = w.Local, RoleId = role.Id, Scope = ScopeKind, ObjectId = Id });
+        Store.SaveAssignment(new Assignment { Who = w.Who, IsGroup = w.IsGroup, Local = w.Local, Api = w.Api, RoleId = role.Id, Scope = ScopeKind, ObjectId = Id });
         Audit.Write(S.Who, "доступ: выдан", $"{w.KindText} {w.Who}, роль «{role.Name}» → {ItemPath}");
         _msg = $"{w.Who}: «{role.Name}» на «{ItemPath}».";
         _who = null;

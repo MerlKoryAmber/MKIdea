@@ -6,7 +6,7 @@
             <div class="wrap">
                 <button class="btn" style="min-width:110px" title="Новый хост — в выделенную папку" @onclick="AddHost" disabled="@(!CanAdd)">+ Хост Linux</button>
                 <button class="btn" style="min-width:120px" title="Хост Windows (RDP) — в выделенную папку" @onclick="AddWinHost" disabled="@(!CanAdd)">+ Хост Windows</button>
-                <button class="btn" style="min-width:96px" disabled title="vCenter (PowerShell) — этап Ф5">+ vCenter</button>
+                <button class="btn" style="min-width:96px" disabled title="Профили vCenter в вебе пока нет: PowerCLI — во вкладке PowerShell (Connect-VIServer)">+ vCenter</button>
                 <button class="btn" style="min-width:90px;margin-right:16px" title="Новая папка — внутри выделенной" @onclick="AddFolder" disabled="@(!CanAdd)">+ Папка</button>
                 <button class="btn" style="min-width:96px" title="Хост — правка, папка — переименовать (или двойной щелчок)" @onclick="Edit" disabled="@(!CanEdit(_sel))">Изменить</button>
                 <button class="btn" style="min-width:110px" @onclick="Duplicate" disabled="@(_sel is not StoredHost || !CanAdd)">Дублировать</button>

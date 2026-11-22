@@ -63,6 +63,10 @@ else
 
             <LocalUsersPanel S="S" Changed="Reload" />
 
+            <ApiClientsPanel S="S" Changed="Reload" />
+
+            @if (S.Can(Perm.Vcenter)) { <PsPanel S="S" /> }
+
             <div class="section-title" style="margin-top:16px">Проверка парка по расписанию</div>
             <div class="muted small" style="margin-bottom:6px">Раз в сутки — «Версии ПО» по всем хостам Linux; итог — в History → Парк. Ключи хостов — только уже подтверждённые.</div>
             <label class="check"><input type="checkbox" @bind="_fleetOn" /> Проверять ежедневно</label>
@@ -418,8 +422,8 @@ else
         var role = _roles.FirstOrDefault(r => r.Id == _aRole);
         if (role is null) return;
         var parts = _aObject.Split(':', 2);
-        var a = new Assignment { Who = _aWho.Who, IsGroup = _aWho.IsGroup, Local = _aWho.Local, RoleId = role.Id, Scope = parts[0], ObjectId = parts.Length > 1 ? parts[1] : "" };
-        if (_assign.Any(x => x.Scope == a.Scope && x.ObjectId == a.ObjectId && x.RoleId == a.RoleId && x.Local == a.Local && x.IsGroup == a.IsGroup
+        var a = new Assignment { Who = _aWho.Who, IsGroup = _aWho.IsGroup, Local = _aWho.Local, Api = _aWho.Api, RoleId = role.Id, Scope = parts[0], ObjectId = parts.Length > 1 ? parts[1] : "" };
+        if (_assign.Any(x => x.Scope == a.Scope && x.ObjectId == a.ObjectId && x.RoleId == a.RoleId && x.Local == a.Local && x.Api == a.Api && x.IsGroup == a.IsGroup
                              && string.Equals(x.Who, a.Who, StringComparison.OrdinalIgnoreCase)))
         {
             _assignMsg = "Такое назначение уже есть.";

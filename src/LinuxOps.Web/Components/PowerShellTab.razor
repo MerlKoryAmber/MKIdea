@@ -1,0 +1,104 @@
+@* PowerShell (Ф5): консоль pwsh на сервере LinuxOps Web через guacd — PowerCLI к vCenter. Только «Админ». Сеанс пишется. *@
+@inject IJSRuntime JS
+@inject LinuxOps.Web.Services.Guac.GuacTickets Tickets
+@inject PsConsole Ps
+@implements IAsyncDisposable
+
+<div class="page single">
+    <section class="surface conn-screen-wrap">
+        <div class="surface-header slim">
+            <div class="row">
+                <span class="section-title grow">
+                    PowerShell на сервере<span class="muted small" style="margin-left:10px">@_state</span>
+                </span>
+                <span class="muted small" style="margin-right:12px">@StatusText</span>
+                <button class="btn sm primary" style="margin-right:6px" @onclick="Connect" disabled="@(_busy || _status is not { Ready: true })">Подключиться</button>
+                <button class="btn sm" @onclick="Disconnect" disabled="@(!_open)">Отключить</button>
+            </div>
+        </div>
+        <div class="conn-screen" @onclick="FocusScreen">
+            <div class="conn-host" id="@ScreenId"></div>
+            @if (!_open)
+            {
+                <div class="conn-empty">
+                    @if (_status is { Ready: false } st) { <div>@st.Problem</div> }
+                    else
+                    {
+                        <div>Консоль PowerShell 7 на сервере LinuxOps Web: PowerCLI — <code>Connect-VIServer -Server &lt;vcenter&gt;</code>.</div>
+                        <div class="small">Сеанс записывается (History → Сеансы). PowerCLI ставится в ⚙ → «PowerShell и PowerCLI».</div>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private const string ScreenId = "guac-powershell";
+    private PsConsole.Status? _status;
+    private string _state = "";
+    private bool _busy, _open;
+    private IJSObjectReference? _mod;
+    private DotNetObjectReference<PowerShellTab>? _self;
+
+    private string StatusText => _status is null ? "проверяю…"
+        : $"pwsh {_status.Pwsh ?? "нет"} · PowerCLI {_status.PowerCli ?? "нет"}";
+
+    protected override async Task OnInitializedAsync() => _status = await Ps.GetStatus();
+
+    private async Task Connect()
+    {
+        _busy = true;
+        try
+        {
+            var ticket = S.OpenPowerShell(Tickets);
+            if (ticket is null) return;
+            _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
+            _self ??= DotNetObjectReference.Create(this);
+            if (_open) await _mod.InvokeVoidAsync("close", ScreenId);
+            _open = true;
+            _state = "подключение…";
+            StateHasChanged();
+            await Task.Yield();
+            await _mod.InvokeVoidAsync("open", ScreenId, ticket, _self, "ssh");
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Disconnect()
+    {
+        if (_mod is not null) await _mod.InvokeVoidAsync("close", ScreenId);
+        _open = false;
+        _state = "";
+    }
+
+    private async Task FocusScreen()
+    {
+        if (_mod is not null && _open) await _mod.InvokeVoidAsync("focus", ScreenId);
+    }
+
+    [JSInvokable]
+    public Task OnGuacState(int st) => InvokeAsync(() =>
+    {
+        _state = st switch { 1 => "подключение…", 2 => "ожидание…", 3 => "подключено", 4 => "отключение…", 5 => "отключено", _ => _state };
+        StateHasChanged();
+    });
+
+    [JSInvokable]
+    public Task OnGuacError(string message) => InvokeAsync(() =>
+    {
+        _state = "ошибка";
+        S.ShowNotice(message.StartsWith("Aborted", StringComparison.Ordinal)
+            ? "Консоль PowerShell: шлюз не вошёл в учётку консоли на сервере (sshd, ключ или учётка linuxops-ps) — подробности: linuxops-web logs guacd."
+            : "Консоль PowerShell: " + message);
+        StateHasChanged();
+    });
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_mod is not null) { await _mod.InvokeVoidAsync("close", ScreenId); await _mod.DisposeAsync(); } } catch (JSDisconnectedException) { }
+        _self?.Dispose();
+    }
+}

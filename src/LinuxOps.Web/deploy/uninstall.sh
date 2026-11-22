@@ -34,13 +34,18 @@ rm -f "$NGINX_CONF"
 systemctl reload nginx 2>/dev/null || true
 rm -f "$CLI" /usr/local/bin/linuxops-web
 rm -rf "$APP_DIR"
+# консоль PowerShell: ключ сервиса больше не принимается
+rm -f "$PS_HOME/.ssh/authorized_keys"
 logger -t linuxops-web "служба удалена$( ((PURGE)) && echo " вместе с данными")" 2>/dev/null || true
 log "removed program, service, nginx config and menu"
 
 if ((PURGE)); then
   rm -rf "$DATA_DIR" "$ETC_DIR" "$PKI_DIR"
   userdel "$SVC_USER" 2>/dev/null || true
-  log "removed data, master key, certificate and user $SVC_USER"
+  userdel -r "$PS_USER" 2>/dev/null || true
+  rm -rf "$PS_MOD_DIR" "$PS_SHELL"
+  sed -i "\\|^${PS_SHELL}\$|d" /etc/shells 2>/dev/null || true
+  log "removed data, master key, certificate, users $SVC_USER and $PS_USER"
 else
   log "kept: $DATA_DIR, $ETC_DIR (master key, release source), $PKI_DIR (certificate)"
 fi

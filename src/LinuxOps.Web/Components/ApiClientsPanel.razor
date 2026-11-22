@@ -1,0 +1,162 @@
+@* ⚙ → сервисные учётки API (Ф8): токен показывается один раз при выпуске, хранится только хэш. Права — назначением «сервису API». *@
+@using LinuxOps.Web.Services.Auth
+@using LinuxOps.Web.Services.Api
+@inject WebStore Store
+@inject AuditLog Audit
+
+<div class="section-title" style="margin-top:16px">Сервисы API</div>
+<div class="muted small" style="margin-bottom:6px">
+    Внешний сервис по токену запускает только встроенные действия, которые получают информацию (@string.Join(", ", ApiJobs.ReadOnlyActions.Select(a => "«" + a.Name + "»"))),
+    и забирает результат. Меняющие действия через API не видны и не запускаются. Права — назначением «сервису API» (хватит «Видеть хосты» и «Опрос и Dry-run»).
+    Описание: <a href="/api/v1/openapi.json" target="_blank">/api/v1/openapi.json</a>.
+</div>
+<table class="grid">
+    <thead><tr><th>Учётка</th><th>Назначение</th><th>Токен</th><th>Последний запрос</th><th style="width:90px">Назначений</th></tr></thead>
+    <tbody>
+    @foreach (var c in _clients)
+    {
+        <tr class="@(c.Name == _sel?.Name ? "selected" : "")" @onclick="() => Pick(c)">
+            <td>🔌 @c.Name@(c.Enabled ? "" : " (выключена)")</td>
+            <td class="small">@c.Description</td>
+            <td class="small mono">@c.TokenHint…</td>
+            <td class="small">@(c.LastUsed is { } t ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "—")</td>
+            <td>@_assign.Count(a => a.Api && string.Equals(a.Who, c.Name, StringComparison.OrdinalIgnoreCase))</td>
+        </tr>
+    }
+    @if (_clients.Count == 0) { <tr><td colspan="5" class="muted">Нет.</td></tr> }
+    </tbody>
+</table>
+
+<div class="role-edit">
+    @if (_token is not null)
+    {
+        <div class="login-msg">
+            Токен «@_tokenFor» — показывается один раз, сохраните его в хранилище секретов сервиса:
+            <div class="login-secret" style="margin-top:6px;font-size:13px;word-break:break-all">@_token</div>
+            <button class="btn sm" style="margin-top:6px" @onclick="() => _token = null">Сохранил, скрыть</button>
+        </div>
+    }
+    @if (_sel is null)
+    {
+        <div class="form-grid">
+            <label>Имя</label><input class="input" @bind="_name" placeholder="svc-siem — латиница, цифры, . _ -" autocomplete="off" />
+            <label>Назначение</label><input class="input" @bind="_desc" placeholder="SIEM: инвентаризация ПО раз в сутки" autocomplete="off" />
+        </div>
+        <div class="wrap" style="margin-top:8px"><button class="btn primary" @onclick="Create">Завести и выдать токен</button></div>
+    }
+    else
+    {
+        <div class="wrap" style="gap:6px">
+            <b>🔌 @_sel.Name</b>
+            <button class="btn sm" @onclick="Reissue" title="Старый токен перестанет работать сразу">Новый токен</button>
+            <button class="btn sm" @onclick="ToggleEnabled">@(_sel.Enabled ? "Выключить" : "Включить")</button>
+            <button class="btn sm" @onclick="() => _confirmDelete = true">Удалить</button>
+            <button class="btn sm" @onclick="() => Pick(null)">Новая</button>
+        </div>
+        @if (_confirmDelete)
+        {
+            <div class="login-msg" style="margin-top:6px">
+                Удалить «@_sel.Name» и её назначения? Токен перестанет работать, вернуть нельзя.
+                <button class="btn sm" style="margin-left:8px" @onclick="Delete">Да, удалить</button>
+                <button class="btn sm" @onclick="() => _confirmDelete = false">Нет</button>
+            </div>
+        }
+        <div class="form-grid" style="margin-top:6px">
+            <label>Назначение</label><input class="input" @bind="_desc" />
+        </div>
+        <div class="wrap" style="margin-top:8px"><button class="btn primary" @onclick="SaveSel">Сохранить</button></div>
+    }
+    @if (_msg.Length > 0) { <div class="muted small" style="margin-top:6px">@_msg</div> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private List<ApiClient> _clients = new();
+    private List<Assignment> _assign = new();
+    private ApiClient? _sel;
+    private string _name = "", _desc = "", _msg = "";
+    private string? _token, _tokenFor;
+    private bool _confirmDelete;
+
+    protected override void OnParametersSet() => Reload();
+
+    private void Reload()
+    {
+        _clients = Store.LoadApiClients();
+        _assign = Store.LoadAssignments();
+        if (_sel is not null) _sel = _clients.FirstOrDefault(c => c.Name == _sel.Name);
+    }
+
+    private void Pick(ApiClient? c)
+    {
+        _sel = c; _confirmDelete = false; _msg = "";
+        _name = ""; _desc = c?.Description ?? "";
+    }
+
+    private void Issue(ApiClient c)
+    {
+        var token = ApiClient.NewToken();
+        c.TokenHash = ApiClient.Hash(token);
+        c.TokenHint = token[..8];
+        Store.SaveApiClient(c);
+        _token = token; _tokenFor = c.Name;
+    }
+
+    private async Task Create()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        var name = _name.Trim();
+        if (!LocalUser.ValidLogin(name)) { _msg = "Имя: латиница, цифры, . _ - ; от 2 до 64 символов."; return; }
+        if (Store.LoadApiClient(name) is not null) { _msg = "Такая учётка уже есть."; return; }
+        var c = new ApiClient { Name = name, Description = _desc.Trim() };
+        Issue(c);
+        Audit.Write(S.Who, "API: учётка заведена", $"{c.Name} ({c.Description}), токен {c.TokenHint}…");
+        Reload();
+        Pick(_clients.FirstOrDefault(x => x.Name == c.Name));
+        _msg = $"«{c.Name}» заведена. Дайте ей роль: «Назначения» → «сервису API».";
+        await Changed.InvokeAsync();
+    }
+
+    private void Reissue()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        Issue(_sel);
+        Audit.Write(S.Who, "API: новый токен", $"{_sel.Name}, токен {_sel.TokenHint}… — старый не действует");
+        _msg = "Выпущен новый токен; старый уже не действует.";
+        Reload();
+    }
+
+    private void SaveSel()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        _sel.Description = _desc.Trim();
+        Store.SaveApiClient(_sel);
+        Audit.Write(S.Who, "API: учётка изменена", $"{_sel.Name}: {_sel.Description}");
+        _msg = "Сохранено.";
+        Reload();
+    }
+
+    private void ToggleEnabled()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        _sel.Enabled = !_sel.Enabled;
+        Store.SaveApiClient(_sel);
+        Audit.Write(S.Who, _sel.Enabled ? "API: учётка включена" : "API: учётка выключена", _sel.Name);
+        _msg = _sel.Enabled ? "Включена." : "Выключена: запросы с её токеном — отказ (401).";
+        Reload();
+    }
+
+    private async Task Delete()
+    {
+        if (!S.Can(Perm.Settings) || _sel is null) return;
+        var name = _sel.Name;
+        var n = Store.DeleteApiClient(name);
+        Audit.Write(S.Who, "API: учётка удалена", $"{name}, назначений снято: {n}");
+        Pick(null);
+        Reload();
+        _msg = $"«{name}» удалена, назначений снято: {n}.";
+        await Changed.InvokeAsync();
+    }
+}

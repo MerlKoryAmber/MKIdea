@@ -58,6 +58,55 @@ public sealed partial class WebSession
         return tickets.Issue(t);
     }
 
+    /// <summary>
+    /// Консоль PowerShell (Ф5): право «vCenter и PowerShell» (только встроенная «Админ»). guacd входит по SSH на этот сервер
+    /// в учётку консоли ключом сервиса; ключ хоста — из файлов sshd этого сервера (тип — как выберет libssh2). Сеанс пишется.
+    /// </summary>
+    public string? OpenPowerShell(GuacTickets tickets)
+    {
+        if (!Allowed(Perm.Vcenter, "консоль PowerShell")) return null;
+        string key;
+        try { key = File.ReadAllText(WebPaths.PsKey).Replace("\r\n", "\n"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _audit.Write(Who, "PowerShell: не открыт", $"нет ключа консоли: {ex.Message}");
+            ShowNotice($"Консоль PowerShell не настроена на сервере (нет {WebPaths.PsKey}). Повторите установку: linuxops-web → update.");
+            return null;
+        }
+        var pubs = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var f in Directory.Exists("/etc/ssh") ? Directory.GetFiles("/etc/ssh", "ssh_host_*_key.pub") : [])
+        {
+            var parts = File.ReadAllText(f).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length >= 2 && Libssh2KeyOrder.Contains(parts[0])) pubs.TryAdd(parts[0], parts[1]);
+        }
+        var pick = Libssh2KeyOrder.FirstOrDefault(pubs.ContainsKey);
+        if (pick is null) { ShowNotice("Не найден ключ sshd этого сервера (/etc/ssh/ssh_host_*_key.pub)."); return null; }
+        var port = WebPaths.PsSshPort;
+        var p = new Dictionary<string, string>
+        {
+            ["hostname"] = "127.0.0.1",
+            ["port"] = port.ToString(),
+            ["username"] = WebPaths.PsUser,
+            ["private-key"] = key,
+            ["host-key"] = $"{(port == 22 ? "127.0.0.1" : $"[127.0.0.1]:{port}")} {pick} {pubs[pick]}",
+            ["terminal-type"] = "xterm-256color",
+            ["font-name"] = "monospace",
+            ["font-size"] = "12",
+            ["scrollback"] = "3000",
+            ["color-scheme"] = "gray-black",
+            ["recording-path"] = WebPaths.RecordingsDir,
+            ["create-recording-path"] = "true",
+            ["typescript-path"] = WebPaths.RecordingsDir,
+            ["create-typescript-path"] = "true",
+            ["server-alive-interval"] = "30"
+        };
+        var t = new GuacTicket { Login = User.Login, Who = Who, Protocol = "ssh", HostId = "powershell", HostTitle = "PowerShell (сервер)", Params = p };
+        p["recording-name"] = t.Id + ".guac";
+        p["typescript-name"] = t.Id + ".txt";
+        RecordKeys(p);
+        return tickets.Issue(t);
+    }
+
     /// <summary>Учётка для RDP по умолчанию: вошли через AD — свой логин (домен подставится сам).</summary>
     public string RdpDefaultLogin => User.Kind == "ad" ? User.Login : "";
 

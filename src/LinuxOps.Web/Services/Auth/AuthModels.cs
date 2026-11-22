@@ -74,7 +74,7 @@ public static class Scope
 /// <summary>Кто вошёл: локальный админ, локальный пользователь сервиса, пользователь AD.</summary>
 public static class UserKind
 {
-    public const string Admin = "local", Local = "user", Ad = "ad";
+    public const string Admin = "local", Local = "user", Ad = "ad", Api = "api";
 }
 
 /// <summary>Назначение: группа AD, человек AD или локальный пользователь получает роль на объект.</summary>
@@ -86,6 +86,8 @@ public sealed class Assignment
     public bool IsGroup { get; set; } = true;
     /// <summary>Локальный пользователь сервиса (не AD). Тот же логин в AD — другой человек.</summary>
     public bool Local { get; set; }
+    /// <summary>Сервисная учётка API (по токену). Права из ролей ей нужны те же, но API само по себе — только чтение.</summary>
+    public bool Api { get; set; }
     public string RoleId { get; set; } = "";
     /// <summary>all | folder | host</summary>
     public string Scope { get; set; } = Auth.Scope.All;
@@ -93,13 +95,38 @@ public sealed class Assignment
     public string ObjectId { get; set; } = "";
 
     public bool Matches(string login, ICollection<string> groups, string kind) =>
-        Local ? kind == UserKind.Local && string.Equals(Who, login, StringComparison.OrdinalIgnoreCase)
+        Api ? kind == UserKind.Api && string.Equals(Who, login, StringComparison.OrdinalIgnoreCase)
+        : Local ? kind == UserKind.Local && string.Equals(Who, login, StringComparison.OrdinalIgnoreCase)
         : kind != UserKind.Ad ? false
         : IsGroup ? groups.Contains(Who, StringComparer.OrdinalIgnoreCase)
         : string.Equals(Who, login, StringComparison.OrdinalIgnoreCase);
 
-    public string Icon => Local ? "🔑" : IsGroup ? "👥" : "👤";
-    public string KindText => Local ? "локальный" : IsGroup ? "группа" : "человек";
+    public string Icon => Api ? "🔌" : Local ? "🔑" : IsGroup ? "👥" : "👤";
+    public string KindText => Api ? "сервис API" : Local ? "локальный" : IsGroup ? "группа" : "человек";
+}
+
+/// <summary>
+/// Сервисная учётка API (Ф8): внешний сервис по токену запускает только встроенные действия «только чтение»
+/// и забирает их результат. Токен хранится только хэшем (SHA-256), показывается один раз при выпуске.
+/// </summary>
+public sealed class ApiClient
+{
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public string TokenHash { get; set; } = "";
+    /// <summary>Начало токена — чтобы узнать его в списке, не храня целиком.</summary>
+    public string TokenHint { get; set; } = "";
+    public DateTime Created { get; set; } = DateTime.UtcNow;
+    public DateTime? LastUsed { get; set; }
+
+    public const string Prefix = "lo_";
+
+    public static string NewToken() =>
+        Prefix + Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    public static string Hash(string token) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 }
 
 /// <summary>Учётка со своим TOTP: локальный админ и локальные пользователи.</summary>
@@ -202,7 +229,7 @@ public sealed class UserInfo
 {
     public string Login { get; init; } = "";
     public string Display { get; init; } = "";
-    /// <summary>UserKind: local (админ) | user (локальный) | ad</summary>
+    /// <summary>UserKind: local (админ) | user (локальный) | ad | api (сервисная учётка)</summary>
     public string Kind { get; init; } = "";
     /// <summary>Группы AD на момент входа (для назначений на группы).</summary>
     public List<string> Groups { get; init; } = new();

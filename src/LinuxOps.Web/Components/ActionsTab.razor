@@ -49,6 +49,7 @@
                         </div>
                         <div class="card-side">
                             <span class="badge">@a.Badge</span>
+                            @if (a.Definition.ReadOnly) { <span class="badge" style="margin-top:4px" title="Только получает информацию; доступно через API">чтение</span> }
                         </div>
                     </div>
                 </div>

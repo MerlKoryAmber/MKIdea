@@ -1,0 +1,82 @@
+@* ⚙ → PowerShell и PowerCLI (Ф5, только «Админ»): что стоит на сервере; PowerCLI — из PowerShell Gallery или из ZIP. *@
+@using LinuxOps.Web.Services.Auth
+@inject PsConsole Ps
+@inject AuditLog Audit
+
+<div class="section-title" style="margin-top:16px">PowerShell и PowerCLI</div>
+<div class="muted small" style="margin-bottom:6px">
+    PowerShell 7 ставит установщик LinuxOps Web (в комплекте). PowerCLI (Broadcom) — отсюда: из PowerShell Gallery (нужен интернет на сервере, при необходимости — через прокси)
+    или из ZIP (экспорт настольного LinuxOps или офлайн-архив PowerCLI). Консоль — вкладка PowerShell.
+</div>
+<div class="muted small">@(_status is null ? "проверяю…" : $"pwsh: {_status.Pwsh ?? "не установлен"} · PowerCLI: {_status.PowerCli ?? "не установлен"}")</div>
+<div class="form-grid" style="margin-top:6px">
+    <label>Прокси</label><input class="input" @bind="_proxy" placeholder="http://proxy.corp.local:3128 — пусто: напрямую" autocomplete="off" />
+</div>
+<div class="wrap" style="margin-top:8px;gap:6px">
+    <button class="btn primary" @onclick="Online" disabled="@(_busy || _status?.Pwsh is null)">Скачать из интернета</button>
+    <label class="btn" style="cursor:pointer">
+        Установить из ZIP…
+        <InputFile OnChange="Zip" accept=".zip" style="display:none" disabled="@(_busy || _status?.Pwsh is null)" />
+    </label>
+    <button class="btn" @onclick="() => _confirmRemove = true" disabled="@(_busy || _status?.PowerCli is null)">Удалить модули</button>
+    <span class="muted small" style="margin-left:6px">@_msg</span>
+</div>
+@if (_confirmRemove)
+{
+    <div class="login-msg" style="margin-top:6px">
+        Удалить все модули консоли (PowerCLI)? Поставить снова — кнопками выше.
+        <button class="btn sm" style="margin-left:8px" @onclick="Remove">Да, удалить</button>
+        <button class="btn sm" @onclick="() => _confirmRemove = false">Нет</button>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+
+    private const long MaxZip = 512L * 1024 * 1024;
+    private PsConsole.Status? _status;
+    private string _proxy = "", _msg = "";
+    private bool _busy, _confirmRemove;
+
+    protected override async Task OnInitializedAsync() => _status = await Ps.GetStatus();
+
+    private async Task Online()
+    {
+        if (!S.Can(Perm.Vcenter)) return;
+        _busy = true; _msg = "скачиваю из PowerShell Gallery… (несколько минут)";
+        StateHasChanged();
+        try
+        {
+            var (ok, text) = await Ps.InstallOnline(_proxy);
+            _msg = text;
+            Audit.Write(S.Who, "PowerCLI: установка из интернета", (ok ? "OK: " : "ошибка: ") + text + (_proxy.Trim().Length > 0 ? $", прокси {_proxy.Trim()}" : ""));
+        }
+        finally { _busy = false; _status = await Ps.GetStatus(); }
+    }
+
+    private async Task Zip(InputFileChangeEventArgs e)
+    {
+        if (!S.Can(Perm.Vcenter)) return;
+        _busy = true; _msg = $"загружаю {e.File.Name}…";
+        StateHasChanged();
+        try
+        {
+            await using var s = e.File.OpenReadStream(MaxZip);
+            var (ok, text) = await Ps.InstallZip(s, MaxZip);
+            _msg = text;
+            Audit.Write(S.Who, "PowerCLI: установка из ZIP", $"{e.File.Name}, {e.File.Size / 1024 / 1024} МБ — " + (ok ? "OK: " : "ошибка: ") + text);
+        }
+        catch (IOException ex) { _msg = "Не загрузилось: " + ex.Message; }
+        finally { _busy = false; _status = await Ps.GetStatus(); }
+    }
+
+    private async Task Remove()
+    {
+        if (!S.Can(Perm.Vcenter)) return;
+        _confirmRemove = false;
+        var n = Ps.RemoveAll();
+        Audit.Write(S.Who, "PowerCLI: модули удалены", $"папок: {n}");
+        _msg = $"Удалено папок модулей: {n}.";
+        _status = await Ps.GetStatus();
+    }
+}

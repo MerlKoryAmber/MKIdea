@@ -263,6 +263,8 @@ public sealed class ActionDefinition
     public string Description { get; set; } = string.Empty;
     public bool BuiltIn { get; set; }
     public bool Destructive { get; set; }
+    /// <summary>Только получает информацию, ничего на хосте не меняет. Только такие действия доступны через API (LinuxOps Web, Ф8).</summary>
+    public bool ReadOnly { get; set; }
     /// <summary>rhel, ubuntu, debian, alma, suse, any</summary>
     public List<string> Distros { get; set; } = new() { "any" };
     public string Script { get; set; } = string.Empty;

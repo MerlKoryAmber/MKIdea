@@ -25,21 +25,14 @@ public sealed partial class WebSession
     public bool Can(string perm) => User.Can(perm);
 
     /// <summary>Папка id — она сама или внутри папки ancestor.</summary>
-    private bool Under(string id, string ancestor)
-    {
-        for (var p = id; !string.IsNullOrEmpty(p); p = _allFolders.FirstOrDefault(f => f.Id == p)?.ParentId)
-            if (p == ancestor) return true;
-        return false;
-    }
+    private bool Under(string id, string ancestor) => Access.Under(id, ancestor, _allFolders);
 
     /// <summary>Право на папке (folderId "" — корень: только назначение на «всё»).</summary>
     public bool CanOnFolder(string perm, string folderId) => User.Grants.Any(g => g.Perms.Contains(perm) &&
         (g.Scope == Scope.All || (g.Scope == Scope.Folder && folderId.Length > 0 && Under(folderId, g.ObjectId))));
 
     /// <summary>Право на хосте: на «всё», на сам хост или на папку над ним.</summary>
-    public bool CanOn(string perm, StoredHost h) => User.Grants.Any(g => g.Perms.Contains(perm) &&
-        (g.Scope == Scope.All || (g.Scope == Scope.Host && g.ObjectId == h.Id) ||
-         (g.Scope == Scope.Folder && Under(h.Config.FolderId, g.ObjectId))));
+    public bool CanOn(string perm, StoredHost h) => Access.CanOn(User, perm, h, _allFolders);
 
     private string PermText(string perm) => Perm.All.FirstOrDefault(p => p.Id == perm).Text ?? perm;
 

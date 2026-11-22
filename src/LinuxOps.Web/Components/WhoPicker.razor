@@ -1,11 +1,12 @@
-@* Кому назначить: группе AD, человеку AD или локальному пользователю сервиса. Выбрали — OnPick, дальше роль выбирает вызывающий. *@
+@* Кому назначить: группе AD, человеку AD, локальному пользователю или сервису API. Выбрали — OnPick, дальше роль выбирает вызывающий. *@
 @using LinuxOps.Web.Services.Auth
 @inject WebStore Store
 
 <div class="wrap" style="margin-bottom:6px">
     <label class="check" style="margin-right:12px"><input type="radio" name="@_name" checked="@(_kind == "group")" @onchange='() => _kind = "group"' /> группе AD</label>
     <label class="check" style="margin-right:12px"><input type="radio" name="@_name" checked="@(_kind == "person")" @onchange='() => _kind = "person"' /> человеку AD</label>
-    <label class="check"><input type="radio" name="@_name" checked="@(_kind == "local")" @onchange='() => _kind = "local"' /> локальному</label>
+    <label class="check" style="margin-right:12px"><input type="radio" name="@_name" checked="@(_kind == "local")" @onchange='() => _kind = "local"' /> локальному</label>
+    <label class="check"><input type="radio" name="@_name" checked="@(_kind == "api")" @onchange='() => _kind = "api"' /> сервису API</label>
 </div>
 @if (_kind == "local")
 {
@@ -22,17 +23,33 @@
         </select>
     }
 }
+else if (_kind == "api")
+{
+    var clients = Store.LoadApiClients();
+    if (clients.Count == 0)
+    {
+        <div class="muted small">Сервисных учёток нет — заведите в ⚙ → «Сервисы API».</div>
+    }
+    else
+    {
+        <div class="muted small" style="margin-bottom:4px">API запускает только действия «только чтение»: хватит роли с правами «Видеть хосты» и «Опрос и Dry-run».</div>
+        <select class="input" style="width:auto" value="" @onchange="PickApi">
+            <option value="">— выберите —</option>
+            @foreach (var c in clients) { <option value="@c.Name">@c.Name@(c.Description.Length > 0 ? " — " + c.Description : "")@(c.Enabled ? "" : " (выключена)")</option> }
+        </select>
+    }
+}
 else
 {
     <AdPicker Groups="@(_kind == "group")" OnPick="PickAd" />
 }
 
 @code {
-    /// <summary>Выбранный: логин или группа; группа ли; локальный ли.</summary>
-    public sealed record Picked(string Who, bool IsGroup, bool Local)
+    /// <summary>Выбранный: логин, группа или сервисная учётка.</summary>
+    public sealed record Picked(string Who, bool IsGroup, bool Local, bool Api = false)
     {
-        public string Icon => Local ? "🔑" : IsGroup ? "👥" : "👤";
-        public string KindText => Local ? "локальный" : IsGroup ? "группа" : "человек";
+        public string Icon => Api ? "🔌" : Local ? "🔑" : IsGroup ? "👥" : "👤";
+        public string KindText => Api ? "сервис API" : Local ? "локальный" : IsGroup ? "группа" : "человек";
     }
 
     [Parameter] public EventCallback<Picked> OnPick { get; set; }
@@ -44,4 +61,7 @@ else
 
     private Task PickLocal(ChangeEventArgs e) =>
         e.Value?.ToString() is { Length: > 0 } login ? OnPick.InvokeAsync(new Picked(login, false, true)) : Task.CompletedTask;
+
+    private Task PickApi(ChangeEventArgs e) =>
+        e.Value?.ToString() is { Length: > 0 } name ? OnPick.InvokeAsync(new Picked(name, false, false, true)) : Task.CompletedTask;
 }

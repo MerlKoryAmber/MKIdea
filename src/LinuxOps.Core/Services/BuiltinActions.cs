@@ -9,6 +9,7 @@ public static class BuiltinActions
         new ActionDefinition
         {
             Id = "check-updates",
+            ReadOnly = true,
             Name = "Проверить обновления",
             Description = "Доступные пакеты: apt / dnf / zypper",
             BuiltIn = true,
@@ -28,6 +29,7 @@ public static class BuiltinActions
         new ActionDefinition
         {
             Id = "list-users",
+            ReadOnly = true,
             Name = "Аудит пользователей / sudo",
             Description = "Учётки, sudo, блокировки, ключи SSH",
             BuiltIn = true,
@@ -36,6 +38,7 @@ public static class BuiltinActions
         new ActionDefinition
         {
             Id = "proxy-check",
+            ReadOnly = true,
             Name = "Прокси: проверить",
             Description = "Что прописано (apt / dnf / zypper, окружение) и доступен ли репозиторий",
             BuiltIn = true,
@@ -46,6 +49,7 @@ public static class BuiltinActions
         new ActionDefinition
         {
             Id = "versions-check",
+            ReadOnly = true,
             Name = "Версии ПО: nginx, PHP… и контейнеры",
             Description = "nginx, Apache, PHP, OpenSSL, OpenSSH, MySQL/MariaDB, PostgreSQL, Redis, Node.js, Java, Python — на хосте и в контейнерах docker / podman; пакеты — есть ли обновление (в т. ч. безопасности), остальное — поддерживается ли ветка; незакрытые CVE — что закрыть сейчас. Ничего не меняет",
             BuiltIn = true,

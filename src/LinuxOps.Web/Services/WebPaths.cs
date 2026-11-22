@@ -26,6 +26,15 @@ public static class WebPaths
     /// <summary>guacd: адрес и порт (по умолчанию — на этом же сервере).</summary>
     public static string Guacd { get; } = Resolve("LINUXOPS_WEB_GUACD", "localhost:4822");
 
+    /// <summary>
+    /// Консоль PowerShell (Ф5): учётка ОС с оболочкой pwsh, вход guacd по SSH на этот сервер ключом сервиса;
+    /// модули (PowerCLI) — в каталоге, который пишет сервис и читает учётка. Всё создаёт install.sh (ps_account_ensure).
+    /// </summary>
+    public static string PsUser { get; } = Resolve("LINUXOPS_WEB_PS_USER", "linuxops-ps");
+    public static string PsKey { get; } = Resolve("LINUXOPS_WEB_PS_KEY", "/etc/linuxops-web/ps_ed25519");
+    public static string PsModules { get; } = Resolve("LINUXOPS_WEB_PS_MODULES", "/var/lib/linuxops-web-ps/Modules");
+    public static int PsSshPort { get; } = int.TryParse(Resolve("LINUXOPS_WEB_PS_SSH_PORT", "22"), out var p) ? p : 22;
+
     public static string DbFile => Path.Combine(DataDir, "linuxops-web.db");
     public static string AuditFile => Path.Combine(DataDir, "audit.log");
 

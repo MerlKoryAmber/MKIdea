@@ -1,0 +1,137 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "LinuxOps Web API",
+    "version": "1",
+    "description": "Только чтение: внешний сервис запускает встроенные действия, которые получают информацию с хостов Linux, и забирает результат. Действия, которые что-то меняют, через API не видны и не запускаются. Вход — токен сервисной учётки (⚙ → «Сервисы API»); права — назначениями, как у людей: «Видеть хосты» и «Опрос и Dry-run» на хост или папку. Хосты на время задания блокируются; запуск и итог — в History и аудите от имени api:<учётка>. Ключ хоста должен быть уже подтверждён в панели. Задания хранятся 7 дней."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "security": [{ "token": [] }],
+  "components": {
+    "securitySchemes": {
+      "token": { "type": "http", "scheme": "bearer", "description": "Authorization: Bearer lo_… — выдаётся один раз в ⚙ → «Сервисы API»" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" } } } }
+      },
+      "Action": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "example": "versions-check" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "distros": { "type": "array", "items": { "type": "string" } },
+          "timeout_seconds": { "type": "integer" },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" }, "label": { "type": "string" },
+                "kind": { "type": "string", "description": "bool (да / нет) или text" }, "default": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "Host": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "name": { "type": "string" }, "address": { "type": "string" }, "port": { "type": "integer" },
+          "folder": { "type": "string", "example": "Отдел А / Отдел Б" },
+          "can_run": { "type": "boolean", "description": "есть право «Опрос и Dry-run» — можно запускать" }
+        }
+      },
+      "JobRequest": {
+        "type": "object",
+        "required": ["action", "hosts"],
+        "properties": {
+          "action": { "type": "string", "example": "versions-check" },
+          "hosts": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "id из /hosts" },
+          "params": { "type": "object", "additionalProperties": { "type": "string" }, "description": "только объявленные у действия; нет — значение по умолчанию" }
+        }
+      },
+      "HostResult": {
+        "type": "object",
+        "properties": {
+          "host_id": { "type": "string" }, "host": { "type": "string" },
+          "status": { "type": "string", "enum": ["OK", "WARN", "FAIL", "SKIP"] },
+          "summary": { "type": "string" }, "connect": { "type": "string", "description": "подключение: «SSH OK · CentOS Stream 9 (rhel)»" },
+          "output": { "type": "string", "description": "вывод с хоста" },
+          "report": { "type": "object", "description": "разобранный отчёт: «Версии ПО» и CVE, аудит пользователей, прокси" }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "client": { "type": "string" }, "action": { "type": "string" }, "action_name": { "type": "string" },
+          "params": { "type": "object", "additionalProperties": { "type": "string" } },
+          "hosts": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string", "enum": ["running", "done", "failed"] },
+          "message": { "type": "string" },
+          "started": { "type": "string", "format": "date-time" }, "finished": { "type": "string", "format": "date-time" },
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/HostResult" } }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": { "description": "нет токена, неверный или учётка выключена", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NoAccess": { "description": "у учётки нет назначений", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  },
+  "paths": {
+    "/actions": {
+      "get": {
+        "summary": "Действия, доступные через API (только чтение)",
+        "responses": {
+          "200": { "description": "список", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Action" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/NoAccess" }
+        }
+      }
+    },
+    "/hosts": {
+      "get": {
+        "summary": "Хосты Linux, которые видит учётка",
+        "responses": {
+          "200": { "description": "список", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Host" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/NoAccess" }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "summary": "Запустить действие на хостах",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobRequest" } } } },
+        "responses": {
+          "202": { "description": "задание создано, результат — GET /jobs/{id}", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } },
+          "400": { "description": "bad_request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "description": "action_not_readonly — действие меняет хост или не встроенное; forbidden — нет права на хост; no_access", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "action_not_found, host_not_found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "too_many_jobs — у учётки уже идут 3 задания", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "get": {
+        "summary": "Последние задания учётки (без результатов)",
+        "responses": {
+          "200": { "description": "до 50, свежие сверху", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "summary": "Задание и его результаты",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "задание; status=running — опросить позже", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "job_not_found (и чужое задание)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/openapi.json": { "get": { "summary": "Это описание", "security": [], "responses": { "200": { "description": "OpenAPI 3.0" } } } }
+  }
+}

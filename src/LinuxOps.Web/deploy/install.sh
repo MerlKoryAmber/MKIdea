@@ -55,6 +55,10 @@ install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$DATA_DIR" "$ETC_DIR"
 install -d -m 700 "$BACKUP_DIR"
 release_conf_default
 
+# PowerShell 7 и учётка консоли (Ф5): pwsh — из комплекта релиза
+pwsh_ensure "$SRC" || warn "PowerShell not installed — the PowerShell tab will not work"
+ps_account_ensure
+
 # Старая раскладка (файлы прямо в /opt/linuxops-web, до 0.2.0) — убрать, данные не там.
 if [[ -f "$APP_DIR/LinuxOps.Web" && ! -L "$CURRENT_LINK" ]]; then
   log "removing old flat layout in $APP_DIR"

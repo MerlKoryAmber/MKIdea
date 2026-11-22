@@ -284,6 +284,68 @@ recordings_dir_ensure() {
   if have_cmd semanage && have_cmd restorecon; then restorecon -R "$REC_DIR" 2>/dev/null || true; fi
 }
 
+# PowerShell 7 (Ф5): RPM из комплекта релиза (deploy/vendor), сеть не нужна. Целостность — SHA-256 всего релиза.
+pwsh_ensure() {
+  have_cmd pwsh && return 0
+  local pkg="" f
+  for f in "${1:-}"/deploy/vendor/powershell-*.rh."$(uname -m)".rpm; do [[ -f $f ]] && pkg=$f; done
+  [[ -n $pkg ]] || { warn "PowerShell: no package in the release for $(uname -m)"; return 1; }
+  log "PowerShell: $(basename "$pkg")"
+  dnf -y -q install "$pkg"
+}
+
+# Консоль PowerShell в браузере: служебная учётка ОС с оболочкой pwsh; guacd входит в неё по SSH на 127.0.0.1
+# ключом сервиса (authorized_keys: только с localhost, без проброса портов и агента). Пароля у учётки нет.
+# Модули (PowerCLI) ставит сервис в PS_MOD_DIR, учётка их читает. Телеметрия и проверка обновлений pwsh — выключены.
+PS_USER=linuxops-ps
+PS_HOME=/home/linuxops-ps
+PS_MOD_DIR=/var/lib/linuxops-web-ps
+PS_KEY=$ETC_DIR/ps_ed25519
+PS_SHELL=/usr/local/libexec/linuxops-ps-shell
+ps_account_ensure() {
+  have_cmd pwsh || return 0
+  install -d -m 755 "$(dirname "$PS_SHELL")"
+  cat >"$PS_SHELL" <<'SH'
+#!/bin/sh
+# Оболочка консоли PowerShell LinuxOps Web: pwsh без телеметрии и проверки обновлений.
+export POWERSHELL_TELEMETRY_OPTOUT=1 POWERSHELL_UPDATECHECK=Off DOTNET_CLI_TELEMETRY_OPTOUT=1
+exec /usr/bin/pwsh -NoLogo "$@"
+SH
+  chmod 755 "$PS_SHELL"
+  grep -qx "$PS_SHELL" /etc/shells || echo "$PS_SHELL" >>/etc/shells
+  id "$PS_USER" >/dev/null 2>&1 || useradd -r -m -d "$PS_HOME" -s "$PS_SHELL" -c "LinuxOps Web PowerShell console" "$PS_USER"
+  usermod -s "$PS_SHELL" "$PS_USER"
+  # без пароля, но не «заблокирована»: sshd пускает только по ключу
+  usermod -p '*' "$PS_USER"
+  if [[ ! -f $PS_KEY ]]; then ssh-keygen -q -t ed25519 -N '' -C linuxops-web-ps -f "$PS_KEY"; fi
+  chown "$SVC_USER:$SVC_USER" "$PS_KEY" "$PS_KEY.pub"; chmod 600 "$PS_KEY"; chmod 644 "$PS_KEY.pub"
+  install -d -o "$PS_USER" -g "$PS_USER" -m 700 "$PS_HOME/.ssh"
+  printf 'from="127.0.0.1,::1",restrict,pty %s\n' "$(cat "$PS_KEY.pub")" >"$PS_HOME/.ssh/authorized_keys"
+  chown "$PS_USER:$PS_USER" "$PS_HOME/.ssh/authorized_keys"; chmod 600 "$PS_HOME/.ssh/authorized_keys"
+  install -d -o "$SVC_USER" -g "$PS_USER" -m 2750 "$PS_MOD_DIR" "$PS_MOD_DIR/Modules"
+  install -d -o "$PS_USER" -g "$PS_USER" -m 700 "$PS_HOME/.config" "$PS_HOME/.config/powershell"
+  cat >"$PS_HOME/.config/powershell/Microsoft.PowerShell_profile.ps1" <<'PS1'
+# LinuxOps Web: модули, поставленные из ⚙ (PowerCLI), — первыми в пути поиска.
+$env:PSModulePath = '/var/lib/linuxops-web-ps/Modules' + [IO.Path]::PathSeparator + $env:PSModulePath
+if (Get-Module -ListAvailable -Name VMware.VimAutomation.Core) {
+    Write-Host 'PowerCLI есть: Connect-VIServer -Server <vcenter>' -ForegroundColor DarkGray
+} else {
+    Write-Host 'PowerCLI не установлен: шестерёнка (настройки LinuxOps Web) → «PowerShell и PowerCLI».' -ForegroundColor DarkGray
+}
+PS1
+  chown "$PS_USER:$PS_USER" "$PS_HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
+  # PowerCLI: без программы сбора данных VMware (CEIP) по умолчанию. Файл уже есть — выбор админа не трогаем.
+  local cli_dir="$PS_HOME/.local/share/VMware/PowerCLI"
+  if [[ ! -f $cli_dir/PowerCLI_Settings.xml ]]; then
+    install -d -o "$PS_USER" -g "$PS_USER" -m 700 "$PS_HOME/.local" "$PS_HOME/.local/share" "$PS_HOME/.local/share/VMware" "$cli_dir"
+    printf '<Settings><Setting Name="ParticipateInCEIP" Value="False" /></Settings>' >"$cli_dir/PowerCLI_Settings.xml"
+    chown "$PS_USER:$PS_USER" "$cli_dir/PowerCLI_Settings.xml"; chmod 600 "$cli_dir/PowerCLI_Settings.xml"
+  fi
+  if have_cmd restorecon; then restorecon -R "$PS_HOME" "$PS_MOD_DIR" "$PS_SHELL" 2>/dev/null || true; fi
+  local allow; allow=$(sshd -T 2>/dev/null | awk '$1=="allowusers"{ $1=""; print }')
+  if [[ -n $allow && " $allow " != *" $PS_USER "* ]]; then warn "sshd AllowUsers does not include $PS_USER — PowerShell console will not connect"; fi
+}
+
 # Сделать релиз текущим: юнит из него, перезапуск, проверка. Не поднялся — назад на прежний.
 # activate_release DIR [norollback]
 activate_release() {
