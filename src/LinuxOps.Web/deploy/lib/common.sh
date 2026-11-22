@@ -176,19 +176,38 @@ cert_show() {
   if cert_from_local_ca; then echo "  local CA (add to Trusted Root): $PKI_DIR/ca/ca.crt"; fi
 }
 
-# Источник релизов: GitHub сейчас, внутренний GitLab потом — только настройка.
+# Источник релизов. По умолчанию (0.7.3) — папка releases/linuxops-web в ветке репозитория, как у MK Adm:
+# архивы там лежат через Git LFS, рядом .sha256 и LATEST (номер последней версии). Внутренний GitLab — сменить RAW_BASE.
+# Старые варианты (раздел Releases GitHub или GitLab) — PROVIDER=github | gitlab.
+RELEASE_CONF_REV=2
 release_conf_default() {
-  [[ -f $RELEASE_CONF ]] && return 0
+  if [[ -f $RELEASE_CONF ]]; then
+    grep -q "^CONF_REV=$RELEASE_CONF_REV" "$RELEASE_CONF" && return 0
+    # настройка до 0.7.3 указывала на раздел Releases GitHub, где сборок не было; токен — в отдельном файле и остаётся
+    cp -a "$RELEASE_CONF" "$RELEASE_CONF.bak"
+  fi
   cat >"$RELEASE_CONF" <<'EOF'
-# Источник релизов LinuxOps Web. Токен — в /etc/linuxops-web/git-token (600), только на чтение.
-PROVIDER=github            # github | gitlab
+# Источник релизов LinuxOps Web. Токен (если репозиторий закрытый) — в /etc/linuxops-web/git-token (600), только на чтение.
+CONF_REV=2
+PROVIDER=repo              # repo — папка в ветке репозитория; github | gitlab — раздел Releases
+# repo: папка с LATEST, <архив> и <архив>.sha256. GitLab: https://gitlab.local/группа/проект/-/raw/ветка/releases/linuxops-web
+RAW_BASE=https://github.com/MerlKoryAmber/MKIdea/raw/feature/linuxops-web/releases/linuxops-web
+# github | gitlab:
 API_URL=https://api.github.com   # gitlab: https://gitlab.example.local/api/v4
 PROJECT=MerlKoryAmber/MKIdea     # gitlab: группа/проект
 TAG_PREFIX=linuxops-web-v
 ASSET_SUFFIX=linux-x64.tar.gz
 EOF
+  # get.sh с другим источником (внутренний GitLab) — запомнить его
+  if [[ -n "${LINUXOPS_WEB_RAW_BASE:-}" ]]; then
+    local esc=${LINUXOPS_WEB_RAW_BASE//|/\\|}
+    sed -i "s|^RAW_BASE=.*|RAW_BASE=$esc|" "$RELEASE_CONF"
+  fi
   chmod 600 "$RELEASE_CONF"
 }
+
+# repo: имя архива версии
+release_asset_name() { echo "LinuxOps.Web-$1-$ASSET_SUFFIX"; }
 
 release_conf_load() {
   release_conf_default
@@ -198,12 +217,17 @@ release_conf_load() {
   if [[ -f $TOKEN_FILE ]]; then TOKEN=$(tr -d ' \r\n' <"$TOKEN_FILE"); fi
 }
 
+# Заголовок токена: GitLab (API или /-/raw/ в RAW_BASE) — PRIVATE-TOKEN, GitHub — Bearer.
+_auth_headers() {
+  AUTH_H=()
+  [[ -n "$TOKEN" ]] || return 0
+  if [[ $PROVIDER == gitlab || ( $PROVIDER == repo && "$RAW_BASE" == */-/raw/* ) ]]; then AUTH_H=(-H "PRIVATE-TOKEN: $TOKEN")
+  else AUTH_H=(-H "Authorization: Bearer $TOKEN"); fi
+}
+
 _api() { # _api URL → stdout
-  local h=()
-  if [[ -n "$TOKEN" ]]; then
-    if [[ $PROVIDER == gitlab ]]; then h=(-H "PRIVATE-TOKEN: $TOKEN"); else h=(-H "Authorization: Bearer $TOKEN"); fi
-  fi
-  curl -fsSL --max-time 30 "${h[@]}" -H "Accept: application/json" "$1"
+  _auth_headers
+  curl -fsSL --max-time 30 "${AUTH_H[@]}" -H "Accept: application/json" "$1"
 }
 
 _enc() { jq -rn --arg s "$1" '$s|@uri'; }
@@ -212,6 +236,20 @@ _enc() { jq -rn --arg s "$1" '$s|@uri'; }
 release_find() {
   local want="${1:-}" json
   release_conf_load
+  if [[ $PROVIDER == repo ]]; then
+    # LATEST — одна строка с номером; версия указана — проверяем, что её .sha256 есть
+    local ver="$want"
+    if [[ -z "$ver" ]]; then
+      ver=$(_api "$RAW_BASE/LATEST") || die "release source unreachable or access denied (token?): $RAW_BASE"
+      ver=$(tr -d ' \r\n' <<<"$ver")
+      [[ "$ver" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad LATEST in $RAW_BASE: $ver"
+    fi
+    local a; a=$(release_asset_name "$ver")
+    # нет .sha256 этой версии — версии нет (для update --version — пусто, update скажет «не найдено»)
+    _api "$RAW_BASE/$a.sha256" >/dev/null 2>&1 || { [[ -n "$want" ]] && return 0; die "release $ver listed in LATEST but $a.sha256 not found"; }
+    printf '%s\t%s\t%s\n' "$TAG_PREFIX$ver" "$RAW_BASE/$a" "$RAW_BASE/$a.sha256"
+    return 0
+  fi
   have_cmd jq || die "jq is required"
   if [[ $PROVIDER == gitlab ]]; then
     json=$(_api "$API_URL/projects/$(_enc "$PROJECT")/releases?per_page=50") || die "release source unreachable or access denied (token?): $API_URL $PROJECT"
@@ -231,17 +269,18 @@ release_find() {
 }
 
 release_download() { # release_download URL FILE
-  local h=()
-  if [[ -n "$TOKEN" ]]; then
-    if [[ $PROVIDER == gitlab ]]; then h=(-H "PRIVATE-TOKEN: $TOKEN"); else h=(-H "Authorization: Bearer $TOKEN"); fi
-  fi
-  [[ $PROVIDER == gitlab ]] || h+=(-H "Accept: application/octet-stream")
-  curl -fSL --max-time 600 "${h[@]}" -o "$2" "$1"
+  _auth_headers
+  local h=("${AUTH_H[@]}")
+  # раздел Releases GitHub отдаёт файл по API только с этим заголовком; repo и GitLab — обычная ссылка
+  [[ $PROVIDER == github ]] && h+=(-H "Accept: application/octet-stream")
+  # repo на GitHub: архив в LFS — github.com/…/raw/… перенаправляет на media.githubusercontent.com (-L)
+  curl -fSL --max-time 900 "${h[@]}" -o "$2" "$1"
 }
 
 # Проверка доступа к проекту (для пункта «git token»): 0 — ок.
 release_probe() {
   release_conf_load
+  if [[ $PROVIDER == repo ]]; then _api "$RAW_BASE/LATEST" >/dev/null; return; fi
   if [[ $PROVIDER == gitlab ]]; then _api "$API_URL/projects/$(_enc "$PROJECT")" >/dev/null
   else _api "$API_URL/repos/$PROJECT" >/dev/null; fi
 }
@@ -413,3 +452,6 @@ prune_releases() {
     rm -rf "$d"
   done
 }
+
+# Откуда берутся релизы — для сообщений меню.
+release_where() { if [[ $PROVIDER == repo ]]; then echo "$RAW_BASE"; else echo "$API_URL $PROJECT"; fi; }

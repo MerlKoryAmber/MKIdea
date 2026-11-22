@@ -41,6 +41,6 @@
 - свежесть .NET внутри сборки;
 - контрольную сумму guacamole.
 
-Затем собирает `dist\LinuxOps.Web-<версия>-linux-x64.tar.gz` и файл `.sha256` к нему.
+Затем собирает `dist\LinuxOps.Web-<версия>-linux-x64.tar.gz` и файл `.sha256` к нему. С ключом `-Publish` (только по запросу) кладёт их ещё и в `releases/linuxops-web` (Git LFS) вместе с `LATEST`: оттуда сервер ставится одной командой (`deploy/get.sh`) и обновляется из меню.
 
 Выкладка на стенд лабы: `tools\deploy-linuxops-web.ps1 -Target stand`.

@@ -20,6 +20,21 @@
                 try { localStorage.setItem('lo-theme', t); } catch (e) { }
             },
             copy: function (text) { return navigator.clipboard ? navigator.clipboard.writeText(text) : null; },
+            // Кнопка с data-copy: скопировать и на 2 с показать «Скопировано».
+            // Нет доступа к буферу (http, запрет браузера) — запасной способ через execCommand.
+            copyBtn: function (b) {
+                var t = b.dataset.label || (b.dataset.label = b.textContent), text = b.dataset.copy || '';
+                var show = function (m) { b.textContent = m; setTimeout(function () { b.textContent = t; }, 2500); };
+                var legacy = function () {
+                    var a = document.createElement('textarea'); a.value = text; a.style.position = 'fixed'; a.style.opacity = '0';
+                    document.body.appendChild(a); a.select(); var ok = false;
+                    try { ok = document.execCommand('copy'); } catch (e) { }
+                    a.remove(); show(ok ? 'Скопировано' : 'Не вышло — выделите и скопируйте вручную');
+                };
+                var p = lo.copy(text);
+                if (!p) { legacy(); return; }
+                p.then(function () { show('Скопировано'); }, legacy);
+            },
             download: function (url) { const a = document.createElement("a"); a.href = url; a.download = ""; document.body.appendChild(a); a.click(); a.remove(); },
             logout: function () { document.getElementById("lo-logout")?.submit(); }
         };

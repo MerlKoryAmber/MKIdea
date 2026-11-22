@@ -17,7 +17,14 @@
             <button class="chip @(S.Tab == key ? "on" : "")" @onclick="() => Go(key)">@text</button>
         }
         <div class="spacer"></div>
-        <span class="user-chip" title="@S.User.RolesText"><b>@S.User.Display</b> · @S.User.RolesText</span>
+        @if (_canChangePw)
+        {
+            <button class="user-chip as-button" title="@S.User.RolesText — нажмите, чтобы сменить пароль" @onclick="() => _pwOpen = true"><b>@S.User.Display</b> · @S.User.RolesText</button>
+        }
+        else
+        {
+            <span class="user-chip" title="@S.User.RolesText"><b>@S.User.Display</b> · @S.User.RolesText</span>
+        }
         <button class="btn-header" title="Выйти" @onclick="Logout">&#x23FB;</button>
         <button class="btn-header @(S.Tab == "settings" ? "on" : "")" title="@(S.Can(Perm.Settings) ? "Настройки: тема, вход, роли" : "Настройки: тема")" @onclick='() => Go("settings")'>&#9881;</button>
         <span class="ver">v@(Version) · web</span>
@@ -56,6 +63,7 @@
     }
 
     <DialogHost S="S" />
+    @if (_pwOpen) { <PasswordDialog User="S.User" Ip="@ClientIp" OnClose="() => _pwOpen = false" /> }
     <PromptHost S="S" />
 </div>
 
@@ -90,6 +98,7 @@
             : null;
         if (user is null) { Nav.NavigateTo("/login", forceLoad: true); return; }
         S.SetUser(user, ClientIp);
+        _canChangePw = Login.CanChangeOwnPassword(user);
         if (!S.Can(Perm.HostsView)) S.Tab = "settings";
         S.Dispatch = a => InvokeAsync(a);
         S.Changed += Redraw;
@@ -106,6 +115,9 @@
     /// После перезагрузки — вернуть, если она ещё доступна по правам.
     /// </summary>
     private string? _savedTab;
+
+    // смена своего пароля: локальный админ и локальные пользователи с привязанным TOTP
+    private bool _canChangePw, _pwOpen;
     protected override async Task OnAfterRenderAsync(bool first)
     {
         try

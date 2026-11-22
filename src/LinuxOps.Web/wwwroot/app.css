@@ -300,12 +300,15 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .login-secret { font: 600 17px/1.4 var(--mono, Consolas, monospace); letter-spacing: 1px; text-align: center; padding: 10px;
     background: var(--surface-alt); border: 1px dashed var(--accent); border-radius: 6px; user-select: all; }
 .login-uri { font: 11px/1.3 var(--mono, Consolas, monospace); color: var(--muted); word-break: break-all; user-select: all; }
+.login-copy { align-self: center; }
 .login-qr { display: block; margin: 10px auto; width: 230px; height: 230px; image-rendering: pixelated; border-radius: 6px; }
 .login-wait { padding: 12px; border: 1px dashed var(--line); border-radius: 6px; text-align: center; margin: 10px 0; }
 .login-card [hidden] { display: none !important; }
 .login-link { color: var(--accent); text-align: center; margin-top: 4px; }
 .user-chip { color: #fff; opacity: .9; font-size: 12px; margin-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
 .user-chip b { font-weight: 600; }
+.user-chip.as-button { background: transparent; border: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+.user-chip.as-button:hover { background: #1E3348; opacity: 1; }
 
 /* ---------- настройки ---------- */
 .settings-page { gap: 16px; overflow: auto; }

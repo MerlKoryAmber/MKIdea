@@ -26,17 +26,17 @@ cmd_purge() { bash "$DEPLOY/uninstall.sh" --purge; }
 # --- access ---
 cmd_git_token() {
   release_conf_load
-  echo "  Release source: $PROVIDER  $API_URL  $PROJECT  (edit: $RELEASE_CONF)"
+  echo "  Release source: $PROVIDER  $(release_where)  (edit: $RELEASE_CONF)"
   local t; ask_secret t "Read-only token (empty = remove token)"
   if [[ -z "$t" ]]; then rm -f "$TOKEN_FILE"; log "token removed"; return 0; fi
   local old=""; [[ -f $TOKEN_FILE ]] && old=$(cat "$TOKEN_FILE")
   ( umask 077; printf '%s\n' "$t" >"$TOKEN_FILE" )
   if release_probe; then
-    log "token OK: $PROJECT is reachable"
+    log "token OK: $(release_where) is reachable"
     logger -t linuxops-web "токен источника релизов изменён" 2>/dev/null || true
   else
     if [[ -n "$old" ]]; then ( umask 077; printf '%s\n' "$old" >"$TOKEN_FILE" ); else rm -f "$TOKEN_FILE"; fi
-    die "token rejected or $API_URL unreachable — previous token kept"
+    die "token rejected or $(release_where) unreachable — previous token kept"
   fi
 }
 
@@ -143,7 +143,7 @@ cmd_status() {
   echo "  Service:  $(systemctl is-active "$UNIT" 2>/dev/null || true)   nginx: $(systemctl is-active nginx 2>/dev/null || true)   guacd: $(systemctl is-active guacd 2>/dev/null || true)"
   if curl -fs -o /dev/null --max-time 3 "$LOCAL_URL"; then echo "  Health:   OK ($LOCAL_URL)"; else echo "  Health:   NO ANSWER ($LOCAL_URL)"; fi
   echo "  Data:     $DATA_DIR ($(du -sh "$DATA_DIR" 2>/dev/null | cut -f1))"
-  echo "  Releases: $PROVIDER $PROJECT, token: $([[ -f $TOKEN_FILE ]] && echo set || echo none)"
+  echo "  Releases: $PROVIDER $(release_where), token: $([[ -f $TOKEN_FILE ]] && echo set || echo none)"
   echo "  Certificate:"; cert_show
 }
 cmd_start() { systemctl start "$UNIT"; health_check 40 && log "started" || die "no answer, see logs"; }

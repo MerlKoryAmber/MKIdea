@@ -1,3 +1,8 @@
 # Файлы для Linux-сервера — всегда LF (systemd и sh не любят CRLF)
 src/LinuxOps.Web/deploy/** text eol=lf
 tools/lab/*.sh text eol=lf
+
+# Готовые сборки LinuxOps Web — в Git LFS (как releases/*.exe у MK Adm); LATEST и .sha256 — обычные файлы
+releases/linuxops-web/*.tar.gz filter=lfs diff=lfs merge=lfs -text
+releases/linuxops-web/LATEST text eol=lf
+releases/linuxops-web/*.sha256 text eol=lf

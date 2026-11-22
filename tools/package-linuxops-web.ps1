@@ -1,6 +1,7 @@
 ﻿# Релиз LinuxOps Web: publish linux-x64 → dist\LinuxOps.Web-<ver>-linux-x64.tar.gz + .sha256.
-# Эти два файла выкладываются в релиз Git с тегом linuxops-web-v<ver>; сервер берёт их командой linuxops-web update.
-# Пример: .\tools\package-linuxops-web.ps1
+# В releases/linuxops-web (Git LFS; оттуда берут get.sh и «Update» на серверах) — только по запросу, ключ -Publish.
+# Примеры: .\tools\package-linuxops-web.ps1            — только dist\
+#          .\tools\package-linuxops-web.ps1 -Publish   — плюс releases\linuxops-web и LATEST
 #
 # Проверки перед релизом (решение 18): SQLite и .NET лежат внутри сервиса (self-contained), dnf их не обновляет —
 # на боевой исправления попадают только с нашим релизом.
@@ -8,7 +9,7 @@
 #      Обойти — только с причиной: -AllowVulnerable "причина"; причину записать в отчёт версии.
 #   2. .NET внутри сборки старее последнего исправления .NET 8 — предупреждение (обновить SDK или RuntimeFrameworkVersion).
 #   3. Сторонний JS (guacamole-common-js) — SHA-256 файла сверяется с закреплённым в wwwroot/lib/guacamole/SOURCE.txt.
-param([switch]$NoBuild, [string]$AllowVulnerable = '')
+param([switch]$NoBuild, [switch]$Publish, [string]$AllowVulnerable = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $proj = Join-Path $root 'src\LinuxOps.Web\LinuxOps.Web.csproj'
@@ -102,4 +103,15 @@ $hash = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText("$out.sha256", "$hash  $name`n", (New-Object Text.UTF8Encoding $false))
 Write-Host "Готово: $out"
 Write-Host "        $out.sha256"
-Write-Host "Тег релиза: linuxops-web-v$ver"
+
+# Релиз в репозитории (как у MK Adm): releases/linuxops-web — архив (Git LFS), .sha256 и LATEST.
+# Отсюда берут get.sh и меню сервера «Update». Только с -Publish: 100 МБ в LFS на каждую сборку не нужны. В папке — последние 5 версий.
+if (-not $Publish) { Write-Host 'В releases\linuxops-web не выкладывалось (нужен -Publish).'; return }
+$rel = Join-Path $root 'releases\linuxops-web'
+New-Item -ItemType Directory -Force $rel | Out-Null
+Copy-Item $out, "$out.sha256" $rel -Force
+[IO.File]::WriteAllText((Join-Path $rel 'LATEST'), "$ver`n", (New-Object Text.UTF8Encoding $false))
+Get-ChildItem $rel -Filter 'LinuxOps.Web-*-linux-x64.tar.gz' |
+    Sort-Object { [version]($_.Name -replace '^LinuxOps\.Web-(.+)-linux-x64\.tar\.gz$', '$1') } -Descending |
+    Select-Object -Skip 5 | ForEach-Object { Remove-Item $_.FullName, "$($_.FullName).sha256" -Force -ErrorAction SilentlyContinue }
+Write-Host "В репозитории: releases\linuxops-web (LATEST = $ver)"

@@ -110,7 +110,7 @@
         Audit.Write(S.Who, "локальный пользователь: заведён", $"{u.Login} ({u.Display})");
         Reload();
         Pick(_users.FirstOrDefault(x => x.Login == u.Login));
-        _msg = $"«{u.Login}» заведён. Дайте ему роль: «Назначения» → «локальному». При первом входе он привяжет TOTP по QR-коду.";
+        _msg = $"«{u.Login}» заведён. Дайте ему роль: «Права» → «Назначения» → «локальному». При первом входе он привяжет TOTP по QR-коду.";
         await Changed.InvokeAsync();
     }
 

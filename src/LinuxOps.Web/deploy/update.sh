@@ -33,7 +33,7 @@ if [[ -n "$FILE" ]]; then
 else
   release_conf_load
   row=$(release_find "$WANT") || exit 1
-  [[ -n "$row" ]] || die "no release ${WANT:+$WANT }found in $PROJECT ($PROVIDER)"
+  [[ -n "$row" ]] || die "no release ${WANT:+$WANT }found in $(release_where) ($PROVIDER)"
   IFS=$'\t' read -r tag url sha <<<"$row"
   [[ -n "$url" ]] || die "release $tag has no *$ASSET_SUFFIX asset"
   ver=${tag#"$TAG_PREFIX"}

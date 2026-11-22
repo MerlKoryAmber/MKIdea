@@ -40,6 +40,12 @@
                 <img class="login-qr" src="@Totp.QrDataUri(_uri!)" alt="QR-код для приложения-аутентификатора" width="230" height="230" />
                 <div class="login-hint small">Камеры нет — «Ввести ключ вручную», тип — по времени, имя: LinuxOps Web — @_pending:</div>
                 <div class="login-secret" title="Секрет TOTP">@Totp.Pretty(_secret)</div>
+                <button class="btn sm login-copy" type="button" data-copy="@_secret"
+                        onclick="lo.copyBtn(this)">Копировать ключ</button>
+                <div class="login-hint small">Для хранилища паролей (KeePassXC, Bitwarden, 1Password) — строка целиком:</div>
+                <div class="login-uri" title="Строка otpauth://">@_uri</div>
+                <button class="btn sm login-copy" type="button" data-copy="@_uri"
+                        onclick="lo.copyBtn(this)">Копировать строку</button>
                 <div class="login-hint">Введите код из приложения, чтобы закончить привязку:</div>
                 <input class="input" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="7" autofocus placeholder="000000" />
                 <button class="btn primary" type="submit">Привязать и войти</button>
