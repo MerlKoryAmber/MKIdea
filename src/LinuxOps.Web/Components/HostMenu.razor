@@ -8,6 +8,10 @@
         @if (Here == "terminal")
         {
             <button style="font-weight:600" @onclick="() => Do(Connect)" disabled="@(!CanSession(h))">@(h.IsWindows ? "Подключить (RDP)" : "Подключить (терминал)")</button>
+            @if (NewTab.HasDelegate)
+            {
+                <button @onclick="() => Do(NewTab)" disabled="@(!CanSession(h))" title="Ещё один сеанс к этому хосту — отдельной вкладкой">Новая вкладка с этим хостом</button>
+            }
             @if (!h.IsWindows)
             {
                 <button @onclick='() => Do(() => Go("ssh", h))' disabled="@(!S.CanOn(Perm.FilesRead, h))">Открыть в SSH Files</button>
@@ -30,6 +34,8 @@
     [Parameter] public double Y { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback Connect { get; set; }
+    /// <summary>Connections: ещё одна вкладка сеанса с этим хостом (0.7.8).</summary>
+    [Parameter] public EventCallback NewTab { get; set; }
 
     private bool CanSession(StoredHost h) => S.CanOn(h.IsWindows ? Perm.Rdp : Perm.Terminal, h);
 

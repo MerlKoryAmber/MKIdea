@@ -21,6 +21,8 @@ public sealed class GuacTicket
     public required Dictionary<string, string> Params { get; init; }
     /// <summary>Сеанс без записи (буфер недоступен или полон) — причина; в журнал сеанса и аудит при открытии.</summary>
     public string? NoRecording { get; set; }
+    /// <summary>Просмотр вживую: номер идущего сеанса, к которому подключиться только смотреть (не новый сеанс, не пишется).</summary>
+    public string? WatchId { get; init; }
     public DateTime Expires { get; } = DateTime.UtcNow.AddSeconds(60);
 }
 

@@ -4,7 +4,7 @@ import Guacamole from './lib/guacamole/guacamole-common.min.js';
 
 const sessions = new Map();
 
-export function open(elId, ticket, dotnet, protocol) {
+export function open(elId, ticket, dotnet, protocol, viewOnly) {
     close(elId);
     const host = document.getElementById(elId);
     if (!host) return;
@@ -19,11 +19,26 @@ export function open(elId, ticket, dotnet, protocol) {
 
     const size = () => ({ w: Math.max(200, host.clientWidth | 0), h: Math.max(150, host.clientHeight | 0) });
     const s0 = size();
+    let last = s0;
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     const dpi = Math.round(96 * (window.devicePixelRatio || 1));
 
     client.onstatechange = st => { try { dotnet.invokeMethodAsync('OnGuacState', st); } catch { } };
     client.onerror = status => { try { dotnet.invokeMethodAsync('OnGuacError', status && status.message ? status.message : 'ошибка сеанса'); } catch { } };
+
+    // просмотр вживую: только экран — без мыши, клавиатуры, буфера и смены размера (сервис их и так не пропустит)
+    if (viewOnly) {
+        const fitView = () => {
+            const w = display.getWidth(), h = display.getHeight();
+            if (w && h && host.clientWidth && host.clientHeight) display.scale(Math.min(host.clientWidth / w, host.clientHeight / h, 1));
+        };
+        display.onresize = fitView;
+        const roView = new ResizeObserver(fitView);
+        roView.observe(host);
+        sessions.set(elId, { client, keyboard: null, ro: roView, host, onPaste: null });
+        client.connect(`t=${encodeURIComponent(ticket)}&w=${s0.w}&h=${s0.h}&dpi=${dpi}&tz=${encodeURIComponent(tz)}`);
+        return;
+    }
 
     // мышь
     const mouse = new Guacamole.Mouse(view);
@@ -89,7 +104,7 @@ export function open(elId, ticket, dotnet, protocol) {
     // экран целиком в окне: при масштабе Windows > 100 % guacd делает рабочий стол RDP крупнее окна (размер × dpi / 96)
     const fit = () => {
         const w = display.getWidth(), h = display.getHeight();
-        if (w && h) display.scale(Math.min(host.clientWidth / w, host.clientHeight / h, 1));
+        if (w && h && host.clientWidth && host.clientHeight) display.scale(Math.min(host.clientWidth / w, host.clientHeight / h, 1));
     };
     display.onresize = fit;
 
@@ -98,7 +113,14 @@ export function open(elId, ticket, dotnet, protocol) {
     const ro = new ResizeObserver(() => {
         fit();
         clearTimeout(timer);
-        timer = setTimeout(() => { const s = size(); client.sendSize(s.w, s.h); }, 150);
+        // спрятанный экран (другая вкладка сеанса или шапки) — размер 0: не трогать сеанс, при возврате подгонится
+        timer = setTimeout(() => {
+            if (!host.clientWidth || !host.clientHeight) return;
+            const s = size();
+            if (s.w === last.w && s.h === last.h) return;
+            last = s;
+            client.sendSize(s.w, s.h);
+        }, 150);
     });
     ro.observe(host);
 
@@ -114,16 +136,23 @@ export function close(elId) {
     if (!s) return;
     sessions.delete(elId);
     try { s.ro.disconnect(); } catch { }
-    try { s.keyboard.onkeydown = s.keyboard.onkeyup = null; s.keyboard.reset(); } catch { }
-    try { document.removeEventListener('paste', s.onPaste); } catch { }
-    try { s.client.disconnect(); } catch { }
+    try { if (s.keyboard) { s.keyboard.onkeydown = s.keyboard.onkeyup = null; s.keyboard.reset(); } } catch { }
+    try { if (s.onPaste) document.removeEventListener('paste', s.onPaste); } catch { }
+    // закрываем сами — окну уже не сообщать «отключено» (иначе запоздалое событие старого соединения попадёт в новое)
+    try { s.client.onstatechange = null; s.client.onerror = null; s.client.disconnect(); } catch { }
     s.host.innerHTML = '';
 }
 
 // ---------- проигрывание записи ----------
 const players = new Map();
 
-export function play(elId, url, dotnet) {
+// Своё время проигрывания: SessionRecording 1.5 играет только 1×. Таймер двигает позицию через seek
+// (вперёд seek досчитывает кадры от текущего — дёшево); скорость 1–8×; «пропускать простой» — паузы
+// длиннее 5 с (список с сервера, по sync в записи) проматываются, остаётся 1 с.
+const SKIP_KEY = 'lo.rec.skipIdle';
+const TICK = 100;
+
+export function play(elId, url, dotnet, wrapId) {
     stop(elId);
     const host = document.getElementById(elId);
     if (!host) return;
@@ -134,30 +163,132 @@ export function play(elId, url, dotnet) {
     host.appendChild(view);
     const fit = () => {
         const w = display.getWidth(), h = display.getHeight();
-        if (w && h) display.scale(Math.min(host.clientWidth / w, host.clientHeight / h, 1));
+        if (w && h && host.clientWidth && host.clientHeight) display.scale(Math.min(host.clientWidth / w, host.clientHeight / h));
     };
     display.onresize = fit;
     const ro = new ResizeObserver(fit);
     ro.observe(host);
-    const report = () => { try { dotnet.invokeMethodAsync('OnRecProgress', rec.getPosition(), rec.getDuration(), rec.isPlaying()); } catch { } };
+
+    let skip = false;
+    try { skip = localStorage.getItem(SKIP_KEY) === '1'; } catch { }
+    const p = { rec, ro, host, tick: 0, playing: false, loaded: false, seeking: false, pos: 0, speed: 1, skip, gaps: [], wrapId, onKey: null };
+    // позиция — целые мс: дробное число .NET (long) не примет, и отчёт пропадёт молча
+    const report = () => { try { dotnet.invokeMethodAsync('OnRecProgress', Math.round(p.pos), Math.round(rec.getDuration()), p.playing, p.speed, p.skip).catch(() => { }); } catch { } };
+    p.report = report;
     rec.onprogress = () => report();
-    rec.onload = () => { report(); rec.play(); };
-    rec.onplay = report;
-    rec.onpause = report;
-    rec.onseek = report;
-    rec.onerror = msg => { try { dotnet.invokeMethodAsync('OnGuacError', 'запись: ' + (msg || 'не прочитана')); } catch { } };
-    const tick = setInterval(() => { if (rec.isPlaying()) report(); }, 500);
-    players.set(elId, { rec, ro, host, tick });
+    rec.onload = () => { p.loaded = true; p.playing = true; report(); };
+    rec.onerror = msg => {
+        // 404 — файла нет: удалён по сроку или лежит в хранилище, которое сейчас не подключено
+        const m = /not found|404/i.test(msg || '') ? 'файла нет — удалена по сроку или лежит в отключённом хранилище (⚙ → Сеансы и записи)' : (msg || 'не прочитана');
+        try { dotnet.invokeMethodAsync('OnGuacError', 'запись: ' + m); } catch { }
+    };
+
+    // паузы записи — для пропуска простоя
+    fetch(url + (url.includes('?') ? '&' : '?') + 'kind=gaps', { credentials: 'same-origin', cache: 'no-store' })
+        .then(r => r.ok ? r.json() : []).then(g => { p.gaps = Array.isArray(g) ? g : []; }).catch(() => { });
+
+    let last = performance.now();
+    p.tick = setInterval(() => {
+        const now = performance.now();
+        const dt = now - last;
+        last = now;
+        if (!p.playing || !p.loaded) return;
+        const dur = rec.getDuration();
+        let next = p.pos + dt * p.speed;
+        if (p.skip) {
+            const g = p.gaps.find(([a, b]) => next > a + 1000 && next < b);
+            if (g) next = g[1];
+        }
+        if (next >= dur) { next = dur; p.playing = false; }
+        p.pos = next;
+        // seek не ждём: в 1.5 его обратный вызов не приходит, если кадр не сменился; новый seek отменяет недоделанный
+        if (!p.seeking || now - p.seekAt > 300) {
+            p.seeking = true;
+            p.seekAt = now;
+            rec.seek(next, () => { p.seeking = false; });
+        }
+        if (now - (p.reportAt || 0) > 250 || !p.playing) { p.reportAt = now; report(); }
+    }, TICK);
+
+    // клавиши, когда фокус в проигрывателе: пробел — пауза, F — на весь экран
+    const wrap = document.getElementById(wrapId) || host;
+    wrap.tabIndex = 0;
+    p.onKey = e => {
+        if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+        if (e.code === 'Space') { e.preventDefault(); playPause(elId); }
+        else if (e.code === 'KeyF') { e.preventDefault(); fullscreen(wrapId); }
+    };
+    wrap.addEventListener('keydown', p.onKey);
+    p.wrap = wrap;
+    players.set(elId, p);
     rec.connect();
+}
+
+// явная пауза (уход с вкладки): не переключатель — состояние в окне может отставать от плеера
+export function pause(elId) {
+    const p = players.get(elId);
+    if (!p || !p.playing) return;
+    p.playing = false;
+    p.report();
 }
 
 export function playPause(elId) {
     const p = players.get(elId);
-    if (!p) return;
-    if (p.rec.isPlaying()) p.rec.pause(); else p.rec.play();
+    if (!p || !p.loaded) return;
+    // в конце — сначала
+    if (!p.playing && p.pos >= p.rec.getDuration()) { p.pos = 0; p.rec.seek(0); }
+    p.playing = !p.playing;
+    p.report();
 }
 
-export function seek(elId, ms) { const p = players.get(elId); if (p) p.rec.seek(ms); }
+export function seek(elId, ms) {
+    const p = players.get(elId);
+    if (!p) return;
+    p.pos = Number(ms) || 0;
+    p.seeking = true;
+    p.seekAt = performance.now();
+    p.rec.seek(p.pos, () => { p.seeking = false; });
+    p.report();
+}
+
+export function setSpeed(elId, speed) {
+    const p = players.get(elId);
+    if (!p) return;
+    p.speed = Math.min(8, Math.max(1, Number(speed) || 1));
+    p.report();
+}
+
+export function setSkip(elId, on) {
+    const p = players.get(elId);
+    if (!p) return;
+    p.skip = !!on;
+    try { localStorage.setItem(SKIP_KEY, p.skip ? '1' : '0'); } catch { }
+    p.report();
+}
+
+/** Сохранённая галка «пропускать простой» — для отрисовки до загрузки записи. */
+export function skipSaved() { try { return localStorage.getItem(SKIP_KEY) === '1'; } catch { return false; } }
+
+// На весь экран: полноэкранный режим браузера; где он запрещён (встроенные окна, политика) — на всё окно браузера.
+// Esc выходит из обоих.
+export function fullscreen(wrapId) {
+    const el = document.getElementById(wrapId);
+    if (!el) return;
+    if (document.fullscreenElement) { document.exitFullscreen().catch(() => { }); return; }
+    if (el.classList.contains('rec-max')) { el.classList.remove('rec-max'); return; }
+    const maximize = () => {
+        el.classList.add('rec-max');
+        el.focus();
+        const esc = e => { if (e.key === 'Escape') { el.classList.remove('rec-max'); document.removeEventListener('keydown', esc); } };
+        document.addEventListener('keydown', esc);
+    };
+    if (!document.fullscreenEnabled || !el.requestFullscreen) { maximize(); return; }
+    // некоторые встроенные окна не отвечают на запрос вовсе — не включилось за 0,7 с, разворачиваем на окно
+    let done = false;
+    const fallback = setTimeout(() => { if (!done && !document.fullscreenElement) { done = true; maximize(); } }, 700);
+    el.requestFullscreen().then(() => { done = true; clearTimeout(fallback); el.focus(); })
+        .catch(() => { clearTimeout(fallback); if (!done) { done = true; maximize(); } });
+}
 
 export function stop(elId) {
     const p = players.get(elId);
@@ -165,6 +296,12 @@ export function stop(elId) {
     players.delete(elId);
     clearInterval(p.tick);
     try { p.ro.disconnect(); } catch { }
+    try { if (p.wrap && p.onKey) p.wrap.removeEventListener('keydown', p.onKey); } catch { }
     try { p.rec.pause(); p.rec.disconnect(); } catch { }
+    if (document.fullscreenElement && p.wrap && p.wrap.contains(document.fullscreenElement) || document.fullscreenElement === p.wrap) document.exitFullscreen().catch(() => { });
     p.host.innerHTML = '';
 }
+
+// Кнопка «Весь экран» вызывает это прямо из щелчка (onclick, не через сервер Blazor):
+// браузер пускает в полноэкранный режим только из действия пользователя.
+window.loRecFullscreen = fullscreen;

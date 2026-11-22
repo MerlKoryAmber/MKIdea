@@ -1,6 +1,9 @@
-@* Подключения (Ф3): терминал SSH и RDP через guacd. Сеанс пишется (запись — в History → Сеансы). *@
+@* Подключения (Ф3; вкладки сеансов — 0.7.8, как в настольной версии): терминалы SSH и RDP через guacd, у каждой вкладки
+   своё соединение. Двойной щелчок по хосту: открыт — на его вкладку (закрытый — подключить снова), иначе новая вкладка.
+   Вкладка шапки не пересоздаётся (Shell) — сеансы живут, пока открыто окно. Каждый сеанс пишется (History → Сеансы). *@
 @inject IJSRuntime JS
 @inject LinuxOps.Web.Services.Guac.GuacTickets Tickets
+@inject LinuxOps.Web.Services.Guac.GuacLive Live
 @implements IAsyncDisposable
 
 <div class="page conn-grid">
@@ -9,7 +12,7 @@
             <div class="row">
                 <span class="section-title grow">Хосты</span>
             </div>
-            <div class="muted small" style="margin-top:2px">Двойной щелчок — подключиться.</div>
+            <div class="muted small" style="margin-top:2px">Двойной щелчок — подключиться (уже открыт — перейти на его вкладку).</div>
         </div>
         <div class="scroll tree-wrap">
             <HostTree S="S" @bind-Selected="_sel" Activated="Activate" Context="ShowMenu" Empty="Хостов нет." />
@@ -17,20 +20,37 @@
     </section>
 
     <section class="surface conn-screen-wrap">
+        @if (_tabs.Count > 0)
+        {
+            <div class="sess-tabs" role="tablist">
+                @foreach (var t in _tabs)
+                {
+                    <div class="sess-tab @(t == _cur ? "on" : "")" role="tab" aria-selected="@(t == _cur)" title="@t.Hint" @key="t.N"
+                         @onclick="() => Select(t)" @onmouseup="e => TabMouseUp(t, e)" @oncontextmenu="e => TabMenu(t, e)" @oncontextmenu:preventDefault="true">
+                        <span class="sess-dot @t.Dot"></span>
+                        <span class="sess-name">@t.Label</span>
+                        <button class="sess-x" title="Закрыть вкладку" @onclick="() => CloseTab(t)" @onclick:stopPropagation="true">×</button>
+                    </div>
+                }
+            </div>
+        }
         <div class="surface-header slim">
             <div class="row">
-                <span class="section-title grow">@(_title ?? "Сеанс")<span class="muted small" style="margin-left:10px">@_state</span></span>
-                <button class="btn sm primary" style="margin-right:6px" @onclick="Connect" disabled="@(!CanConnect)" title="@ConnectHint">Подключиться</button>
-                <button class="btn sm" @onclick="Disconnect" disabled="@(_title is null)">Отключить</button>
+                <span class="section-title grow">@(_cur?.Header ?? "Сеанс")<span class="muted small" style="margin-left:10px">@_cur?.State</span></span>
+                <button class="btn sm primary" style="margin-right:6px" @onclick="ConnectSelected" disabled="@(!CanConnect)" title="@ConnectHint">Подключиться</button>
+                <button class="btn sm" @onclick="Disconnect" disabled="@(_cur is not { Open: true })" title="Закрыть соединение; вкладка остаётся — «Подключиться» снова">Отключить</button>
             </div>
         </div>
         <div class="conn-screen" @onclick="FocusScreen">
-            <div class="conn-host" id="@ScreenId"></div>
-            @if (_rdpFor is { } rh)
+            @foreach (var t in _tabs)
+            {
+                <div class="conn-host" id="@t.ScreenId" @key="t.N" style="@(t == _cur ? "" : "display:none")"></div>
+            }
+            @if (_cur is { Pending: true } rt)
             {
                 <div class="conn-empty" @onclick:stopPropagation="true">
                     <form class="rdp-login" @onsubmit="RdpGo" @onsubmit:preventDefault="true">
-                        <div class="section-title" style="margin-bottom:4px">RDP: @rh.Config.Title</div>
+                        <div class="section-title" style="margin-bottom:4px">RDP: @rt.Host.Config.Title</div>
                         <div class="muted small" style="margin-bottom:10px">Своя доменная учётная запись. Пароль уходит только на этот хост и нигде не сохраняется.</div>
                         <div class="lbl">Учётная запись</div>
                         <input class="input" @bind="_rdpLogin" @bind:event="oninput" placeholder="@(_rdpDomain.Length > 0 ? $"логин — домен {_rdpDomain} подставится сам" : "DOMAIN\\user или user@domain")" autocomplete="username" />
@@ -39,58 +59,95 @@
                         <input class="input" type="password" @bind="_rdpPass" autocomplete="current-password" id="rdp-pass" />
                         <div class="row" style="gap:8px;margin-top:12px;justify-content:flex-end">
                             <button type="button" class="btn" style="width:100px" @onclick="CancelRdp">Отмена</button>
-                            <button type="submit" class="btn primary" style="width:120px" disabled="@_busy">Войти</button>
+                            <button type="submit" class="btn primary" style="width:120px" disabled="@(_cur?.Busy == true)">Войти</button>
                         </div>
                     </form>
                 </div>
             }
-            else             @if (_title is null)
+            else if (_cur is null)
             {
-                <div class="conn-empty"><div>Выберите хост слева и нажмите «Подключиться».</div><div class="small">@(RecordingStorage.CannotRecord() is { } noRec ? "Сейчас сеансы идут без записи: " + noRec + "." : "Сеанс записывается.")</div></div>
+                <div class="conn-empty"><div>Выберите хост слева и нажмите «Подключиться».</div><div class="small">Каждый сеанс — своя вкладка. @(RecordingStorage.CannotRecord() is { } noRec ? "Сейчас сеансы идут без записи: " + noRec + "." : "Сеанс записывается.")</div></div>
+            }
+            else if (!_cur.Open)
+            {
+                <div class="conn-empty"><div>@(_cur.State.Length > 0 ? _cur.State : "Не подключено.")</div><div class="small">«Подключиться» — снова к @_cur.Host.Config.Title в этой вкладке.</div></div>
             }
         </div>
     </section>
 </div>
 
-<HostMenu S="S" Here="terminal" Item="@_menu?.Item" X="@(_menu?.X ?? 0)" Y="@(_menu?.Y ?? 0)" OnClose="() => _menu = null" Connect="Connect" />
+<HostMenu S="S" Here="terminal" Item="@_menu?.Item" X="@(_menu?.X ?? 0)" Y="@(_menu?.Y ?? 0)" OnClose="() => _menu = null" Connect="ConnectSelected" NewTab="NewTabSelected" />
+
+@if (_tabMenu is { } tm)
+{
+    <div class="ctx-overlay" @onclick="() => _tabMenu = null" @oncontextmenu="() => _tabMenu = null" @oncontextmenu:preventDefault="true"></div>
+    <div class="ctx-menu" style="left:min(@Px(tm.X)px, calc(100vw - 230px));top:min(@Px(tm.Y)px, calc(100vh - 160px))">
+        <button @onclick="() => MenuDo(() => Duplicate(tm.Tab))" disabled="@(!CanOpen(tm.Tab.Host))">Дублировать сеанс</button>
+        <button @onclick="() => MenuDo(() => Reconnect(tm.Tab))" disabled="@(!CanOpen(tm.Tab.Host))">Подключить заново</button>
+        <button @onclick="() => MenuDo(() => CloseTab(tm.Tab))">Закрыть</button>
+        <button @onclick="() => MenuDo(() => CloseOthers(tm.Tab))" disabled="@(_tabs.Count < 2)">Закрыть остальные</button>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>Вкладка шапки на экране (спрятанная живёт: сеансы не рвутся).</summary>
+    [Parameter] public bool Active { get; set; } = true;
+    // спрятанная вкладка не перерисовывается (Shell перерисовывает всех на каждое изменение) — догонит при возврате
+    protected override bool ShouldRender() => Active;
 
-    private (object Item, double X, double Y)? _menu;
-    private void ShowMenu((object Item, double X, double Y) m) { if (m.Item is StoredHost) _menu = m; }
-
-    /// <summary>Пришли сюда из меню другой вкладки («Открыть в …») — сразу открыть хост.</summary>
-    protected override async Task OnAfterRenderAsync(bool first)
+    /// <summary>Вкладка сеанса: свой экран и своё соединение guacd.</summary>
+    private sealed class Sess
     {
-        if (!first || S.OpenHost is not { } h) return;
-        S.OpenHost = null;
-        _sel = h;
-        StateHasChanged();
-        await Connect();
-        StateHasChanged();
+        public required int N { get; init; }
+        public required StoredHost Host { get; init; }
+        public required string Label { get; init; }
+        public string ScreenId => "guac-term-" + N;
+        public bool Rdp => Host.IsWindows;
+        public string Header => Rdp ? $"{Host.Config.Title} — RDP {Host.Config.Host}" : $"{Host.Config.Title} — {Host.Config.Username}@{Host.Config.Host}";
+        public string Hint => Rdp ? $"RDP {Host.Config.Host}" : $"{Host.Config.Username}@{Host.Config.Host}";
+        public string State { get; set; } = "";
+        public int St { get; set; }
+        /// <summary>Соединение открыто или открывается (экран занят).</summary>
+        public bool Open { get; set; }
+        /// <summary>RDP: ждёт учётку и пароль (форма поверх экрана).</summary>
+        public bool Pending { get; set; }
+        public bool Busy { get; set; }
+        public DateTime StartedAt { get; set; }
+        public bool ErrorShown { get; set; }
+        public string LastError { get; set; } = "";
+        public DotNetObjectReference<SessCallbacks>? Cb { get; set; }
+        public string Dot => St == 3 && Open ? "on" : Busy || Pending || (Open && St is 0 or 1 or 2) ? "wait" : "off";
     }
 
-    private const string ScreenId = "guac-terminal";
-    private object? _sel;
-    private string? _title;
-    private string _state = "";
-    private bool _busy;
-    private IJSObjectReference? _mod;
-    private DotNetObjectReference<TerminalTab>? _self;
+    /// <summary>Ответы guac.js одной вкладки (у каждой своя ссылка — guac.js вызывает OnGuacState/OnGuacError).</summary>
+    public sealed class SessCallbacks
+    {
+        private readonly TerminalTab _owner;
+        private readonly object _tab;
+        internal SessCallbacks(TerminalTab owner, object tab) { _owner = owner; _tab = tab; }
+        [JSInvokable] public Task OnGuacState(int st) => _owner.State((Sess)_tab, st);
+        [JSInvokable] public Task OnGuacError(string message) => _owner.Error((Sess)_tab, message);
+    }
 
-    private StoredHost? Host => _sel as StoredHost;
+    private readonly List<Sess> _tabs = new();
+    private Sess? _cur;
+    private int _next;
+    private object? _sel;
+    private IJSObjectReference? _mod;
+    private (object Item, double X, double Y)? _menu;
+    private (Sess Tab, double X, double Y)? _tabMenu;
     private string? _rdpLogin, _rdpPass;
     private string _rdpDomain = "";
+
+    private StoredHost? Host => _sel as StoredHost;
+    private void ShowMenu((object Item, double X, double Y) m) { if (m.Item is StoredHost) _menu = m; }
+    private static string Px(double v) => Math.Max(4, v).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Под полем логина: как войдём; пусто — подсказка про другой домен и локальную учётку.</summary>
     private string RdpHow => WebSession.RdpLoginPreview(_rdpLogin, _rdpDomain) is { Length: > 0 } how ? how
         : _rdpDomain.Length > 0 ? @"Другой домен — DOMAIN\user или user@domain; локальная учётка хоста — .\user"
         : @"Локальная учётка хоста — .\user";
-    private StoredHost? _rdpFor;
-    private bool _rdp;
-    private DateTime _startedAt;
-    private bool _errorShown;
 
     /// <summary>Ответ guacd — по-русски и с тем, что делать.</summary>
     private static string Explain(string m) => m switch
@@ -99,107 +156,254 @@
         _ when m.Contains("wrong security type", StringComparison.OrdinalIgnoreCase) => "RDP: пароль принят, но сервер не пустил — у учётной записи нет права входа по RDP на этот хост (или он не принимает NLA).",
         _ when m.StartsWith("Aborted", StringComparison.Ordinal) => "Сеанс прерван шлюзом (ключ хоста, сеть или учётка) — подробности в History → Сеансы.",
         _ when m.Contains("unreachable", StringComparison.OrdinalIgnoreCase) || m.Contains("Upstream", StringComparison.OrdinalIgnoreCase) => "Хост не отвечает — проверьте адрес и порт.",
+        _ when m.StartsWith("Открыто сеансов", StringComparison.Ordinal) || m.Contains("администратор", StringComparison.Ordinal) => m,
         _ => "Сеанс: " + m
     };
 
     private static string Need(StoredHost h) => h.IsWindows ? Perm.Rdp : Perm.Terminal;
-    private bool CanConnect => !_busy && Host is { } h && S.CanOn(Need(h), h);
+    private bool CanOpen(StoredHost h) => S.CanOn(Need(h), h);
+    private bool CanConnect => Host is { } h && CanOpen(h) && !_tabs.Any(x => x.Host.Id == h.Id && x.Busy);
     private string ConnectHint => Host is null ? "Выберите хост"
-        : !S.CanOn(Need(Host), Host) ? (Host.IsWindows ? "Нет права «RDP» на этот хост" : "Нет права «Терминал» на этот хост")
+        : !CanOpen(Host) ? (Host.IsWindows ? "Нет права «RDP» на этот хост" : "Нет права «Терминал» на этот хост")
+        : _tabs.Any(t => t.Host.Id == Host.Id) ? "Перейти на вкладку хоста (закрытый сеанс — подключить снова)"
         : Host.IsWindows ? "Открыть RDP своей учётной записью" : "Открыть терминал SSH";
 
-    private async Task Activate(object? item)
+    /// <summary>Пришли из меню другой вкладки («Открыть терминал») — открыть хост, когда вкладка на экране.</summary>
+    protected override async Task OnAfterRenderAsync(bool first)
     {
-        _sel = item;
-        if (CanConnect) await Connect();
+        if (!Active || S.OpenHost is not { } h) return;
+        S.OpenHost = null;
+        _sel = h;
+        await Open(h);
+        StateHasChanged();
     }
 
-    private async Task Connect()
+    private bool _wasActive = true;
+    protected override async Task OnParametersSetAsync()
     {
-        if (Host is not { } h) return;
-        if (h.IsWindows)
+        if (Active == _wasActive) return;
+        _wasActive = Active;
+        // вернулись на вкладку — фокус на экран сеанса
+        if (Active && _cur is { Open: true } && _mod is not null) { await Task.Yield(); await _mod.InvokeVoidAsync("focus", _cur.ScreenId); }
+    }
+
+    private Task Activate(object? item) { _sel = item; return item is StoredHost h && CanOpen(h) ? Open(h) : Task.CompletedTask; }
+    private Task ConnectSelected() => Host is { } h ? Open(h) : Task.CompletedTask;
+    private Task NewTabSelected() => Host is { } h ? NewTab(h) : Task.CompletedTask;
+
+    /// <summary>Как двойной щелчок в настольной: хост уже во вкладке — туда (закрытый — подключить заново), иначе новая.</summary>
+    private async Task Open(StoredHost h)
+    {
+        if (_tabs.FirstOrDefault(t => t.Host.Id == h.Id) is { } t)
         {
-            // RDP: сначала своя учётка — форма поверх экрана
-            _rdpFor = h;
+            await Select(t);
+            if (!t.Open && !t.Pending && !t.Busy) await Connect(t);
+            return;
+        }
+        await NewTab(h);
+    }
+
+    /// <summary>Новая вкладка с этим хостом (второй сеанс к тому же — «lab-178 (2)»).</summary>
+    private async Task NewTab(StoredHost h)
+    {
+        if (!CanOpen(h)) { S.ShowNotice(h.IsWindows ? "Нет права «RDP» на этот хост." : "Нет права «Терминал» на этот хост."); return; }
+        // предел сеансов: пустую вкладку не заводим
+        if (!S.SessionSlotFree(Live)) return;
+        var same = _tabs.Where(x => x.Host.Id == h.Id).Select(x => x.N).ToList();
+        var label = same.Count == 0 ? h.Config.Title : $"{h.Config.Title} ({NextNumber(h)})";
+        var t = new Sess { N = ++_next, Host = h, Label = label };
+        t.Cb = DotNetObjectReference.Create(new SessCallbacks(this, t));
+        _tabs.Add(t);
+        _cur = t;
+        StateHasChanged();
+        await Connect(t);
+    }
+
+    // номер для «(n)»: следующий после самого большого среди вкладок этого хоста
+    private int NextNumber(StoredHost h)
+    {
+        var max = 1;
+        foreach (var x in _tabs.Where(x => x.Host.Id == h.Id))
+        {
+            var l = x.Label;
+            var i = l.LastIndexOf(" (", StringComparison.Ordinal);
+            if (i > 0 && l.EndsWith(')') && int.TryParse(l[(i + 2)..^1], out var n)) max = Math.Max(max, n);
+        }
+        return max + 1;
+    }
+
+    private Task Duplicate(Sess t) => NewTab(t.Host);
+
+    private async Task Reconnect(Sess t)
+    {
+        await Select(t);
+        // старое соединение освобождает место под предел сеансов не мгновенно — дать туннелю закрыться
+        if (t.Open) { await CloseScreen(t); await Task.Delay(500); }
+        // вкладку могли закрыть, пока ждали
+        if (!_tabs.Contains(t)) return;
+        await Connect(t);
+    }
+
+    /// <summary>Подключить вкладку: SSH — сразу; RDP — сначала форма учётки.</summary>
+    private async Task Connect(Sess t)
+    {
+        if (!CanOpen(t.Host)) return;
+        // предел сеансов на человека — до формы RDP, чтобы не вводить пароль зря
+        if (!S.SessionSlotFree(Live)) { t.State = "не подключено: предел сеансов"; return; }
+        if (t.Rdp)
+        {
+            t.Pending = true;
+            t.State = "вход — учётная запись";
             _rdpLogin ??= S.RdpDefaultLogin;
             _rdpDomain = S.RdpDomain;
             _rdpPass = "";
             return;
         }
-        _busy = true;
-        _state = "проверка хоста…";
+        t.Busy = true;
+        t.State = "проверка хоста…";
         StateHasChanged();
         try
         {
-            var ticket = await S.OpenTerminal(h, Tickets);
-            if (ticket is null) { _state = ""; return; }
-            await Start(h, $"{h.Config.Title} — {h.Config.Username}@{h.Config.Host}", ticket);
+            var ticket = await S.OpenTerminal(t.Host, Tickets);
+            // вкладку закрыли, пока проверяли хост: её ссылка для guac.js уже освобождена — не открывать
+            if (!_tabs.Contains(t)) return;
+            if (ticket is null) { t.State = "не подключено"; return; }
+            await Start(t, ticket);
         }
-        finally { _busy = false; }
+        finally { t.Busy = false; }
     }
 
-    private void CancelRdp() { _rdpFor = null; _rdpPass = ""; }
+    private async Task CancelRdp()
+    {
+        if (_cur is not { Pending: true } t) return;
+        _rdpPass = "";
+        t.Pending = false;
+        // вкладка открыта только ради входа — закрыть её; была подключена раньше — оставить
+        if (t.StartedAt == default) await CloseTab(t, ask: false); else t.State = "отключено";
+    }
 
     private async Task RdpGo()
     {
-        if (_rdpFor is not { } h) return;
-        var ticket = S.OpenRdp(h, _rdpLogin ?? "", _rdpPass ?? "", Tickets);
+        if (_cur is not { Pending: true } t) return;
+        if (!S.SessionSlotFree(Live)) return;
+        var ticket = S.OpenRdp(t.Host, _rdpLogin ?? "", _rdpPass ?? "", Tickets);
         _rdpPass = "";
         if (ticket is null) return;
-        _rdpFor = null;
-        await Start(h, $"{h.Config.Title} — RDP {h.Config.Host}", ticket);
+        t.Pending = false;
+        await Start(t, ticket);
     }
 
     /// <summary>Открыть экран сеанса по пропуску (SSH и RDP — одинаково).</summary>
-    private async Task Start(StoredHost h, string title, string ticket)
+    private async Task Start(Sess t, string ticket)
     {
-        _rdp = h.IsWindows;
-        _errorShown = false;
-        _startedAt = DateTime.UtcNow;
+        if (!_tabs.Contains(t)) return;
+        t.ErrorShown = false; t.LastError = "";
+        t.StartedAt = DateTime.UtcNow;
+        t.St = 0;
+        t.Open = true;
+        t.State = "подключение…";
         _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
-        _self ??= DotNetObjectReference.Create(this);
-        if (_title is not null) await _mod.InvokeVoidAsync("close", ScreenId);
-        _title = title;
-        _state = "подключение…";
         StateHasChanged();
         await Task.Yield();
-        await _mod.InvokeVoidAsync("open", ScreenId, ticket, _self, h.IsWindows ? "rdp" : "ssh");
+        // закрыли, пока грузился модуль или рисовался экран
+        if (!_tabs.Contains(t)) return;
+        await _mod.InvokeVoidAsync("open", t.ScreenId, ticket, t.Cb, t.Rdp ? "rdp" : "ssh");
+    }
+
+    private async Task Select(Sess t)
+    {
+        _cur = t;
+        StateHasChanged();
+        if (t.Open && _mod is not null) { await Task.Yield(); await _mod.InvokeVoidAsync("focus", t.ScreenId); }
+    }
+
+    private async Task CloseScreen(Sess t)
+    {
+        // сначала пометить закрытым: guac.js сообщит «отключено» (5) ещё до возврата — это не обрыв со стороны хоста
+        t.Open = false;
+        t.St = 5;
+        try { if (_mod is not null) await _mod.InvokeVoidAsync("close", t.ScreenId); } catch (JSDisconnectedException) { }
     }
 
     private async Task Disconnect()
     {
-        if (_mod is not null) await _mod.InvokeVoidAsync("close", ScreenId);
-        _title = null;
-        _state = "";
+        if (_cur is not { Open: true } t) return;
+        await CloseScreen(t);
+        t.State = "отключено";
     }
+
+    /// <summary>Закрыть вкладку; живой сеанс — после вопроса.</summary>
+    private async Task CloseTab(Sess t) => await CloseTab(t, ask: true);
+
+    private async Task CloseTab(Sess t, bool ask)
+    {
+        if (ask && t.Open && !await S.Dialogs.Confirm($"Сеанс «{t.Label}» подключён. Закрыть? Всё, что в нём выполняется, прервётся.", "Закрыть вкладку")) return;
+        await CloseScreen(t);
+        var i = _tabs.IndexOf(t);
+        _tabs.Remove(t);
+        t.Cb?.Dispose();
+        if (_cur == t) _cur = _tabs.Count == 0 ? null : _tabs[Math.Min(i, _tabs.Count - 1)];
+        StateHasChanged();
+    }
+
+    private async Task CloseOthers(Sess keep)
+    {
+        var others = _tabs.Where(x => x != keep).ToList();
+        var live = others.Count(x => x.Open);
+        if (live > 0 && !await S.Dialogs.Confirm($"Закрыть остальные вкладки ({others.Count})? Подключённых среди них: {live} — всё, что в них выполняется, прервётся.", "Закрыть остальные")) return;
+        foreach (var x in others) await CloseTab(x, ask: false);
+        await Select(keep);
+    }
+
+    // средняя кнопка мыши — закрыть (как в настольной и в браузере)
+    private Task TabMouseUp(Sess t, MouseEventArgs e) => e.Button == 1 ? CloseTab(t) : Task.CompletedTask;
+    private void TabMenu(Sess t, MouseEventArgs e) => _tabMenu = (t, e.ClientX, e.ClientY);
+    private async Task MenuDo(Func<Task> act) { _tabMenu = null; await act(); }
 
     private async Task FocusScreen()
     {
-        if (_mod is not null && _title is not null) await _mod.InvokeVoidAsync("focus", ScreenId);
+        if (_mod is not null && _cur is { Open: true } t) await _mod.InvokeVoidAsync("focus", t.ScreenId);
     }
 
-    [JSInvokable]
-    public Task OnGuacState(int st) => InvokeAsync(() =>
+    private Task State(Sess t, int st) => InvokeAsync(() =>
     {
-        _state = st switch { 1 => "подключение…", 2 => "ожидание…", 3 => "подключено", 4 => "отключение…", 5 => "отключено", _ => _state };
-        // guacd не говорит, почему RDP-сервер закрыл сеанс; закрыл сразу — почти всегда учётка или право входа
-        if (st == 5 && _rdp && !_errorShown && _title is not null && (DateTime.UtcNow - _startedAt).TotalSeconds < 15)
-            S.ShowNotice("RDP: сеанс закрылся сразу. Причины: учётка, право входа по RDP на этот хост или шлюз guacd — подробности в его журнале (linuxops-web logs guacd).");
+        if (!_tabs.Contains(t)) return;
+        // закрыли сами (Отключить, Подключить заново, вкладка) — состояние уже выставлено
+        if (!t.Open && st >= 4) { StateHasChanged(); return; }
+        t.St = st;
+        t.State = st switch { 1 => "подключение…", 2 => "ожидание…", 3 => "подключено", 4 => "отключение…", 5 => t.LastError.Length > 0 ? "отключено: " + t.LastError : "отключено", _ => t.State };
+        if (st == 5)
+        {
+            t.Open = false;
+            // guacd не говорит, почему RDP-сервер закрыл сеанс; закрыл сразу — почти всегда учётка или право входа
+            if (t.Rdp && !t.ErrorShown && (DateTime.UtcNow - t.StartedAt).TotalSeconds < 15)
+                S.ShowNotice("RDP: сеанс закрылся сразу. Причины: учётка, право входа по RDP на этот хост или шлюз guacd — подробности в его журнале (linuxops-web logs guacd).");
+        }
         StateHasChanged();
     });
 
-    [JSInvokable]
-    public Task OnGuacError(string message) => InvokeAsync(() =>
+    private Task Error(Sess t, string message) => InvokeAsync(() =>
     {
-        _state = "ошибка";
-        _errorShown = true;
-        S.ShowNotice(Explain(message));
+        if (!_tabs.Contains(t)) return;
+        t.State = "ошибка";
+        t.ErrorShown = true;
+        // причина остаётся в строке состояния и после отключения (сообщение сверху гаснет через 7 с)
+        t.LastError = Explain(message);
+        S.ShowNotice($"{t.Label}: {t.LastError}");
         StateHasChanged();
     });
 
     public async ValueTask DisposeAsync()
     {
-        try { if (_mod is not null) { await _mod.InvokeVoidAsync("close", ScreenId); await _mod.DisposeAsync(); } } catch (JSDisconnectedException) { }
-        _self?.Dispose();
+        try
+        {
+            if (_mod is not null)
+            {
+                foreach (var t in _tabs) await _mod.InvokeVoidAsync("close", t.ScreenId);
+                await _mod.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        foreach (var t in _tabs) t.Cb?.Dispose();
     }
 }

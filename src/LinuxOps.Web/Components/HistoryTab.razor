@@ -1,5 +1,8 @@
+@using LinuxOps.Web.Services.Guac
 @inject WebStore Store
 @inject IJSRuntime JS
+@inject GuacLive Live
+@inject GuacTickets Tickets
 @implements IAsyncDisposable
 
 <div class="page single">
@@ -11,7 +14,7 @@
                     <div class="muted small" style="margin-top:2px">@(_mode switch
                     {
                         Mode.Audit => "Кто и что делал в сервисе. Только дописывается; копия — в audit.log и syslog.",
-                        Mode.Sessions => "Терминалы и RDP через шлюз: кто, куда, сколько. Запись экрана — проиграть, текст терминала — скачать.",
+                        Mode.Sessions => "Терминалы и RDP через шлюз: кто, куда, сколько. Идущие — смотреть вживую и закрыть; запись экрана — проиграть, текст терминала — скачать.",
                         _ => S.User.Limited ? "Последние dry-run / apply по вашим хостам — всех пользователей сервиса." : "Последние dry-run / apply по хостам и действиям — всех пользователей сервиса."
                     })</div>
                 </div>
@@ -19,6 +22,9 @@
                 @if (S.Can(Perm.AuditView))
                 {
                     <button class="btn sm @(_mode == Mode.Audit ? "primary" : "")" style="min-width:80px;margin-right:6px" @onclick="() => Switch(Mode.Audit)">Аудит</button>
+                }
+                @if (S.Can(Perm.AuditView) || S.CanSeeLive)
+                {
                     <button class="btn sm @(_mode == Mode.Sessions ? "primary" : "")" style="min-width:80px;margin-right:12px" @onclick="() => Switch(Mode.Sessions)">Сеансы</button>
                 }
                 <button class="btn sm" style="min-width:90px;margin-right:6px" @onclick="Reload">Обновить</button>
@@ -27,69 +33,145 @@
         </div>
         <div class="history">
             <div class="scroll grid-wrap">
-                <table class="grid">
-                    @switch (_mode)
-                    {
-                        case Mode.Audit:
-                            <thead><tr><th style="width:140px">Когда</th><th style="width:120px">Кто</th><th style="width:200px">Что</th><th>Подробно</th></tr></thead>
-                            <tbody>
-                                @foreach (var a in _auditRows)
-                                {
-                                    <tr class="@(ReferenceEquals(a, _selAudit) ? "selected" : "")" @onclick="() => _selAudit = a">
-                                        <td>@a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td><td>@a.Who</td><td>@a.What</td><td class="ell">@a.Detail</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            break;
-                        case Mode.Sessions:
-                            <thead><tr><th style="width:140px">Начало</th><th style="width:140px">Конец</th><th style="width:60px">Вид</th><th style="width:160px">Хост</th><th style="width:140px">Кто</th><th>Статус</th></tr></thead>
-                            <tbody>
-                                @foreach (var s in _sessRows)
-                                {
-                                    <tr class="@(ReferenceEquals(s, _selSess) ? "selected" : "")" @onclick="() => PickSession(s)">
-                                        <td>@s.Start</td><td>@s.End</td><td>@(s.Protocol == "rdp" ? "RDP" : "SSH")</td><td class="ell">@s.Host</td><td class="ell">@s.Who</td><td class="ell">@s.Status</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            break;
-                        default:
-                            <thead><tr><th style="width:140px">Когда</th><th style="width:70px">Режим</th><th style="width:120px">Хост</th><th>Действие</th><th style="width:70px">Статус</th><th style="width:110px">Кто</th></tr></thead>
-                            <tbody>
-                                @foreach (var (e, who) in _rows)
-                                {
-                                    <tr class="@(ReferenceEquals(e, _sel) ? "selected" : "")" @onclick="() => _sel = e">
-                                        <td>@e.AtLocalText</td><td>@e.Mode</td><td class="ell">@e.Host</td><td class="ell">@e.Action</td><td>@e.Status</td><td>@who</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            break;
-                    }
-                </table>
+                @if (_mode == Mode.Sessions && S.CanSeeLive)
+                {
+                    <div class="live-block">
+                        <div class="row" style="margin-bottom:6px">
+                            <span class="section-title grow">Идут сейчас: @_live.Count</span>
+                            @if (_liveMsg.Length > 0) { <span class="muted small">@_liveMsg</span> }
+                        </div>
+                        @if (_live.Count == 0)
+                        {
+                            <div class="muted small">Сейчас никто не подключён.</div>
+                        }
+                        else
+                        {
+                            <table class="grid">
+                                <thead><tr><th style="width:92px">С</th><th style="width:42px">Вид</th><th>Хост</th><th>Кто</th><th style="width:36px" title="Сколько человек смотрят вживую">👁</th><th class="live-actions"></th></tr></thead>
+                                <tbody>
+                                    @foreach (var l in _live)
+                                    {
+                                        <tr class="@(l.Id == _watchId ? "selected" : "")">
+                                            <td title="@l.Started.ToString("dd.MM.yyyy HH:mm:ss")">@l.Started.ToString("HH:mm:ss")</td>
+                                            <td>@(l.IsPowerShell ? "PS" : Kind(l.Protocol, l.HostTitle))</td>
+                                            <td class="ell">@l.HostTitle</td>
+                                            <td class="ell">@l.Who</td>
+                                            <td>@l.Watchers</td>
+                                            <td class="live-actions">
+                                                @if (_confirmClose == l.Id)
+                                                {
+                                                    <span class="small">Закрыть?</span>
+                                                    <button class="btn sm danger" style="margin-left:4px" @onclick="() => CloseLive(l)">Да</button>
+                                                    <button class="btn sm" @onclick='() => _confirmClose = ""'>Нет</button>
+                                                }
+                                                else
+                                                {
+                                                    @if (S.Can(Perm.SessionsWatch) && (!l.IsPowerShell || S.Can(Perm.Vcenter)))
+                                                    {
+                                                        <button class="btn sm" @onclick="() => WatchLive(l)" disabled="@(l.Id == _watchId)">Смотреть</button>
+                                                    }
+                                                    @if (S.Can(Perm.SessionsClose) && (!l.IsPowerShell || S.Can(Perm.Vcenter)))
+                                                    {
+                                                        <button class="btn sm" style="margin-left:4px" @onclick="() => _confirmClose = l.Id">Закрыть</button>
+                                                    }
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                }
+                @if (_mode != Mode.Sessions || S.Can(Perm.AuditView))
+                {
+                    @if (_mode == Mode.Sessions) { <div class="section-title" style="margin:10px 0 6px">Журнал сеансов</div> }
+                    <table class="grid">
+                        @switch (_mode)
+                        {
+                            case Mode.Audit:
+                                <thead><tr><th style="width:140px">Когда</th><th style="width:120px">Кто</th><th style="width:200px">Что</th><th>Подробно</th></tr></thead>
+                                <tbody>
+                                    @foreach (var a in _auditRows)
+                                    {
+                                        <tr class="@(ReferenceEquals(a, _selAudit) ? "selected" : "")" @onclick="() => _selAudit = a">
+                                            <td>@a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td><td>@a.Who</td><td>@a.What</td><td class="ell">@a.Detail</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                break;
+                            case Mode.Sessions:
+                                <thead><tr><th style="width:140px">Начало</th><th style="width:140px">Конец</th><th style="width:60px">Вид</th><th style="width:160px">Хост</th><th style="width:140px">Кто</th><th>Статус</th></tr></thead>
+                                <tbody>
+                                    @foreach (var s in _sessRows)
+                                    {
+                                        <tr class="@(ReferenceEquals(s, _selSess) ? "selected" : "")" @onclick="() => PickSession(s)">
+                                            <td>@s.Start</td><td>@s.End</td><td>@Kind(s.Protocol, s.Host)</td><td class="ell">@s.Host</td><td class="ell">@s.Who</td><td class="ell" title="@s.Status">@s.Status</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                break;
+                            default:
+                                <thead><tr><th style="width:140px">Когда</th><th style="width:70px">Режим</th><th style="width:120px">Хост</th><th>Действие</th><th style="width:70px">Статус</th><th style="width:110px">Кто</th></tr></thead>
+                                <tbody>
+                                    @foreach (var (e, who) in _rows)
+                                    {
+                                        <tr class="@(ReferenceEquals(e, _sel) ? "selected" : "")" @onclick="() => _sel = e">
+                                            <td>@e.AtLocalText</td><td>@e.Mode</td><td class="ell">@e.Host</td><td class="ell">@e.Action</td><td>@e.Status</td><td>@who</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                break;
+                        }
+                    </table>
+                }
             </div>
             <div class="history-detail">
                 @if (_mode == Mode.Sessions)
                 {
-                    <div class="row" style="margin-bottom:8px">
-                        <span class="section-title grow">Запись</span>
-                        @if (_selSess is { } ss)
+                    <div class="rec-wrap" id="@WrapId">
+                        @if (_watchId.Length > 0)
                         {
-                            <button class="btn sm" style="margin-right:6px" @onclick="PlayPause" disabled="@(!_loaded)">@(_playing ? "Пауза" : "Играть")</button>
-                            @if (ss.Protocol == "ssh" && !ss.Status.Contains("запись удалена", StringComparison.Ordinal))
+                            <div class="row rec-bar" style="margin-bottom:8px">
+                                <span class="section-title grow">Вживую: @_watchTitle</span>
+                                <button class="btn sm" style="margin-right:6px" title="На весь экран (F), выход — Esc" onclick="window.loRecFullscreen && loRecFullscreen('rec-wrap')">⛶ Весь экран</button>
+                                <button class="btn sm" @onclick="StopWatch">Перестать смотреть</button>
+                            </div>
+                            <div class="rec-player"><div class="conn-host" id="@WatchId"></div></div>
+                            <div class="muted small" style="margin-top:6px">Только просмотр: клавиатура и мышь в сеанс не идут. Пользователь не видит, что за ним смотрят; просмотр — в аудите. @_recError</div>
+                        }
+                        else
+                        {
+                            <div class="row rec-bar" style="margin-bottom:8px">
+                                <span class="section-title grow">Запись</span>
+                                @if (_selSess is { } ss)
+                                {
+                                    <button class="btn sm" style="margin-right:6px;min-width:84px" title="Пробел" @onclick="PlayPause" disabled="@(!_loaded)">@(_playing ? "❚❚ Пауза" : "▶ Играть")</button>
+                                    <select class="input" style="width:auto;margin-right:6px" title="Скорость" value="@_speed" @onchange="SetSpeed" disabled="@(!_loaded)">
+                                        @foreach (var sp in new[] { 1, 2, 4, 8 }) { <option value="@sp">@(sp)×</option> }
+                                    </select>
+                                    <label class="check small" style="margin-right:8px" title="Паузы без действий длиннее 5 с проматываются (остаётся 1 с)">
+                                        <input type="checkbox" checked="@_skip" @onchange="SetSkip" /> Пропускать простой
+                                    </label>
+                                    <button class="btn sm" style="margin-right:6px" title="На весь экран (F), выход — Esc" onclick="window.loRecFullscreen && loRecFullscreen('rec-wrap')" disabled="@(!_loaded)">⛶ Весь экран</button>
+                                    @if (ss.Protocol == "ssh" && !ss.Status.Contains("запись удалена", StringComparison.Ordinal))
+                                    {
+                                        <a class="btn sm" href="guac/recording/@ss.Id?kind=text" download>Текст терминала</a>
+                                    }
+                                }
+                            </div>
+                            <div class="rec-player"><div class="conn-host" id="@PlayerId"></div></div>
+                            @if (_selSess is not null)
                             {
-                                <a class="btn sm" href="guac/recording/@ss.Id?kind=text" download>Текст терминала</a>
+                                <input type="range" class="rec-seek" min="0" max="@_duration" value="@_position" disabled="@(!_loaded)" @onchange="Seek" />
+                                <div class="muted small">@Time(_position) / @Time(_duration) @(_speed > 1 ? $"· {_speed}×" : "") @_recError</div>
+                            }
+                            else
+                            {
+                                <div class="muted small" style="margin-top:6px">@(S.Can(Perm.AuditView) ? "Выберите сеанс в журнале." : "Журнал и записи — с правом «аудит».")</div>
                             }
                         }
                     </div>
-                    <div class="rec-player"><div class="conn-host" id="@PlayerId"></div></div>
-                    @if (_selSess is not null)
-                    {
-                        <input type="range" class="rec-seek" min="0" max="@_duration" value="@_position" disabled="@(!_loaded)" @onchange="Seek" />
-                        <div class="muted small">@Time(_position) / @Time(_duration) @_recError</div>
-                    }
-                    else
-                    {
-                        <div class="muted small" style="margin-top:6px">Выберите сеанс.</div>
-                    }
                 }
                 else
                 {
@@ -102,10 +184,38 @@
 </div>
 
 @code {
+    // вид сеанса: RDP, SSH или PowerShell на сервере (технически тоже SSH к самому серверу)
+    private static string Kind(string protocol, string host) => protocol == "rdp" ? "RDP" : host == "PowerShell (сервер)" ? "PS" : "SSH";
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>Вкладка на экране (0.7.8: при смене вкладки не пересоздаётся — просмотр и проигрыватель остаются).</summary>
+    [Parameter] public bool Active { get; set; } = true;
+    // спрятанная вкладка не перерисовывается (Shell перерисовывает всех на каждое изменение) — догонит при возврате
+    protected override bool ShouldRender() => Active;
+    private bool _wasActive = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active == _wasActive) return;
+        _wasActive = Active;
+        if (!Active)
+        {
+            // ушли с вкладки: запись — на паузу (просмотр вживую остаётся, его видно в 👁)
+            if (_mod is not null) await _mod.InvokeVoidAsync("pause", PlayerId);
+            return;
+        }
+        // вернулись: списки свежие, выбранная запись и просмотр — как были
+        if (_mode == Mode.Sessions)
+        {
+            _sessRows = S.Can(Perm.AuditView) ? Store.LoadSessions() : new();
+            _live = S.CanSeeLive ? Live.List() : new();
+        }
+        else Reload();
+    }
 
     private enum Mode { History, Audit, Sessions }
     private const string PlayerId = "guac-player";
+    private const string WatchId = "guac-watch";
+    private const string WrapId = "rec-wrap";
 
     private Mode _mode;
     private List<(HistoryEntry Entry, string Who)> _rows = new();
@@ -117,16 +227,31 @@
     private IJSObjectReference? _mod;
     private DotNetObjectReference<HistoryTab>? _self;
     private long _position, _duration;
-    private bool _playing, _loaded;
+    private bool _playing, _loaded, _skip;
+    private int _speed = 1;
     private string _recError = "";
+    private List<LiveSession> _live = new();
+    private string _liveMsg = "", _confirmClose = "", _watchId = "", _watchTitle = "";
+    private System.Threading.Timer? _timer;
 
     private sealed record AuditRow(DateTime At, string Who, string What, string Detail);
 
-    protected override void OnInitialized() => Reload();
+    protected override void OnInitialized()
+    {
+        Reload();
+        // список идущих сеансов — свежий, пока открыта вкладка «Сеансы»
+        _timer = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            if (!Active || _mode != Mode.Sessions || !S.CanSeeLive) return;
+            _live = Live.List();
+            StateHasChanged();
+        }), null, 5000, 5000);
+    }
 
     private async Task Switch(Mode m)
     {
         await StopPlayer();
+        await StopWatch();
         _mode = m;
         Reload();
     }
@@ -141,6 +266,7 @@
                 break;
             case Mode.Sessions:
                 _sessRows = S.Can(Perm.AuditView) ? Store.LoadSessions() : new();
+                _live = S.CanSeeLive ? Live.List() : new();
                 break;
             default:
                 _rows = Store.LoadHistory();
@@ -155,14 +281,21 @@
         }
     }
 
+    private async Task Module()
+    {
+        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
+        _self ??= DotNetObjectReference.Create(this);
+    }
+
     private async Task PickSession(SessionRow s)
     {
+        await StopWatch();
         _selSess = s;
         _position = _duration = 0;
         _playing = _loaded = false;
         _recError = "";
-        _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
-        _self ??= DotNetObjectReference.Create(this);
+        await Module();
+        _skip = await _mod!.InvokeAsync<bool>("skipSaved");
         // запись удалена по сроку или объёму (RecordingsKeeper) — проигрывать нечего
         // или сеанс шёл без записи (буфер был недоступен или полон)
         foreach (var why in new[] { "запись удалена", "без записи" })
@@ -172,7 +305,9 @@
             _recError = "— " + s.Status[s.Status.IndexOf(why, StringComparison.Ordinal)..];
             return;
         }
-        await _mod.InvokeVoidAsync("play", PlayerId, $"guac/recording/{s.Id}", _self);
+        if (s.Status.StartsWith("идёт", StringComparison.Ordinal)) { _recError = "— сеанс ещё идёт: запись — после закрытия"; await _mod.InvokeVoidAsync("stop", PlayerId); return; }
+        await _mod.InvokeVoidAsync("play", PlayerId, $"guac/recording/{s.Id}", _self, WrapId);
+        await _mod.InvokeVoidAsync("setSpeed", PlayerId, _speed);
     }
 
     private async Task PlayPause() { if (_mod is not null) await _mod.InvokeVoidAsync("playPause", PlayerId); }
@@ -182,19 +317,72 @@
         if (_mod is not null && long.TryParse(e.Value?.ToString(), out var ms)) await _mod.InvokeVoidAsync("seek", PlayerId, ms);
     }
 
+    private async Task SetSpeed(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var sp)) return;
+        _speed = sp;
+        if (_mod is not null) await _mod.InvokeVoidAsync("setSpeed", PlayerId, sp);
+    }
+
+    private async Task SetSkip(ChangeEventArgs e)
+    {
+        _skip = e.Value is true;
+        if (_mod is not null) await _mod.InvokeVoidAsync("setSkip", PlayerId, _skip);
+    }
+
+
     private async Task StopPlayer()
     {
         _selSess = null;
         if (_mod is not null) await _mod.InvokeVoidAsync("stop", PlayerId);
     }
 
+    // ---------- идущие сеансы ----------
+
+    private async Task WatchLive(LiveSession l)
+    {
+        _liveMsg = "";
+        if (S.WatchSession(l.Id, Live, Tickets) is not { } ticket) { _live = Live.List(); return; }
+        await StopPlayer();
+        await Module();
+        _watchId = l.Id;
+        _watchTitle = $"{l.HostTitle} — {l.Who}";
+        _recError = "";
+        StateHasChanged();
+        await _mod!.InvokeVoidAsync("open", WatchId, ticket, _self, l.Protocol, true);
+    }
+
+    private async Task StopWatch()
+    {
+        if (_watchId.Length == 0) return;
+        _watchId = _watchTitle = "";
+        if (_mod is not null) await _mod.InvokeVoidAsync("close", WatchId);
+    }
+
+    private async Task CloseLive(LiveSession l)
+    {
+        _confirmClose = "";
+        _liveMsg = S.CloseSession(l.Id, Live);
+        if (l.Id == _watchId) await StopWatch();
+        await Task.Delay(500);
+        _live = Live.List();
+        if (S.Can(Perm.AuditView)) _sessRows = Store.LoadSessions();
+    }
+
     private static string Time(long ms) => TimeSpan.FromMilliseconds(ms).ToString(ms >= 3600000 ? @"h\:mm\:ss" : @"m\:ss");
 
     [JSInvokable]
-    public Task OnRecProgress(long position, long duration, bool playing) => InvokeAsync(() =>
+    public Task OnRecProgress(long position, long duration, bool playing, int speed, bool skip) => InvokeAsync(() =>
     {
-        _position = position; _duration = duration; _playing = playing; _loaded = true;
+        _position = position; _duration = duration; _playing = playing; _loaded = true; _speed = speed; _skip = skip;
         StateHasChanged();
+    });
+
+    /// <summary>Состояние живого просмотра: 5 — соединение закрыто (сеанс закончился или его закрыли).</summary>
+    [JSInvokable]
+    public Task OnGuacState(int state) => InvokeAsync(() =>
+    {
+        if (state == 5 && _watchId.Length > 0) { _recError = "— сеанс закончился."; StateHasChanged(); }
     });
 
     [JSInvokable]
@@ -202,7 +390,17 @@
 
     public async ValueTask DisposeAsync()
     {
-        try { if (_mod is not null) { await _mod.InvokeVoidAsync("stop", PlayerId); await _mod.DisposeAsync(); } } catch (JSDisconnectedException) { }
+        _timer?.Dispose();
+        try
+        {
+            if (_mod is not null)
+            {
+                await _mod.InvokeVoidAsync("stop", PlayerId);
+                await _mod.InvokeVoidAsync("close", WatchId);
+                await _mod.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
         _self?.Dispose();
     }
 }

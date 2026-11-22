@@ -2,6 +2,7 @@
 @inject IJSRuntime JS
 @inject LinuxOps.Web.Services.Guac.GuacTickets Tickets
 @inject PsConsole Ps
+@inject LinuxOps.Web.Services.Guac.GuacLive Live
 @implements IAsyncDisposable
 
 <div class="page single">
@@ -35,6 +36,10 @@
 
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>Вкладка на экране; консоль живёт и когда вкладка спрятана (0.7.8).</summary>
+    [Parameter] public bool Active { get; set; } = true;
+    // спрятанная вкладка не перерисовывается (Shell перерисовывает всех на каждое изменение) — догонит при возврате
+    protected override bool ShouldRender() => Active;
 
     private const string ScreenId = "guac-powershell";
     private PsConsole.Status? _status;
@@ -48,11 +53,24 @@
 
     protected override async Task OnInitializedAsync() => _status = await Ps.GetStatus();
 
+    private bool _wasActive = true;
+    /// <summary>Вернулись на вкладку: консоль открыта — фокус на неё; нет — перечитать pwsh и PowerCLI (могли поставить в ⚙).</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active == _wasActive) return;
+        _wasActive = Active;
+        if (!Active) return;
+        if (_open && _mod is not null) { await Task.Yield(); await _mod.InvokeVoidAsync("focus", ScreenId); }
+        else if (!_busy) _status = await Ps.GetStatus();
+    }
+
     private async Task Connect()
     {
         _busy = true;
         try
         {
+            // предел сеансов на человека: переподключение не считаем — старый сеанс сейчас закроется
+            if (!_open && !S.SessionSlotFree(Live)) return;
             var ticket = S.OpenPowerShell(Tickets);
             if (ticket is null) return;
             _mod ??= await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./guac.js"));
@@ -82,14 +100,14 @@
     [JSInvokable]
     public Task OnGuacState(int st) => InvokeAsync(() =>
     {
-        _state = st switch { 1 => "подключение…", 2 => "ожидание…", 3 => "подключено", 4 => "отключение…", 5 => "отключено", _ => _state };
+        _state = st switch { 1 => "подключение…", 2 => "ожидание…", 3 => "подключено", 4 => "отключение…", 5 => _state.StartsWith("отключено: ", StringComparison.Ordinal) ? _state : _state == "ошибка: закрыт администратором" ? "отключено: сеанс закрыт администратором" : "отключено", _ => _state };
         StateHasChanged();
     });
 
     [JSInvokable]
     public Task OnGuacError(string message) => InvokeAsync(() =>
     {
-        _state = "ошибка";
+        _state = message.Contains("администратор", StringComparison.Ordinal) ? "ошибка: закрыт администратором" : "ошибка";
         S.ShowNotice(message.StartsWith("Aborted", StringComparison.Ordinal)
             ? "Консоль PowerShell: шлюз не вошёл в учётку консоли на сервере (sshd, ключ или учётка linuxops-ps) — подробности: linuxops-web logs guacd."
             : "Консоль PowerShell: " + message);

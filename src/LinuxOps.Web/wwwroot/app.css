@@ -417,3 +417,33 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .creds-folder { font-size: 12px; font-weight: 600; margin: 8px 0 2px; color: var(--muted); }
 .creds-host { display: flex; gap: 6px; align-items: center; padding: 2px 0 2px 12px; }
 @media (max-width: 760px) { .creds-grid { grid-template-columns: 1fr; } }
+
+/* ---------- сеансы: идут сейчас, проигрыватель на весь экран (0.7.7) ---------- */
+.live-block { padding: 8px 10px 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border, #2a3440); }
+.btn.danger { background: var(--offline); border-color: var(--offline); color: #fff; }
+.rec-wrap { display: flex; flex-direction: column; min-height: 0; outline: none; }
+.rec-bar { flex-wrap: wrap; gap: 4px 0; }
+.rec-wrap:fullscreen { background: #0b0f14; padding: 12px; color: #e6e6e6; }
+.rec-wrap:fullscreen .rec-player { flex: 1; height: auto; }
+.rec-wrap:fullscreen .section-title, .rec-wrap:fullscreen .muted { color: #c9d1d9; }
+.live-block .grid { table-layout: auto; width: 100%; }
+.live-actions { white-space: nowrap; text-align: right; width: 1%; }
+.rec-wrap.rec-max { position: fixed; inset: 0; z-index: 1000; background: #0b0f14; padding: 12px; color: #e6e6e6; }
+.rec-wrap.rec-max .rec-player { flex: 1; height: auto; }
+.rec-wrap.rec-max .section-title, .rec-wrap.rec-max .muted { color: #c9d1d9; }
+
+/* 0.7.8: вкладки с сеансами не пересоздаются — прячутся (Shell: History, Connections, PowerShell) */
+.keep { display: contents; }
+.keep.keep-off { display: none; }
+
+/* 0.7.8: вкладки сеансов в Connections */
+.sess-tabs { display: flex; gap: 2px; padding: 6px 8px 0; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--surface-alt); border-radius: 8px 8px 0 0; scrollbar-width: thin; }
+.sess-tab { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; max-width: 220px; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; flex-shrink: 0; }
+.sess-tab:hover { background: var(--hover-soft); color: var(--text); }
+.sess-tab.on { background: var(--surface); border-color: var(--line); color: var(--text); font-weight: 600; margin-bottom: -1px; }
+.sess-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--muted); opacity: .6; }
+.sess-dot.on { background: var(--online); opacity: 1; }
+.sess-dot.wait { background: var(--warn); opacity: 1; }
+.sess-x { border: none; background: none; color: var(--muted); font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 4px; cursor: pointer; }
+.sess-x:hover { background: var(--hover); color: var(--text); }

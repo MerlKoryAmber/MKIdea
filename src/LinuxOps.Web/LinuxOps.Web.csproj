@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LinuxOps.Web</RootNamespace>
-    <Version>0.7.6</Version>
+    <Version>0.7.8</Version>
     <!-- номера сборки — из Version (менять только её): по AssemblyVersion шапка и ?v= у стилей и скриптов -->
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>

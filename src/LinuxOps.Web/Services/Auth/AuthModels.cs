@@ -18,6 +18,8 @@ public static class Perm
     public const string AuditView = "audit.view";     // журнал аудита и записи сеансов
     public const string Settings = "settings";        // настройки: вход, роли, назначения
     public const string Vcenter = "vcenter";          // vCenter и PowerShell — только встроенная «Админ»
+    public const string SessionsWatch = "sessions.watch"; // смотреть чужой идущий сеанс вживую (только просмотр)
+    public const string SessionsClose = "sessions.close"; // закрыть чужой идущий сеанс
 
     public static readonly (string Id, string Text)[] All =
     {
@@ -32,11 +34,13 @@ public static class Perm
         (FilesWrite, "Файлы: загружать, удалять, переименовывать"),
         (AuditView, "Журнал аудита и записи сеансов (только назначение на «всё»)"),
         (Settings, "Настройки: вход, роли, назначения (только назначение на «всё»)"),
+        (SessionsWatch, "Сеансы: смотреть идущие вживую (только назначение на «всё»)"),
+        (SessionsClose, "Сеансы: закрывать идущие (только назначение на «всё»)"),
         (Vcenter, "vCenter и PowerShell (только встроенная «Админ»)")
     };
 
     /// <summary>Действуют только из назначения на «всё»: у них нет объекта.</summary>
-    public static readonly HashSet<string> Global = new() { AuditView, Settings, Vcenter, HostsEdit };
+    public static readonly HashSet<string> Global = new() { AuditView, Settings, Vcenter, HostsEdit, SessionsWatch, SessionsClose };
 
     /// <summary>В своих ролях не выдаются.</summary>
     /// Inventory — только админы (владелец, 22.11.2026): остальным вкладка не показывается.
@@ -46,7 +50,8 @@ public static class Perm
     {
         HostsView => "просмотр", FleetView => "уязвимости", RunCheck => "Dry-run", RunApply => "Применить", HostsEdit => "Inventory",
         Terminal => "терминал", Rdp => "RDP", FilesRead => "файлы: чтение", FilesWrite => "файлы: запись",
-        AuditView => "аудит", Settings => "настройки", Vcenter => "vCenter", _ => id
+        AuditView => "аудит", Settings => "настройки", Vcenter => "vCenter",
+        SessionsWatch => "сеансы: смотреть", SessionsClose => "сеансы: закрывать", _ => id
     };
 }
 

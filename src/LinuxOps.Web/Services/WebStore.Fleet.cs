@@ -31,7 +31,7 @@ public sealed class FleetSnapshot
         Errors = string.Join("; ", new[] { r.UpdateError, r.CveErrors }.Concat(r.ContainerErrors).Where(e => !string.IsNullOrWhiteSpace(e))),
         Updates = r.Items.Count(i => i.Update.Length > 0),
         Security = r.Items.Count(i => i.SecurityUpdate),
-        Urgent = r.Items.Count(i => i.CveLevel == "now"),
+        Urgent = r.CveNowCount,
         Bad = r.BadCount, Warn = r.WarnCount,
         Items = r.Items
             .Where(i => i.CveLevel == "now" || i.SecurityUpdate || i.Severity is "bad" or "warn")

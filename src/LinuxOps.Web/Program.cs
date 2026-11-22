@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.DataProtection;
 
 // Данные сервиса — до всего остального: ядро берёт каталог из LINUXOPS_DATA_DIR.
 WebPaths.Prepare();
+// Тексты ядра («через этот ПК») — про сервер; до первого обращения к BuiltinActions.
+RunPlace.Server();
 
 // Консоль сервера: LinuxOps.Web admin … — локальный админ (пароль, TOTP, вкл/выкл), без запуска веба.
 if (args.Length > 0 && args[0] == "admin")
@@ -31,6 +33,7 @@ builder.Services.AddSingleton<PsConsole>();
 builder.Services.AddSingleton<LinuxOps.Web.Services.Api.ApiJobs>();
 builder.Services.AddSingleton<LoginService>();
 builder.Services.AddSingleton<LinuxOps.Web.Services.Guac.GuacTickets>();
+builder.Services.AddSingleton<LinuxOps.Web.Services.Guac.GuacLive>();
 builder.Services.AddSingleton<LinuxOps.Web.Services.Files.FileDownloads>();
 builder.Services.AddSingleton<FleetCheck>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<FleetCheck>());

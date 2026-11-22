@@ -1,4 +1,4 @@
-disabled="@(_busy || _done.Length > 0 || _error.Length > 0 || !_rows.Any(r => r.Ok))"@* Inventory → «Импорт…»: хосты из CSV (0.7.5). Файл → предпросмотр с итогом по каждой строке → «Добавить». Сохраняет только строки «добавить». *@
+@* Inventory → «Импорт…»: хосты из CSV (0.7.5). Файл → предпросмотр с итогом по каждой строке → «Добавить». Сохраняет только строки «добавить». *@
 @inject IJSRuntime JS
 
 <div class="overlay" @onclick="Close">
@@ -44,7 +44,7 @@ disabled="@(_busy || _done.Length > 0 || _error.Length > 0 || !_rows.Any(r => r.
         </div>
         <div class="window-buttons">
             <button class="btn" style="width:100px" @onclick="Close">@(_done.Length > 0 ? "Закрыть" : "Отмена")</button>
-            <button class="btn primary" style="width:160px" @onclick="Apply" disabled="@(_busy || _done.Length > 0 || !_rows.Any(r => r.Ok))">Добавить @_rows.Count(r => r.Ok)</button>
+            <button class="btn primary" style="width:160px" @onclick="Apply" disabled="@(_busy || _done.Length > 0 || _error.Length > 0 || !_rows.Any(r => r.Ok))">Добавить @_rows.Count(r => r.Ok)</button>
         </div>
     </div>
 </div>

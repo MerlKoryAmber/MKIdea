@@ -42,9 +42,9 @@ public sealed class PlanRunner
             Row = MakeRow(
                 "INFO",
                 apply
-                    ? $"Apply: {hosts.Count} хост(ов), {actions.Count} действий"
-                    : $"Plan (dry-run): {hosts.Count} хост(ов), {actions.Count} действий",
-                apply ? "изменения будут применены для destructive" : "destructive только как план",
+                    ? $"Применить: хостов {hosts.Count}, действий {actions.Count}"
+                    : $"Dry-run: хостов {hosts.Count}, действий {actions.Count}",
+                apply ? "меняющие действия выполняются на хостах" : "меняющие действия — только план, на хостах ничего не меняется",
                 "",
                 ok: true)
         });
@@ -353,7 +353,7 @@ public sealed class PlanRunner
         }
         if (vr.Items.Count == 0) return row;
         // та же строка RUN (по ключу): новая строка RUN с тем же заголовком осталась бы висеть над итогом
-        progress.Report(new PlanProgress { Live = "\nсверка CVE с базами уязвимостей (с этого ПК)…\n", LiveKey = key, Status = $"{row.Title} · сверка CVE" });
+        progress.Report(new PlanProgress { Live = $"\nсверка CVE с базами уязвимостей (с {RunPlace.OfHere})…\n", LiveKey = key, Status = $"{row.Title} · сверка CVE" });
         CveCheck.Run(vr, ct);
         return VersionsRow(host, actionName, vr);
     }
@@ -366,7 +366,7 @@ public sealed class PlanRunner
             upd.Host = host;
             upd.TunnelNote = tunnel?.Note ?? "";
             upd.TunnelLog = tunnel?.Log ?? "";
-            var updDetail = upd.Format() + (upd.TunnelNote.Length > 0 ? $"\nТуннель через этот ПК не поднят: {upd.TunnelNote}\n" : "")
+            var updDetail = upd.Format() + (upd.TunnelNote.Length > 0 ? $"\nТуннель через {RunPlace.Here} не поднят: {upd.TunnelNote}\n" : "")
                          + (upd.TunnelLog.Length > 0 ? "\n" + upd.TunnelLog + "\n" : "")
                          + "\n--- вывод ---\n" + r.StdOut + (r.StdErr.Length > 0 ? "\n" + r.StdErr : "");
             var ok = upd.Error.Length == 0 && upd.ExitCode == 0;

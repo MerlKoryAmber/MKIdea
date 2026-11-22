@@ -21,12 +21,20 @@ public static partial class GuacTunnel
         app.MapGet("/guac/recording/{id}", Recording).RequireAuthorization();
     }
 
-    private static async Task Handle(HttpContext ctx, GuacTickets tickets, WebStore store, AuditLog audit)
+    /// <summary>Текст отказа по пределу сеансов — один и тот же в окне и в туннеле.</summary>
+    public static string LimitText(int limit) => $"Открыто сеансов: {limit} — это предел. Закройте ненужный и подключитесь снова.";
+
+    private static async Task Handle(HttpContext ctx, GuacTickets tickets, WebStore store, AuditLog audit, GuacLive live)
     {
         if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
         var q = ctx.Request.Query;
         var ticket = tickets.Take(q["t"].ToString(), ctx.User.Identity?.Name ?? "");
         if (ticket is null) { ctx.Response.StatusCode = 403; return; }
+        // просмотр вживую: подключение к идущему сеансу только смотреть (пропуск выдаёт WatchSession после проверки права)
+        LiveSession? target = null;
+        if (ticket.WatchId is { } wid && (target = live.Find(wid)) is null) { ctx.Response.StatusCode = 404; return; }
+        var watching = target is not null;
+        LiveSession? mine = null;
         int Num(string k, int def, int min, int max) => int.TryParse(q[k], NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? Math.Clamp(v, min, max) : def;
         var w = Num("w", 1024, 200, 8192);
         var h = Num("h", 768, 150, 8192);
@@ -37,6 +45,24 @@ public static partial class GuacTunnel
         var sessionId = ticket.Id;
         var started = DateTime.UtcNow;
         var status = "закрыт";
+        var counted = false;   // зритель учтён в 👁 (WatcherIn) — снять в finally
+        // предел одновременных сеансов на человека (⚙ → «Сеансы и записи»): место занимается до подключения к guacd
+        if (!watching)
+        {
+            var limit = GuacLive.Limit(store);
+            if (!live.TryReserve(ticket.Login, limit))
+            {
+                audit.Write(ticket.Who, "сеанс: отказ — предел", $"{ticket.HostTitle}: уже {limit} одновременно");
+                try
+                {
+                    await WsSend(ws, GuacProtocol.Encode("", sessionId), ctx.RequestAborted);
+                    await WsSend(ws, GuacProtocol.Encode("error", LimitText(limit), "519"), ctx.RequestAborted);
+                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                }
+                catch { }
+                return;
+            }
+        }
         TcpClient? tcp = null;
         try
         {
@@ -48,7 +74,7 @@ public static partial class GuacTunnel
 
             async Task Send(string s) { var b = Encoding.UTF8.GetBytes(s); await stream.WriteAsync(b, ctx.RequestAborted); }
 
-            await Send(GuacProtocol.Encode("select", ticket.Protocol));
+            await Send(GuacProtocol.Encode("select", target?.ConnectionId ?? ticket.Protocol));
             var args = await reader.ReadInstructionAsync(ctx.RequestAborted);
             var argv = args is null ? null : GuacProtocol.Parse(args);
             if (argv is null || argv[0] != "args") throw new IOException("guacd: нет ответа args (" + (argv?[0] ?? "соединение закрыто") + ")");
@@ -58,7 +84,10 @@ public static partial class GuacTunnel
             await Send(GuacProtocol.Encode("video"));
             await Send(GuacProtocol.Encode("image", "image/png", "image/jpeg", "image/webp"));
             if (tz.Length is > 0 and < 64) await Send(GuacProtocol.Encode("timezone", tz));
-            var values = argv.Skip(1).Select(name => name.StartsWith("VERSION_", StringComparison.Ordinal) ? ClientVersion : ticket.Params.GetValueOrDefault(name, "")).ToArray();
+            var values = argv.Skip(1).Select(name =>
+                name.StartsWith("VERSION_", StringComparison.Ordinal) ? ClientVersion
+                : watching ? (name == "read-only" ? "true" : "")   // зритель: только смотреть, никаких параметров сеанса
+                : ticket.Params.GetValueOrDefault(name, "")).ToArray();
             await Send(GuacProtocol.Encode("connect", values));
 
             var ready = await reader.ReadInstructionAsync(ctx.RequestAborted);
@@ -70,17 +99,42 @@ public static partial class GuacTunnel
                 throw new IOException("guacd: " + (rv is null ? "соединение закрыто" : string.Join(" ", rv)));
             }
 
-            store.SessionStart(sessionId, ticket.Who, ticket.Protocol, ticket.HostTitle);
-            audit.Write(ticket.Who, (ticket.Protocol == "rdp" ? "RDP" : "терминал") + ": открыт", $"{ticket.HostTitle}, сеанс {sessionId}");
-            if (ticket.NoRecording is { } noRec)
+            if (target is not null)
             {
-                store.SessionNote(sessionId, "без записи: " + noRec);
-                audit.Write(ticket.Who, "сеанс без записи", $"{ticket.HostTitle}, сеанс {sessionId}: {noRec}");
+                target.WatcherIn();
+                counted = true;
+                // владелец мог уйти, пока шло рукопожатие: тогда зритель держал бы соединение guacd один
+                if (target.Ended.IsCancellationRequested || live.Find(target.Id) is null) throw new IOException("сеанс уже закончился");
+                audit.Write(ticket.Who, "сеанс: просмотр вживую", $"{target.HostTitle}, {target.Who}, сеанс {target.Id}");
+            }
+            else
+            {
+                store.SessionStart(sessionId, ticket.Who, ticket.Protocol, ticket.HostTitle);
+                audit.Write(ticket.Who, (ticket.Protocol == "rdp" ? "RDP" : "терминал") + ": открыт", $"{ticket.HostTitle}, сеанс {sessionId}");
+                if (ticket.NoRecording is { } noRec)
+                {
+                    store.SessionNote(sessionId, "без записи: " + noRec);
+                    audit.Write(ticket.Who, "сеанс без записи", $"{ticket.HostTitle}, сеанс {sessionId}: {noRec}");
+                }
+                // ready несёт номер соединения у guacd — по нему подключается зритель
+                mine = new LiveSession { Id = sessionId, Who = ticket.Who, Login = ticket.Login, Protocol = ticket.Protocol, HostTitle = ticket.HostTitle, ConnectionId = rv.Count > 1 ? rv[1] : "", IsPowerShell = ticket.HostId == "powershell" };
+                live.Add(mine);
             }
             // первая инструкция туннеля — служебная, с его номером (так ждёт Guacamole.WebSocketTunnel)
             await WsSend(ws, GuacProtocol.Encode("", sessionId), ctx.RequestAborted);
 
+            // сеанс закрывают: из браузера, со стороны guacd или админом (live.Close → Kill)
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+            // закрыт админом: браузеру — ошибка «сеанс закрыт» (клиент сам отключится и покажет её), затем обрыв;
+            // соединение с guacd закрывается в finally — guacd завершает сеанс сам
+            using var killReg = mine?.Kill.Token.Register(() => _ = Task.Run(async () =>
+            {
+                try { await WsSend(ws, GuacProtocol.Encode("error", "Сеанс закрыт администратором", "523"), CancellationToken.None); }
+                catch { }
+                finally { try { cts.Cancel(); } catch (ObjectDisposedException) { } }
+            }));
+            // зритель: владелец ушёл или сеанс закрыли — отключиться (guacd держит соединение, пока подключён хоть кто-то)
+            using var endedReg = target?.Ended.Token.Register(() => { try { cts.Cancel(); } catch (ObjectDisposedException) { } });
             var toBrowser = Task.Run(async () =>
             {
                 var batch = new StringBuilder();
@@ -106,6 +160,8 @@ public static partial class GuacTunnel
                     var r = await ws.ReceiveAsync(buf, cts.Token);
                     if (r.MessageType == WebSocketMessageType.Close) break;
                     msg.Write(buf, 0, r.Count);
+                    // сообщение без конца (кусками) — не копить бесконечно: как и у потока guacd, предел 4 МБ
+                    if (msg.Length > 4 * 1024 * 1024) throw new FormatException("guac: слишком длинное сообщение браузера");
                     if (!r.EndOfMessage) continue;
                     var text = Encoding.UTF8.GetString(msg.GetBuffer(), 0, (int)msg.Length);
                     msg.SetLength(0);
@@ -116,6 +172,9 @@ public static partial class GuacTunnel
                         if (parts.Count > 1 && parts[1] == "ping") await WsSend(ws, text, cts.Token);
                         continue;
                     }
+                    // зритель: к guacd — только служебное (sync, ack, nop, disconnect; size — нет: не менять размер чужого терминала), ни клавиш, ни мыши, ни буфера
+                    if (watching) text = WatcherOnly(text);
+                    if (text.Length == 0) continue;
                     var bytes = Encoding.UTF8.GetBytes(text);
                     await stream.WriteAsync(bytes, cts.Token);
                 }
@@ -127,13 +186,27 @@ public static partial class GuacTunnel
         catch (Exception ex) when (ex is IOException or SocketException or WebSocketException or FormatException)
         {
             status = "ошибка: " + ex.Message;
-            audit.Write(ticket.Who, (ticket.Protocol == "rdp" ? "RDP" : "терминал") + ": ошибка", $"{ticket.HostTitle}: {ex.Message}");
+            audit.Write(ticket.Who, watching ? "сеанс: просмотр — ошибка" : (ticket.Protocol == "rdp" ? "RDP" : "терминал") + ": ошибка", $"{ticket.HostTitle}: {ex.Message}");
         }
         finally
         {
             tcp?.Dispose();
             try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); } catch { }
-            if (store.FindSession(sessionId) is not null)
+            if (!watching) live.Release(ticket.Login);
+            if (counted && target is not null)
+            {
+                target.WatcherOut();
+                audit.Write(ticket.Who, "сеанс: просмотр окончен", $"{target.HostTitle}, {target.Who}, {(DateTime.UtcNow - started).TotalMinutes:0.#} мин, сеанс {target.Id}");
+            }
+            if (mine is not null)
+            {
+                live.Remove(sessionId);
+                if (mine.ClosedBy is { } by) status = "закрыт администратором: " + by;
+                // зрители отключаются вслед за владельцем (Ended не освобождаем: на него ещё могут подписываться)
+                try { mine.Ended.Cancel(); } catch (ObjectDisposedException) { }
+                mine.Kill.Dispose();
+            }
+            if (target is null && store.FindSession(sessionId) is not null)
             {
                 store.SessionEnd(sessionId, status);
                 var mins = (DateTime.UtcNow - started).TotalMinutes;
@@ -156,7 +229,10 @@ public static partial class GuacTunnel
         // имена задаёт OpenTerminal: экран — <id>.guac, текст терминала — <id>.txt (+ .txt.timing)
         // в буфере или уже в хранилище (SMB, NFS, диск)
         if (RecordingStorage.Find(id + (text ? ".txt" : ".guac")) is not { } file) return Results.NotFound();
-        var who = string.IsNullOrEmpty(user.Display) ? user.Login : user.Display;
+        // паузы для «пропускать простой» — часть того же просмотра, в аудит отдельно не пишется
+        if (kind == "gaps") return Results.Json(Gaps(file, 5000));
+        // как во всём аудите: логин (адрес)
+        var who = $"{user.Login} ({Auth.AuthEndpoints.ClientIp(ctx)})";
         audit.Write(who, text ? "запись: скачан текст" : "запись: просмотр", $"{s.Host}, {s.Who}, {s.Start}, сеанс {id}");
         if (text)
         {
@@ -168,6 +244,90 @@ public static partial class GuacTunnel
             return Results.File(Encoding.UTF8.GetBytes(clean), "text/plain; charset=utf-8", $"{s.Host}-{s.Start.Replace(':', '-').Replace(' ', '_')}.txt");
         }
         return Results.File(new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), "application/octet-stream");
+    }
+
+    private static readonly HashSet<string> WatcherOps = new(StringComparer.Ordinal) { "sync", "ack", "nop", "disconnect" };
+
+    /// <summary>Из сообщения зрителя — только служебные инструкции; клавиши, мышь, буфер и потоки отбрасываются.</summary>
+    private static string WatcherOnly(string text)
+    {
+        var sb = new StringBuilder(text);
+        var res = new StringBuilder();
+        var pos = 0;
+        while (pos < sb.Length)
+        {
+            var n = GuacProtocol.CompleteLength(sb, pos);
+            if (n < 0) break;
+            var instr = sb.ToString(pos, n - pos);
+            pos = n;
+            if (GuacProtocol.Parse(instr) is { Count: > 0 } p && WatcherOps.Contains(p[0])) res.Append(instr);
+        }
+        return res.ToString();
+    }
+
+    /// <summary>
+    /// Простой в записи для «пропускать простой»: отрезки длиннее minGapMs, где на экране ничего не менялось —
+    /// [начало, конец] в мс от первого sync. guacd шлёт sync и в простое (раз в несколько секунд), поэтому простой —
+    /// это кадры, в которых между sync нет ничего, кроме sync и nop. Читается потоком, по целым инструкциям.
+    /// </summary>
+    private static List<long[]> Gaps(string file, long minGapMs)
+    {
+        var gaps = new List<long[]>();
+        long first = -1, lastActive = -1;
+        var dirty = false;
+        using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var sr = new StreamReader(fs, Encoding.UTF8);
+        var buf = new char[65536];
+        var sb = new StringBuilder();
+        int read;
+        try
+        {
+            while ((read = sr.Read(buf, 0, buf.Length)) > 0)
+            {
+                sb.Append(buf, 0, read);
+                var pos = 0;
+                while (pos < sb.Length)
+                {
+                    var end = GuacProtocol.CompleteLength(sb, pos);
+                    if (end < 0) break;
+                    var (op, arg) = OpAndFirstArg(sb, pos);
+                    if (op == "sync")
+                    {
+                        if (long.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ts))
+                        {
+                            if (first < 0) { first = ts; lastActive = ts; }
+                            if (dirty)
+                            {
+                                if (ts - lastActive > minGapMs) gaps.Add([lastActive - first, ts - first]);
+                                lastActive = ts;
+                                dirty = false;
+                            }
+                        }
+                    }
+                    else if (op != "nop") dirty = true;
+                    pos = end;
+                }
+                sb.Remove(0, pos);
+            }
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentOutOfRangeException) { }   // испорченный хвост записи — что нашли, то и отдаём
+        return gaps;
+    }
+
+    /// <summary>Опкод и первый аргумент инструкции, начинающейся с pos (инструкция целая — проверил CompleteLength).</summary>
+    private static (string Op, string Arg) OpAndFirstArg(StringBuilder sb, int pos)
+    {
+        (string Value, int Next) Elem(int i)
+        {
+            var dot = i;
+            while (sb[dot] != '.') dot++;
+            var len = int.Parse(sb.ToString(i, dot - i), CultureInfo.InvariantCulture);
+            // короткие элементы (опкод, отметка времени) — без суррогатных пар
+            return (sb.ToString(dot + 1, len), dot + 1 + len);
+        }
+        var (op, next) = Elem(pos);
+        if (op != "sync" || sb[next] != ',') return (op, "");
+        return (op, Elem(next + 1).Value);
     }
 
     private static string Redraw(string line)

@@ -113,6 +113,15 @@ else
                 break;
 
             case "rec":
+                <div class="section-title">Одновременные сеансы</div>
+                <div class="muted small" style="margin-bottom:6px">Сколько терминалов, RDP и консолей PowerShell может быть открыто у одного человека сразу — во всех окнах браузера вместе. Просмотр чужого сеанса не считается. 0 — без предела.</div>
+                <div class="wrap" style="margin-bottom:16px">
+                    <label class="small" style="margin-right:8px">Не больше на человека</label>
+                    <input class="input" type="number" min="0" max="1000" @bind="_sessLimit" style="width:100px" />
+                    <button class="btn primary" style="margin-left:8px" @onclick="SaveLimit">Сохранить</button>
+                    <span class="muted small" style="margin-left:8px">@_sessMsg</span>
+                </div>
+                <div class="section-title">Записи</div>
                 <div class="muted small" style="margin-bottom:6px">Терминал и RDP пишутся всегда. Чистка — раз в час: сначала старше срока, потом самые старые, пока каталог не уложится в объём. Идущий сеанс не трогается. 0 — без ограничения.</div>
                 <div class="form-grid">
                     <label>Хранить, дней</label><input class="input" type="number" min="0" @bind="_recDays" style="width:100px" />
@@ -228,7 +237,7 @@ else
         new("api", "🔌", "Сервисы API", "Сервисные учётки и токены"),
         new("ps", "⌨", "PowerShell и PowerCLI", "Консоль на сервере и модули — только «Админ»"),
         new("fleet", "📊", "Проверка уязвимостей", "«Версии ПО» и CVE по всем хостам — по расписанию"),
-        new("rec", "🎞", "Записи сеансов", "Срок, объём, нажатия клавиш")
+        new("rec", "🎞", "Сеансы и записи", "Предел сеансов на человека; записи: срок, объём, нажатия клавиш, где хранить")
     };
 
     private const string SecKey = "lo.settings.section";
@@ -383,8 +392,13 @@ else
     private bool _recKeys, _recBusy;
     private string _recMsg = "", _recUsage = "";
 
+    private int _sessLimit;
+    private string _sessMsg = "";
+    private void SaveLimit() { _sessMsg = S.SetSessionLimit(_sessLimit); _sessLimit = S.SessionLimit; }
+
     private void LoadRec()
     {
+        _sessLimit = S.SessionLimit;
         var p = Keeper.Load();
         _recDays = p.Days; _recGb = p.MaxGb; _recKeys = p.Keys;
         ShowUsage();

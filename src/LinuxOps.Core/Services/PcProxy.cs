@@ -61,7 +61,7 @@ public sealed class PcProxy : IDisposable
         get
         {
             var targets = _targets.OrderByDescending(t => t.Value).Select(t => t.Value > 1 ? $"{t.Key} ×{t.Value}" : t.Key).ToList();
-            var sb = new StringBuilder($"Соединений через этот ПК: {_connections}");
+            var sb = new StringBuilder($"Соединений через {RunPlace.Here}: {_connections}");
             if (_failures > 0) sb.Append($", неудачных {_failures} (последняя ошибка: {_lastError})");
             if (targets.Count > 0) sb.Append($". Куда: {string.Join(", ", targets.Take(20))}{(targets.Count > 20 ? $" и ещё {targets.Count - 20}" : "")}");
             return sb.Append('.').ToString();

@@ -40,12 +40,23 @@
         {
             case "inventory" when S.Can(Perm.HostsEdit): <InventoryTab S="S" />; break;
             case "actions": <ActionsTab S="S" />; break;
-            case "history": <HistoryTab S="S" />; break;
             case "fleet": <FleetTab S="S" />; break;
             case "settings": <SettingsTab S="S" />; break;
             case "ssh": <FilesTab S="S" />; break;
-            case "terminal": <TerminalTab S="S" />; break;
-            case "powershell": <PowerShellTab S="S" />; break;
+        }
+        @* Сеансы (терминалы, RDP, PowerShell, просмотр и проигрывание в History) живут при смене вкладки: однажды открытая
+           вкладка не пересоздаётся, а прячется (0.7.8). Иначе уход с вкладки рвал сеанс. *@
+        @{ Keep(); }
+        @foreach (var k in _kept)
+        {
+            <div class="keep @(S.Tab == k ? "" : "keep-off")" @key="k">
+                @switch (k)
+                {
+                    case "history": <HistoryTab S="S" Active="@(S.Tab == k)" />; break;
+                    case "terminal": <TerminalTab S="S" Active="@(S.Tab == k)" />; break;
+                    case "powershell": <PowerShellTab S="S" Active="@(S.Tab == k)" />; break;
+                }
+            </div>
         }
     </main>
 
@@ -146,9 +157,21 @@
 
     private async Task Logout() => await JS.InvokeVoidAsync("lo.logout");
 
+    // вкладки, которые не пересоздаются (сеансы в них переживают смену вкладки); порядок — как открывали
+    private static readonly string[] KeepAlive = { "history", "terminal", "powershell" };
+    private readonly List<string> _kept = new();
+
+
+    /// <summary>Текущая вкладка — из «живых»: создать один раз (права на неё проверены в VisibleTabs).</summary>
+    private void Keep()
+    {
+        if (KeepAlive.Contains(S.Tab) && !_kept.Contains(S.Tab) && VisibleTabs.Any(v => v.Key == S.Tab)) _kept.Add(S.Tab);
+    }
+
     private void Go(string tab)
     {
         S.Tab = tab;
+        Keep();
         // хосты могли поменять в Inventory другого окна — перечитать (не во время запуска)
         if (tab is "actions" or "inventory" && !S.IsRunning) { S.Load(); if (tab == "actions" && S.Results.All(r => r.Status is "INFO" or "SKIP")) S.RefreshPreview(); }
     }

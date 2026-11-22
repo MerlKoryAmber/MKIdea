@@ -1,0 +1,27 @@
+/* Руководства LinuxOps Web: экран и печать в PDF (Edge --print-to-pdf, A4) */
+@page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+:root { --ink: #1b2430; --muted: #5b6675; --accent: #14897a; --line: #d9dee5; --note: #eef6f4; --warn: #fdf3e2; }
+* { box-sizing: border-box; }
+body { font: 10.5pt/1.5 "Segoe UI", Arial, sans-serif; color: var(--ink); background: #fff; margin: 0 auto; max-width: 190mm; }
+h1 { font-size: 22pt; margin: 0 0 4mm; color: #0f2a3a; }
+h2 { font-size: 15pt; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2px solid var(--accent); color: #0f2a3a; break-after: avoid; }
+h3 { font-size: 12pt; margin: 6mm 0 2mm; color: #0f2a3a; break-after: avoid; }
+p, ul, ol { margin: 0 0 2.5mm; }
+li { margin-bottom: 1mm; }
+code, kbd { font: 9.5pt Consolas, monospace; background: #f1f3f6; padding: 0 3px; border-radius: 3px; }
+kbd { border: 1px solid var(--line); }
+b.ui { font-weight: 600; color: #0f2a3a; }
+figure { margin: 3mm 0 5mm; break-inside: avoid; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: 4px; display: block; }
+figcaption { font-size: 9pt; color: var(--muted); margin-top: 1.5mm; }
+.note, .warn { padding: 2.5mm 4mm; border-radius: 4px; margin: 3mm 0; break-inside: avoid; }
+.note { background: var(--note); border-left: 3px solid var(--accent); }
+.warn { background: var(--warn); border-left: 3px solid #d08a12; }
+table { border-collapse: collapse; width: 100%; margin: 2mm 0 4mm; font-size: 9.5pt; break-inside: avoid; }
+th, td { border: 1px solid var(--line); padding: 1.5mm 2.5mm; text-align: left; vertical-align: top; }
+th { background: #f4f6f9; }
+.cover { min-height: 240mm; display: flex; flex-direction: column; justify-content: center; break-after: page; }
+.cover .sub { font-size: 13pt; color: var(--muted); margin-bottom: 10mm; }
+.cover .meta { color: var(--muted); font-size: 10pt; }
+.toc ol { columns: 2; column-gap: 10mm; }
+.page { break-before: page; }

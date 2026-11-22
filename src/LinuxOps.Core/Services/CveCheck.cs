@@ -242,7 +242,8 @@ public static partial class CveCheck
             if (f.Body is null) return list.Count == 0 ? $"база Red Hat недоступна: {f.Error}" : "";
             using var doc = JsonDocument.Parse(f.Body);
             var n = 0;
-            foreach (var e in doc.RootElement.EnumerateArray()) { list.Add(e.Clone()); n++; }
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return list.Count == 0 ? "ответ базы Red Hat не разобран" : "";
+            foreach (var e in Arr(doc.RootElement)) { list.Add(e.Clone()); n++; }
             if (n < 1000) break;
         }
 
@@ -257,11 +258,11 @@ public static partial class CveCheck
             var title = RhTitle(Str(e, "bugzilla_description"), p.Src);
             var fixes = new List<Evr>();
             var fixedInOlderEl = false;
-            if (e.TryGetProperty("affected_packages", out var ap) && ap.ValueKind == JsonValueKind.Array)
+            if (e.ValueKind == JsonValueKind.Object && Prop(e, "affected_packages", out var ap) && ap.ValueKind == JsonValueKind.Array)
             {
-                foreach (var s in ap.EnumerateArray())
+                foreach (var s in Arr(ap))
                 {
-                    if (Nevra.TryParse(s.GetString() ?? "", out var nv) && nv.Name == p.Src)
+                    if (Nevra.TryParse(s.ValueKind == JsonValueKind.String ? s.GetString() ?? "" : "", out var nv) && nv.Name == p.Src)
                     {
                         var el = ElMajor(nv.Evr.Release);
                         if (el == p.El) fixes.Add(nv.Evr with { Epoch = 0 });
@@ -303,11 +304,13 @@ public static partial class CveCheck
             if (f.Body is null) { open.Add((u.Id, u.Score, u.Net, u.Title, "нет ответа Red Hat — проверить вручную", default)); continue; }
             using var doc = JsonDocument.Parse(f.Body);
             var root = doc.RootElement;
+            // карточка не объект (испорченный ответ или кэш) — не валить проверку хоста, а показать CVE к ручной проверке
+            if (root.ValueKind != JsonValueKind.Object) { open.Add((u.Id, u.Score, u.Net, u.Title, "ответ Red Hat не разобран — проверить вручную", default)); continue; }
             var product = $"Red Hat Enterprise Linux {p.El}";
             // исправление в карточке (в списке бывает не всё)
             var fixes = new List<Evr>();
-            if (root.TryGetProperty("affected_release", out var ar) && ar.ValueKind == JsonValueKind.Array)
-                foreach (var rel in ar.EnumerateArray())
+            if (Prop(root, "affected_release", out var ar) && ar.ValueKind == JsonValueKind.Array)
+                foreach (var rel in Arr(ar))
                     if (Str(rel, "product_name").StartsWith(product, StringComparison.Ordinal)
                         && Nevra.TryParse(Str(rel, "package"), out var nv) && nv.Name == p.Src && ElMajor(nv.Evr.Release) == p.El)
                         fixes.Add(nv.Evr with { Epoch = 0 });
@@ -318,8 +321,8 @@ public static partial class CveCheck
                 continue;
             }
             string? state = null;
-            if (root.TryGetProperty("package_state", out var ps) && ps.ValueKind == JsonValueKind.Array)
-                foreach (var s in ps.EnumerateArray())
+            if (Prop(root, "package_state", out var ps) && ps.ValueKind == JsonValueKind.Array)
+                foreach (var s in Arr(ps))
                 {
                     var pn = Str(s, "package_name");
                     if (Str(s, "product_name") == product && (pn == p.Src || pn.StartsWith(p.Src + ":", StringComparison.Ordinal)))
@@ -419,17 +422,17 @@ public static partial class CveCheck
             var f = await Get($"nvd-{cpe.Replace(':', '_')}-{p.Version.Replace(':', '_')}", url, ctx, nvd: true);
             if (f.Body is null) { errors.Add(f.Error); continue; }
             using var doc = JsonDocument.Parse(f.Body);
-            if (!doc.RootElement.TryGetProperty("vulnerabilities", out var vs)) continue;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object || !Prop(doc.RootElement, "vulnerabilities", out var vs)) continue;
             var product = cpe.Split(':')[1];
-            foreach (var v in vs.EnumerateArray())
+            foreach (var v in Arr(vs))
             {
-                if (!v.TryGetProperty("cve", out var c)) continue;
+                if (v.ValueKind != JsonValueKind.Object || !Prop(v, "cve", out var c) || c.ValueKind != JsonValueKind.Object) continue;
                 var id = Str(c, "id");
                 if (id.Length == 0 || !seen.Add(id) || Str(c, "vulnStatus") == "Rejected") continue;
                 var (score, net) = NvdScore(c);
                 var title = "";
-                if (c.TryGetProperty("descriptions", out var ds))
-                    foreach (var d in ds.EnumerateArray())
+                if (Prop(c, "descriptions", out var ds))
+                    foreach (var d in Arr(ds))
                         if (Str(d, "lang") == "en") { title = Trim(Str(d, "value")); break; }
                 // CVE чужого продукта, где наш только «среда» (Odoo «на Python») — не наша
                 if (!VulnerableFor(c, cpe)) continue;
@@ -442,19 +445,19 @@ public static partial class CveCheck
 
     private static (double Score, bool Net) NvdScore(JsonElement c)
     {
-        if (!c.TryGetProperty("metrics", out var m)) return (0, false);
+        if (!Prop(c, "metrics", out var m)) return (0, false);
         foreach (var key in new[] { "cvssMetricV31", "cvssMetricV30", "cvssMetricV40" })
         {
-            if (!m.TryGetProperty(key, out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
+            if (!Prop(m, key, out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
             JsonElement? pick = null;
-            foreach (var x in arr.EnumerateArray())
+            foreach (var x in Arr(arr))
             {
                 if (pick is null || Str(x, "type") == "Primary") pick = x;
                 if (Str(x, "type") == "Primary") break;
             }
-            if (pick is { } px && px.TryGetProperty("cvssData", out var cd))
+            if (pick is { } px && Prop(px, "cvssData", out var cd))
             {
-                var score = cd.TryGetProperty("baseScore", out var bs) && bs.TryGetDouble(out var d) ? d : 0;
+                var score = Prop(cd, "baseScore", out var bs) && bs.TryGetDouble(out var d) ? d : 0;
                 return (score, Str(cd, "vectorString").Contains("AV:N", StringComparison.Ordinal));
             }
         }
@@ -464,15 +467,15 @@ public static partial class CveCheck
     /// <summary>Уязвим именно этот продукт (vulnerable = true), а не другой, работающий на нём.</summary>
     private static bool VulnerableFor(JsonElement c, string vendorProduct)
     {
-        if (!c.TryGetProperty("configurations", out var cfgs)) return true;
-        foreach (var cfg in cfgs.EnumerateArray())
+        if (!Prop(c, "configurations", out var cfgs)) return true;
+        foreach (var cfg in Arr(cfgs))
         {
-            if (!cfg.TryGetProperty("nodes", out var nodes)) continue;
-            foreach (var n in nodes.EnumerateArray())
+            if (!Prop(cfg, "nodes", out var nodes)) continue;
+            foreach (var n in Arr(nodes))
             {
-                if (!n.TryGetProperty("cpeMatch", out var ms)) continue;
-                foreach (var m in ms.EnumerateArray())
-                    if (m.TryGetProperty("vulnerable", out var v) && v.ValueKind == JsonValueKind.True
+                if (!Prop(n, "cpeMatch", out var ms)) continue;
+                foreach (var m in Arr(ms))
+                    if (Prop(m, "vulnerable", out var v) && v.ValueKind == JsonValueKind.True
                         && Str(m, "criteria").Contains($":{vendorProduct}:", StringComparison.Ordinal))
                         return true;
             }
@@ -484,14 +487,14 @@ public static partial class CveCheck
     private static string NvdFixedIn(JsonElement c, string product, string version)
     {
         string? best = null;
-        if (!c.TryGetProperty("configurations", out var cfgs)) return "";
-        foreach (var cfg in cfgs.EnumerateArray())
+        if (!Prop(c, "configurations", out var cfgs)) return "";
+        foreach (var cfg in Arr(cfgs))
         {
-            if (!cfg.TryGetProperty("nodes", out var nodes)) continue;
-            foreach (var n in nodes.EnumerateArray())
+            if (!Prop(cfg, "nodes", out var nodes)) continue;
+            foreach (var n in Arr(nodes))
             {
-                if (!n.TryGetProperty("cpeMatch", out var ms)) continue;
-                foreach (var m in ms.EnumerateArray())
+                if (!Prop(n, "cpeMatch", out var ms)) continue;
+                foreach (var m in Arr(ms))
                 {
                     if (!Str(m, "criteria").Contains($":{product}:", StringComparison.Ordinal)) continue;
                     var end = Str(m, "versionEndExcluding");
@@ -516,8 +519,8 @@ public static partial class CveCheck
         else
         {
             using var doc = JsonDocument.Parse(f.Body);
-            if (doc.RootElement.TryGetProperty("vulnerabilities", out var vs))
-                foreach (var v in vs.EnumerateArray())
+            if (doc.RootElement.ValueKind == JsonValueKind.Object && Prop(doc.RootElement, "vulnerabilities", out var vs))
+                foreach (var v in Arr(vs))
                     if (Str(v, "cveID") is { Length: > 0 } id) set.Add(id);
         }
         return ctx.KevSet = set;
@@ -585,13 +588,16 @@ public static partial class CveCheck
         var fi = new FileInfo(file);
         if (fi.Exists && DateTime.Now - fi.LastWriteTime < Ttl)
         {
-            try { return new Fetched(await File.ReadAllTextAsync(file, ctx.Token), ""); } catch (IOException) { }
+            // испорченный кэш (не JSON) — как будто его нет: спросить базу заново
+            try { var cached = await File.ReadAllTextAsync(file, ctx.Token); if (IsJson(cached)) return new Fetched(cached, ""); } catch (IOException) { }
         }
 
         string error;
         try
         {
             var body = nvd ? await GetNvd(url, ctx.Token) : await GetText(url, ctx.Token);
+            // ответ не JSON (страница прокси, ошибка шлюза с кодом 200) — это сбой связи, в кэш на сутки не класть
+            if (!IsJson(body)) throw new IOException("ответ базы не JSON (прокси или страница ошибки)");
             try
             {
                 Directory.CreateDirectory(CacheDir);
@@ -607,8 +613,12 @@ public static partial class CveCheck
 
         if (fi.Exists)
         {
-            ctx.Stale.Add(fi.LastWriteTime);
-            try { return new Fetched(await File.ReadAllTextAsync(file, ctx.Token), ""); } catch (IOException) { }
+            try
+            {
+                var stale = await File.ReadAllTextAsync(file, ctx.Token);
+                if (IsJson(stale)) { ctx.Stale.Add(fi.LastWriteTime); return new Fetched(stale, ""); }
+            }
+            catch (IOException) { }
         }
         return new Fetched(null, error);
     }
@@ -668,8 +678,23 @@ public static partial class CveCheck
 
     // ---------- мелочи ----------
 
+    // обход ответов баз: не тот вид JSON (строка вместо объекта, объект вместо массива) — как будто поля нет, без исключения
+    private static bool Prop(JsonElement e, string name, out JsonElement v)
+    {
+        v = default;
+        return e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out v);
+    }
+
+    private static IEnumerable<JsonElement> Arr(JsonElement e) => e.ValueKind == JsonValueKind.Array ? e.EnumerateArray() : Enumerable.Empty<JsonElement>();
+
+    private static bool IsJson(string s)
+    {
+        try { using var _ = JsonDocument.Parse(s); return true; }
+        catch (JsonException) { return false; }
+    }
+
     private static string Str(JsonElement e, string name) =>
-        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v)
+        Prop(e, name, out var v)
             ? v.ValueKind switch { JsonValueKind.String => v.GetString() ?? "", JsonValueKind.Number => v.GetRawText(), _ => "" }
             : "";
 

@@ -146,6 +146,9 @@ public sealed class VersionReport
         }
     }
 
+    /// <summary>Сколько разных CVE «закрыть сейчас» (на хосте и в каждом контейнере отдельно; PHP и PHP-FPM с общими CVE — один раз).</summary>
+    public int CveNowCount => Items.Where(i => i.CveLevel == "now").SelectMany(i => i.Cves.Select(c => (i.Container, c.Id))).Distinct().Count();
+
     public string Summary
     {
         get
@@ -154,8 +157,8 @@ public sealed class VersionReport
             var host = Items.Where(i => i.Container.Length == 0).Select(i => $"{i.ProductText} {i.Version}").Distinct().ToList();
             parts.Add(host.Count > 0 ? string.Join(", ", host.Take(4)) + (host.Count > 4 ? $" и ещё {host.Count - 4}" : "") : "на хосте ничего из списка");
             if (Containers.Count > 0) parts.Add($"контейнеров {Containers.Count}");
-            var cveNow = Items.Count(i => i.CveLevel == "now");
-            if (cveNow > 0) parts.Add($"CVE закрыть сейчас: {cveNow}");
+            var nowProducts = Items.Count(i => i.CveLevel == "now");
+            if (nowProducts > 0) parts.Add($"CVE закрыть сейчас: {CveNowCount} (продуктов: {nowProducts})");
             if (BadCount > 0) parts.Add($"внимание: {BadCount}");
             else if (WarnCount > 0) parts.Add($"обновлений: {WarnCount}");
             else parts.Add("замечаний нет");
@@ -195,9 +198,9 @@ public sealed class VersionReport
     {
         get
         {
-            var tunnel = TunnelNote.Length > 0 ? $"Туннель через этот ПК не поднят: {TunnelNote}. " : "";
+            var tunnel = TunnelNote.Length > 0 ? $"Туннель через {RunPlace.Here} не поднят: {TunnelNote}. " : "";
             if (UpdatePath == "tunnel" && TunnelConnections == 0)
-                return $"Через этот ПК соединений не было — менеджер пакетов ответил по своим спискам ({PackageManagerText}{Lists}).";
+                return $"Через {RunPlace.Here} соединений не было — менеджер пакетов ответил по своим спискам ({PackageManagerText}{Lists}).";
             if (PackageManager == "none") return tunnel + "Менеджер пакетов не найден — обновления не проверялись.";
             if (UpdateError.Length > 0)
                 return tunnel + (NetError.Length > 0
@@ -208,7 +211,7 @@ public sealed class VersionReport
             {
                 "cache" => $"Репозитории не ответили{(NetError.Length > 0 ? $" ({NetError})" : "")} — обновления по кэшу хоста"
                            + (CacheTime is { } t ? $" от {t:dd.MM.yyyy HH:mm}" : "") + $" ({PackageManagerText}){sec}",
-                "tunnel" => $"Обновления пакетов — по репозиториям через этот ПК (туннель SSH, {PackageManagerText}{Lists}){sec}",
+                "tunnel" => $"Обновления пакетов — по репозиториям через {RunPlace.Here} (туннель SSH, {PackageManagerText}{Lists}){sec}",
                 _ => $"Обновления пакетов — по репозиториям ({PackageManagerText}{Lists}){sec}"
             };
         }
