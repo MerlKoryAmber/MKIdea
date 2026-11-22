@@ -181,11 +181,20 @@ cert_show() {
 # Старые варианты (раздел Releases GitHub или GitLab) — PROVIDER=github | gitlab.
 RELEASE_CONF_REV=2
 release_conf_default() {
-  if [[ -f $RELEASE_CONF ]]; then
+  etc_dir_ensure
+  if [[ -f $RELEASE_CONF && ! -L $RELEASE_CONF ]]; then
     grep -q "^CONF_REV=$RELEASE_CONF_REV" "$RELEASE_CONF" && return 0
+    # свой источник (GitLab, свой API) — не затирать: только отметить ревизию, настройки остаются
+    if grep -qE '^PROVIDER=gitlab|^API_URL=' "$RELEASE_CONF" && ! grep -qE '^API_URL=https://api\.github\.com([[:space:]#]|$)' "$RELEASE_CONF"; then
+      install -m 600 "$RELEASE_CONF" "$RELEASE_CONF.bak"
+      printf 'CONF_REV=%s\n' "$RELEASE_CONF_REV" >>"$RELEASE_CONF"
+      warn "release source kept as is (custom: $(grep -E '^(PROVIDER|API_URL)=' "$RELEASE_CONF" | tr '\n' ' ')); copy: $RELEASE_CONF.bak"
+      return 0
+    fi
     # настройка до 0.7.3 указывала на раздел Releases GitHub, где сборок не было; токен — в отдельном файле и остаётся
-    cp -a "$RELEASE_CONF" "$RELEASE_CONF.bak"
+    install -m 600 "$RELEASE_CONF" "$RELEASE_CONF.bak"
   fi
+  rm -f "$RELEASE_CONF"
   cat >"$RELEASE_CONF" <<'EOF'
 # Источник релизов LinuxOps Web. Токен (если репозиторий закрытый) — в /etc/linuxops-web/git-token (600), только на чтение.
 CONF_REV=2
@@ -209,25 +218,93 @@ EOF
 # repo: имя архива версии
 release_asset_name() { echo "LinuxOps.Web-$1-$ASSET_SUFFIX"; }
 
+# Не source: файл читает root — только известные ключи KEY=VALUE, значения без пробелов, кавычек и $ ` \ ; адреса — https.
 release_conf_load() {
   release_conf_default
-  # shellcheck disable=SC1090
-  source <(sed -E 's/[[:space:]]+#.*$//' "$RELEASE_CONF")
+  [[ $(stat -c %u "$RELEASE_CONF") == 0 && ! -L $RELEASE_CONF ]] || die "$RELEASE_CONF must be a regular file owned by root"
+  CONF_REV=""; PROVIDER=""; RAW_BASE=""; API_URL=""; PROJECT=""; TAG_PREFIX=""; ASSET_SUFFIX=""
+  local line k v
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%%#*}; line=${line//$'\r'/}
+    line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+    [[ -z $line ]] && continue
+    [[ $line =~ ^([A-Z_]+)=([^[:space:]\"\'\$\`\\\;]*)$ ]] || die "$RELEASE_CONF: bad line: $line"
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $k in
+      CONF_REV|PROVIDER|RAW_BASE|API_URL|PROJECT|TAG_PREFIX|ASSET_SUFFIX) printf -v "$k" '%s' "$v" ;;
+      *) warn "$RELEASE_CONF: unknown key $k ignored" ;;
+    esac
+  done <"$RELEASE_CONF"
+  [[ $PROVIDER =~ ^(repo|github|gitlab)$ ]] || die "$RELEASE_CONF: PROVIDER must be repo, github or gitlab"
+  [[ -z $RAW_BASE || $RAW_BASE == https://* ]] || die "$RELEASE_CONF: RAW_BASE must be https://"
+  [[ -z $API_URL || $API_URL == https://* ]] || die "$RELEASE_CONF: API_URL must be https://"
   TOKEN=""
-  if [[ -f $TOKEN_FILE ]]; then TOKEN=$(tr -d ' \r\n' <"$TOKEN_FILE"); fi
+  if [[ -f $TOKEN_FILE && ! -L $TOKEN_FILE && $(stat -c %u "$TOKEN_FILE") == 0 ]]; then TOKEN=$(tr -d ' \r\n' <"$TOKEN_FILE"); fi
+  # токен уходит строкой заголовка — только знаки, что бывают в токенах GitHub и GitLab
+  if [[ -n $TOKEN && ! $TOKEN =~ ^[A-Za-z0-9_.:-]{1,512}$ ]]; then warn "$TOKEN_FILE: unexpected characters — token ignored"; TOKEN=""; fi
+}
+
+# /etc/linuxops-web: root:linuxops-web 0750 — служба читает свои ключи, но не может создать, удалить или подменить файлы
+# (release.conf, git-token, учётку SMB читает root). Мастер-ключ создаёт установщик; ссылки в каталоге удаляются.
+etc_dir_ensure() {
+  id "$SVC_USER" >/dev/null 2>&1 || return 0
+  if [[ -L $ETC_DIR ]]; then rm -f "$ETC_DIR"; fi
+  install -d -o root -g "$SVC_USER" -m 750 "$ETC_DIR"
+  chown root:"$SVC_USER" "$ETC_DIR"; chmod 750 "$ETC_DIR"
+  find "$ETC_DIR" -maxdepth 1 -type l -delete 2>/dev/null || true
+  if [[ ! -f $ETC_DIR/master.key ]]; then
+    local t; t=$(mktemp "$ETC_DIR/.mk.XXXXXX")
+    head -c 32 /dev/urandom >"$t"
+    chown "$SVC_USER:$SVC_USER" "$t"; chmod 600 "$t"; mv -f "$t" "$ETC_DIR/master.key"
+  fi
+  local f
+  for f in master.key ps_ed25519; do [[ -f $ETC_DIR/$f ]] && { chown "$SVC_USER:$SVC_USER" "$ETC_DIR/$f"; chmod 600 "$ETC_DIR/$f"; }; done
+  [[ -f $ETC_DIR/ps_ed25519.pub ]] && { chown "$SVC_USER:$SVC_USER" "$ETC_DIR/ps_ed25519.pub"; chmod 644 "$ETC_DIR/ps_ed25519.pub"; }
+  for f in release.conf release.conf.bak git-token smb-archive.cred; do [[ -f $ETC_DIR/$f ]] && { chown root:root "$ETC_DIR/$f"; chmod 600 "$ETC_DIR/$f"; }; done
+  return 0
 }
 
 # Заголовок токена: GitLab (API или /-/raw/ в RAW_BASE) — PRIVATE-TOKEN, GitHub — Bearer.
-_auth_headers() {
-  AUTH_H=()
-  [[ -n "$TOKEN" ]] || return 0
-  if [[ $PROVIDER == gitlab || ( $PROVIDER == repo && "$RAW_BASE" == */-/raw/* ) ]]; then AUTH_H=(-H "PRIVATE-TOKEN: $TOKEN")
-  else AUTH_H=(-H "Authorization: Bearer $TOKEN"); fi
+_auth_line() {
+  if [[ $PROVIDER == gitlab || ( $PROVIDER == repo && "$RAW_BASE" == */-/raw/* ) ]]; then printf 'PRIVATE-TOKEN: %s\n' "$TOKEN"
+  else printf 'Authorization: Bearer %s\n' "$TOKEN"; fi
+}
+
+_url_host() { local u=${1#https://}; u=${u%%/*}; u=${u##*@}; printf '%s' "${u,,}"; }
+
+# _fetch URL OUT MAXTIME [curl args…] → 0 при 2xx; FETCH_CODE — последний HTTP-код.
+# Только https (и при переходах). Токен — из временного файла (не виден в списке процессов) и только исходному хосту:
+# переход на другой хост (LFS → media.githubusercontent.com, хранилище объектов GitLab) идёт уже без токена.
+FETCH_CODE=""
+_fetch() {
+  local url=$1 out=$2 mt=$3; shift 3
+  local host0 hf w rc i
+  host0=$(_url_host "$url")
+  for i in 1 2 3 4 5 6 7 8; do
+    [[ $url == https://* ]] || { FETCH_CODE=""; return 1; }
+    local args=(-sS --proto =https --max-time "$mt" -o "$out" -w '%{http_code} %{redirect_url}')
+    hf=""
+    if [[ -n "$TOKEN" && $(_url_host "$url") == "$host0" ]]; then
+      hf=$(mktemp); chmod 600 "$hf"; _auth_line >"$hf"; args+=(-H "@$hf")
+    fi
+    rc=0; w=$(curl "${args[@]}" "$@" "$url") || rc=$?
+    [[ -n $hf ]] && rm -f "$hf"
+    FETCH_CODE=${w%% *}
+    [[ $rc -eq 0 ]] || return "$rc"
+    case $FETCH_CODE in
+      2??) return 0 ;;
+      30[12378]) url=${w#* }; [[ -n $url ]] || return 22 ;;
+      *) return 22 ;;
+    esac
+  done
+  return 47
 }
 
 _api() { # _api URL → stdout
-  _auth_headers
-  curl -fsSL --max-time 30 "${AUTH_H[@]}" -H "Accept: application/json" "$1"
+  local t rc=0; t=$(mktemp)
+  _fetch "$1" "$t" 30 -H "Accept: application/json" || rc=$?
+  [[ $rc -eq 0 ]] && cat "$t"
+  rm -f "$t"; return "$rc"
 }
 
 _enc() { jq -rn --arg s "$1" '$s|@uri'; }
@@ -240,7 +317,7 @@ release_find() {
     # LATEST — одна строка с номером; версия указана — проверяем, что её .sha256 есть
     local ver="$want"
     if [[ -z "$ver" ]]; then
-      ver=$(_api "$RAW_BASE/LATEST") || { [[ $(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "${AUTH_H[@]}" "$RAW_BASE/LATEST") == 404 ]] && die "nothing published in $RAW_BASE (no LATEST) or no access to a private repo (token?)"; die "release source unreachable or access denied (token?): $RAW_BASE"; }
+      ver=$(_api "$RAW_BASE/LATEST") || { _fetch "$RAW_BASE/LATEST" /dev/null 30 || true; [[ $FETCH_CODE == 404 ]] && die "nothing published in $RAW_BASE (no LATEST) or no access to a private repo (token?)"; die "release source unreachable or access denied (token?): $RAW_BASE"; }
       ver=$(tr -d ' \r\n' <<<"$ver")
       [[ "$ver" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad LATEST in $RAW_BASE: $ver"
     fi
@@ -269,12 +346,11 @@ release_find() {
 }
 
 release_download() { # release_download URL FILE
-  _auth_headers
-  local h=("${AUTH_H[@]}")
+  local h=()
   # раздел Releases GitHub отдаёт файл по API только с этим заголовком; repo и GitLab — обычная ссылка
   [[ $PROVIDER == github ]] && h+=(-H "Accept: application/octet-stream")
-  # repo на GitHub: архив в LFS — github.com/…/raw/… перенаправляет на media.githubusercontent.com (-L)
-  curl -fSL --max-time 900 "${h[@]}" -o "$2" "$1"
+  # repo на GitHub: архив в LFS — github.com/…/raw/… перенаправляет на media.githubusercontent.com (туда — без токена)
+  _fetch "$1" "$2" 900 "${h[@]}" || { warn "download failed: HTTP ${FETCH_CODE:-none} $1"; return 1; }
 }
 
 # Проверка доступа к проекту (для пункта «git token»): 0 — ок.
@@ -415,6 +491,7 @@ activate_release() {
   ln -sfn "$dir" "$CURRENT_LINK"
   if [[ -n "$old" && "$old" != "$dir" ]]; then echo "$old" >"$PREVIOUS_FILE"; fi
   recordings_dir_ensure
+  etc_dir_ensure
   storage_ensure "$dir"
   # SELinux: релиз распакован во временный каталог и унёс метку user_tmp_t — служба шла бы в init_t.
   # По штатным меткам (usr_t, var_lib_t, etc_t) — в unconfined_service_t, как любая служба из /opt.

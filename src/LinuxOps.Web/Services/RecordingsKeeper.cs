@@ -103,19 +103,21 @@ public sealed class RecordingsKeeper(WebStore store, AuditLog audit, ILogger<Rec
     public DateTime? MovedAt { get; private set; }
     public int Waiting { get; private set; }
 
-    private readonly SemaphoreSlim _moveGate = new(1, 1);
-
     public async Task MoveAsync()
     {
-        if (!await _moveGate.WaitAsync(0)) return;
+        // тот же замок, что у чистки: чистка не удалит файл посреди копирования
+        if (!await _gate.WaitAsync(0)) return;
         try { await Task.Run(Move); }
-        finally { _moveGate.Release(); }
+        finally { _gate.Release(); }
     }
 
     private void Move()
     {
         var st = RecordingStorage.State();
         if (!st.Configured) { Waiting = 0; MoveError = ""; return; }
+        // хранилище подключено, а отметки нет (интерфейс не дождался ответа помощника) — переносить с этого момента
+        if (string.IsNullOrEmpty(store.GetSetting(SinceKey)))
+            store.PutSetting(SinceKey, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
         var since = DateTime.TryParseExact(store.GetSetting(SinceKey), "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture,
             System.Globalization.DateTimeStyles.None, out var s) ? s : DateTime.MaxValue;
         var running = store.LoadSessions(int.MaxValue).Where(x => x.Status.StartsWith("идёт", StringComparison.Ordinal)).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);

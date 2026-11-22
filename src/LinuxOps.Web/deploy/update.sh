@@ -21,6 +21,9 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 need_root
+# путь к архиву — до cd: относительный путь иначе указал бы в /tmp
+if [[ -n "$FILE" ]]; then FILE=$(realpath -e -- "$FILE") || die "no file: $FILE"; fi
+[[ -z "$WANT" || "$WANT" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad version: $WANT (expected like 0.7.5)"
 cd /tmp
 
 TMP=$(mktemp -d /var/tmp/linuxops-web-update.XXXXXX)
@@ -56,9 +59,12 @@ fi
 
 mkdir "$TMP/x"
 tar -xzf "$TMP/release.tar.gz" -C "$TMP/x"
-dir=$(dirname "$(find "$TMP/x" -maxdepth 2 -name LinuxOps.Web -type f | head -1)")
+bin=$(find "$TMP/x" -maxdepth 2 -name LinuxOps.Web -type f | head -1)
+[[ -n "$bin" ]] || die "archive has no LinuxOps.Web — not a LinuxOps Web release"
+dir=$(dirname "$bin")
 [[ -f "$dir/deploy/install.sh" ]] || die "archive has no deploy/install.sh"
 VER=$(release_version "$dir")
+[[ "$VER" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad version in archive: $VER"
 # Каталог релиза называем по версии, чтобы откат и список версий читались.
 [[ "$(basename "$dir")" == "$VER" ]] || { mv "$dir" "$TMP/x/$VER"; dir="$TMP/x/$VER"; }
 log "installing $VER (was $(current_version))"

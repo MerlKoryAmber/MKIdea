@@ -198,8 +198,8 @@ cmd_restore() {
   install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$dir/linuxops-web.db" "$DATA_DIR/linuxops-web.db"
   tar -xzf "$dir/data.tar.gz" -C "$DATA_DIR"
   if ((restore_cert)); then tar -xzf "$dir/etc.tar.gz" -C /; else tar -xzf "$dir/etc.tar.gz" -C / "${ETC_DIR#/}"; fi
-  chown -R "$SVC_USER:$SVC_USER" "$DATA_DIR" "$ETC_DIR"
-  chown root:root "$RELEASE_CONF" "$TOKEN_FILE" 2>/dev/null || true
+  chown -R "$SVC_USER:$SVC_USER" "$DATA_DIR"
+  etc_dir_ensure
   ((restore_cert)) && systemctl reload nginx 2>/dev/null || true
   systemctl start "$UNIT"
   health_check 40 && log "restored $s" || die "service does not answer after restore, see logs"

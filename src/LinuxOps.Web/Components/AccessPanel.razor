@@ -22,7 +22,7 @@
                         <td class="small">@(role is null ? "" : string.Join(", ", role.Perms.Select(Perm.Short)))</td>
                         <td class="small @(from is null ? "" : "muted")">@(from ?? "здесь")</td>
                         <td>
-                            @if (from is null)
+                            @if (from is null && S.MayGrant(role))
                             {
                                 <button class="btn-icon" title="Убрать назначение" @onclick="() => Remove(a)">×</button>
                             }
@@ -47,7 +47,7 @@
                     <span class="chip-x">@_who.Icon @_who.Who <button title="Другой" @onclick="() => _who = null">×</button></span>
                     <span style="margin:0 6px">роль:</span>
                     <select class="input" style="width:auto" @bind="_roleId">
-                        @foreach (var r in _roles) { <option value="@r.Id">@r.Name — @string.Join(", ", r.Perms.Select(Perm.Short))</option> }
+                        @foreach (var r in _roles.Where(S.MayGrant)) { <option value="@r.Id">@r.Name — @string.Join(", ", r.Perms.Select(Perm.Short))</option> }
                     </select>
                     <button class="btn primary" style="margin-left:8px" @onclick="Add">Назначить</button>
                 </div>
@@ -112,6 +112,7 @@
     private void Remove(Assignment a)
     {
         if (!S.Can(Perm.Settings)) return;
+        if (!S.MayGrant(_roles.FirstOrDefault(r => r.Id == a.RoleId))) return;
         Store.DeleteAssignment(a.Id);
         var role = _roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? a.RoleId;
         Audit.Write(S.Who, "доступ: снят", $"{a.KindText} {a.Who}, роль «{role}» → {ItemPath}");
@@ -124,6 +125,7 @@
         if (!S.Can(Perm.Settings) || _who is null) return;
         var role = _roles.FirstOrDefault(r => r.Id == _roleId);
         if (role is null) return;
+        if (!S.MayGrant(role)) { _msg = $"Роль «{role.Name}» назначает только админ."; return; }
         var w = _who;
         if (_all.Any(a => a.Scope == ScopeKind && a.ObjectId == Id && a.RoleId == role.Id && a.Local == w.Local && a.Api == w.Api && a.IsGroup == w.IsGroup
                           && string.Equals(a.Who, w.Who, StringComparison.OrdinalIgnoreCase)))

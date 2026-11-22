@@ -144,6 +144,8 @@ public sealed partial class LoginService(WebStore store, AuditLog audit, MkMfa m
         bool setup;
         lock (TotpGate)
         {
+            // ещё раз под замком: параллельные попытки иначе проскочат предел все разом
+            if (Locked(kLogin) || Locked(kIp)) return new(Step.Fail, "Слишком много неудачных попыток. Подождите 15 минут.");
             acc = store.LoadTotpAccount(login);
             switch (acc)
             {

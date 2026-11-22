@@ -52,7 +52,7 @@ public sealed partial class WebSession
         for (var i = first + 1; i < lines.Length; i++)
         {
             if (lines[i].Trim().Length == 0) continue;
-            if (rows.Count >= ImportMaxRows) { error = $"Больше {ImportMaxRows} строк — остальные не прочитаны."; break; }
+            if (rows.Count >= ImportMaxRows) { error = $"Больше {ImportMaxRows} строк — разбейте файл на части: этот не загружается."; break; }
             var f = SplitCsv(lines[i], sep);
             string Get(string n) => Col(n) is var c && c >= 0 && c < f.Count ? f[c].Trim() : "";
             var host = Get("host");
@@ -69,12 +69,15 @@ public sealed partial class WebSession
             };
             ImportRow Bad(string why) => new(line, name, host, 0, win == true, folder, user, false, why);
             if (host.Length == 0) { rows.Add(Bad("нет адреса")); continue; }
-            if (host.Length > 253 || host.Any(ch => char.IsWhiteSpace(ch) || ch is ';' or ',' or '/' or '\\' or '@')) { rows.Add(Bad("адрес с недопустимыми знаками")); continue; }
+            // имя, IPv4 или IPv6: латиница, цифры, . - _ : [ ]; не с «-» (иначе ssh примет за ключ)
+            if (!HostPattern().IsMatch(host)) { rows.Add(Bad("адрес: латиница, цифры, . - _ :, до 253 знаков, не с «-»")); continue; }
+            if (name.Length > 128 || name.Any(char.IsControl)) { rows.Add(Bad("имя длиннее 128 знаков или с управляющими символами")); continue; }
+            if (folder.Length > 512 || folder.Split('/').Any(p => p.Length > 128) || folder.Any(char.IsControl)) { rows.Add(Bad("папка: до 128 знаков в имени, без управляющих символов")); continue; }
             if (win is null) { rows.Add(Bad($"тип «{Get("type")}»: linux или windows")); continue; }
             var portText = Get("port");
             var port = win == true ? 3389 : 22;
             if (portText.Length > 0 && (!int.TryParse(portText, out port) || port is <= 0 or > 65535)) { rows.Add(Bad("порт — число 1…65535")); continue; }
-            if (user.Length > 64 || user.Any(char.IsWhiteSpace)) { rows.Add(Bad("логин с пробелами или длиннее 64")); continue; }
+            if (user.Length > 64 || user.Any(ch => char.IsWhiteSpace(ch) || char.IsControl(ch))) { rows.Add(Bad("логин с пробелами или длиннее 64")); continue; }
             if (existing.Contains(host)) { rows.Add(new(line, name, host, port, win == true, folder, user, false, "пропуск: адрес уже есть в Inventory")); continue; }
             if (!inFile.Add(host)) { rows.Add(new(line, name, host, port, win == true, folder, user, false, "пропуск: адрес повторяется в файле")); continue; }
             var (parentId, missing) = ResolveFolder(folder);
@@ -154,13 +157,23 @@ public sealed partial class WebSession
         var list = hosts.Where(h => !h.IsWindows && Hosts.Contains(h)).ToList();
         if (list.Count == 0) return "Не выбрано ни одного хоста Linux.";
         if (!Allowed(Perm.HostsEdit, "хосты: учётка SSH") || !AllHostsAllowed(Perm.HostsEdit, list, "хосты: учётка SSH")) return "Нет права «Inventory» на часть хостов — ничего не изменено.";
-        foreach (var h in list)
+        // одной транзакцией: либо все хосты, либо ни один; копии окна меняются только после записи
+        var items = list.Select(h =>
         {
             var c = h.Config;
-            if (user.Length > 0) c.Username = user;
-            c.Auth = useKey ? "PrivateKey" : "Password";
-            if (sudo is { } s) c.UseSudo = s;
-            _store.SaveHost(h, useKey ? null : password, useKey ? key : null, useKey ? keyName : null);
+            var cfg = new HostConfig
+            {
+                Name = c.Name, Host = c.Host, Port = c.Port, Username = user.Length > 0 ? user : c.Username,
+                Auth = useKey ? "PrivateKey" : "Password", UseSudo = sudo ?? c.UseSudo,
+                DistroHint = c.DistroHint, FolderId = c.FolderId, IsSelected = c.IsSelected
+            };
+            return (h, cfg, useKey ? null : password, useKey ? key : null, useKey ? keyName : null);
+        }).ToList();
+        try { _store.SaveHosts(items); }
+        catch (Exception ex)
+        {
+            _audit.Write(Who, "хосты: учётка SSH — ошибка", $"{list.Count} хостов: {ex.Message}");
+            return "Не сохранено (ни на одном хосте): " + ex.Message;
         }
         var what = (user.Length > 0 ? $"логин {user}, " : "") + (useKey ? (key is { Length: > 0 } ? $"ключ ({keyName})" : "вход по ключу (ключ прежний)") : "пароль")
                    + (sudo is { } sd ? (sd ? ", sudo" : ", без sudo") : "");
@@ -168,6 +181,9 @@ public sealed partial class WebSession
         Notify();
         return $"Готово: {what} — на {list.Count} хостах.";
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9_\[][A-Za-z0-9_.:\[\]-]{0,252}$")]
+    private static partial System.Text.RegularExpressions.Regex HostPattern();
 
     /// <summary>Строка CSV: кавычки и удвоенные кавычки внутри.</summary>
     private static List<string> SplitCsv(string line, char sep)

@@ -33,18 +33,36 @@ if [[ $CHECK -eq 0 && ( -e /opt/linuxops-web/current || -n "$(command -v linuxop
   die "LinuxOps Web is already installed — update: sudo linuxops-web update"
 fi
 
-H=()
-if [[ -n "$TOKEN" ]]; then
-  if [[ "$RAW_BASE" == */-/raw/* ]]; then H=(-H "PRIVATE-TOKEN: $TOKEN"); else H=(-H "Authorization: Bearer $TOKEN"); fi
-fi
-fetch() { curl -fSL --retry 2 --max-time "${3:-60}" "${H[@]}" -o "$2" "$1"; }
+[[ "$RAW_BASE" == https://* ]] || die "LINUXOPS_WEB_RAW_BASE must be https://"
+[[ -z "$TOKEN" || "$TOKEN" =~ ^[A-Za-z0-9_.:-]{1,512}$ ]] || die "LINUXOPS_WEB_TOKEN has unexpected characters"
+auth_line() { if [[ "$RAW_BASE" == */-/raw/* ]]; then printf 'PRIVATE-TOKEN: %s\n' "$TOKEN"; else printf 'Authorization: Bearer %s\n' "$TOKEN"; fi; }
+url_host() { local u=${1#https://}; u=${u%%/*}; u=${u##*@}; printf '%s' "${u,,}"; }
+# Только https; токен — из файла (не виден в списке процессов) и только хосту источника: при переходе на другой хост
+# (LFS → media.githubusercontent.com) — без токена. CODE — последний HTTP-код.
+CODE=""
+fetch() { # fetch URL FILE [max-time]
+  local url=$1 host0 hf w rc i
+  host0=$(url_host "$url")
+  for i in 1 2 3 4 5 6 7 8; do
+    [[ $url == https://* ]] || return 1
+    local args=(-sS --retry 2 --proto =https --max-time "${3:-60}" -o "$2" -w '%{http_code} %{redirect_url}')
+    hf=""
+    if [[ -n "$TOKEN" && $(url_host "$url") == "$host0" ]]; then hf=$(mktemp); chmod 600 "$hf"; auth_line >"$hf"; args+=(-H "@$hf"); fi
+    rc=0; w=$(curl "${args[@]}" "$url") || rc=$?
+    [[ -n $hf ]] && rm -f "$hf"
+    CODE=${w%% *}
+    [[ $rc -eq 0 ]] || return "$rc"
+    case $CODE in 2??) return 0 ;; 30[12378]) url=${w#* }; [[ -n $url ]] || return 22 ;; *) return 22 ;; esac
+  done
+  return 47
+}
 
 TMP=$(mktemp -d /var/tmp/linuxops-web-get.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 
 if [[ -z "$VERSION" ]]; then
   if ! fetch "$RAW_BASE/LATEST" "$TMP/LATEST"; then
-    code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "${H[@]}" "$RAW_BASE/LATEST" || true)
+    code=$CODE
     [[ "$code" == 404 ]] && die "nothing published in $RAW_BASE (no LATEST): build with package-linuxops-web.ps1 -Publish and push; a private repo also answers 404 without a token"
     die "cannot read $RAW_BASE/LATEST (HTTP ${code:-none}: no network or no access)"
   fi

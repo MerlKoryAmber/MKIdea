@@ -17,7 +17,7 @@ public sealed record StorageReply(bool Ok, string Message, JsonNode? Data);
 /// Записи сеансов на отдельном хранилище (0.7.4). guacd пишет в буфер — <see cref="WebPaths.RecordingsDir"/>;
 /// готовые записи служба переносит в <see cref="ArchiveDir"/> (RecordingsKeeper), куда помощник root монтирует SMB, NFS или диск.
 /// Монтировать служба не может (нет root, NoNewPrivileges): кладёт запрос в storage/request, его забирает
-/// linuxops-web-storage.path → `linuxops-web storage apply` (deploy/lib/storage.sh), ответ — storage/result.
+/// linuxops-web-storage.path → `linuxops-web storage apply` (deploy/lib/storage.sh), ответ — /run/linuxops-web-storage/result (каталог root, служба только читает).
 /// </summary>
 public static class RecordingStorage
 {
@@ -25,6 +25,8 @@ public static class RecordingStorage
         ? Path.Combine(AppContext.BaseDirectory, "data", "archive") : "/var/lib/linuxops-web-archive";
 
     private static string Dir => Path.Combine(WebPaths.DataDir, "storage");
+    /// <summary>Ответ помощника: каталог root (служба только читает) — ссылкой его не подменить.</summary>
+    private const string ResultFile = "/run/linuxops-web-storage/result";
     private const string FstabMark = "# linuxops-web-archive";
 
     /// <summary>Меньше этого свободного места в буфере — сеанс идёт без записи (с тревогой).</summary>
@@ -137,8 +139,8 @@ public static class RecordingStorage
             var id = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
             var obj = new JsonObject { ["id"] = id };
             foreach (var (k, v) in fields) obj[k] = v;
-            var result = Path.Combine(Dir, "result");
-            try { File.Delete(result); } catch (IOException) { }
+            // прежний ответ не удалить (каталог root) — отличаем по id
+            var result = ResultFile;
             var tmp = Path.Combine(Dir, "request.tmp");
             await using (var fs = new FileStream(tmp, new FileStreamOptions
             {
@@ -155,9 +157,8 @@ public static class RecordingStorage
                 if (!File.Exists(result)) continue;
                 JsonNode? r;
                 try { r = JsonNode.Parse(await File.ReadAllTextAsync(result)); }
-                catch (Exception ex) when (ex is IOException or JsonException) { continue; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { continue; }
                 if (r?["id"]?.GetValue<string>() != id) continue;
-                try { File.Delete(result); } catch (IOException) { }
                 return new(r["ok"]?.GetValue<bool>() == true, r["message"]?.GetValue<string>() ?? "", r);
             }
             try { File.Delete(Path.Combine(Dir, "request")); } catch (IOException) { }

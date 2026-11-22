@@ -130,6 +130,7 @@
     private void Reissue()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
+        if (!S.MayManage(_sel.Name, false, true)) { _msg = "У этого клиента роль «Админ» — менять его может только админ."; return; }
         string token = "";
         if (Change(c => token = SetToken(c)) is not { } done) return;
         _token = token; _tokenFor = done.Name;
@@ -141,6 +142,7 @@
     private void SaveSel()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
+        if (!S.MayManage(_sel.Name, false, true)) { _msg = "У этого клиента роль «Админ» — менять его может только админ."; return; }
         var desc = _desc.Trim();
         if (Change(c => c.Description = desc) is not { } done) return;
         Audit.Write(S.Who, "API: учётка изменена", $"{done.Name}: {done.Description}");
@@ -151,6 +153,7 @@
     private void ToggleEnabled()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
+        if (!S.MayManage(_sel.Name, false, true)) { _msg = "У этого клиента роль «Админ» — менять его может только админ."; return; }
         // кнопка показывает состояние на момент отрисовки — его и меняем, а не то, что успело стать в базе
         var enable = !_sel.Enabled;
         if (Change(c => c.Enabled = enable) is not { } done) return;
@@ -162,6 +165,7 @@
     private async Task Delete()
     {
         if (!S.Can(Perm.Settings) || _sel is null) return;
+        if (!S.MayManage(_sel.Name, false, true)) { _msg = "У этого клиента роль «Админ» — менять его может только админ."; return; }
         var name = _sel.Name;
         var n = Store.DeleteApiClient(name);
         Audit.Write(S.Who, "API: учётка удалена", $"{name}, назначений снято: {n}");

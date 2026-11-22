@@ -290,7 +290,7 @@ else
         }
 
         <div class="section-title" style="margin-top:18px">Назначения — кто, с какой ролью, на что</div>
-        <div class="muted small" style="margin-bottom:6px">На папку — действует на всё внутри. Удобнее всего — правой кнопкой по папке или хосту в Inventory → «Доступ…».</div>
+        <div class="muted small" style="margin-bottom:6px">На папку — действует на всё внутри. Админам удобнее — правой кнопкой по папке или хосту в Inventory → «Доступ…».</div>
         <table class="grid">
             <thead><tr><th>Кто</th><th>Роль</th><th>На что</th><th style="width:32px"></th></tr></thead>
             <tbody>
@@ -300,7 +300,7 @@ else
                     <td title="@a.KindText">@a.Icon @a.Who</td>
                     <td>@(_roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? "?")</td>
                     <td>@ObjectText(a)</td>
-                    <td><button class="btn-icon" title="Убрать назначение" @onclick="() => RemoveAssignment(a)">×</button></td>
+                    <td>@if (S.MayGrant(_roles.FirstOrDefault(r => r.Id == a.RoleId))) { <button class="btn-icon" title="Убрать назначение" @onclick="() => RemoveAssignment(a)">×</button> }</td>
                 </tr>
             }
             @if (_assign.Count == 0) { <tr><td colspan="4" class="muted">Нет — в сервис может войти только локальный админ.</td></tr> }
@@ -317,7 +317,7 @@ else
                     <label>Кто</label><span><span class="chip-x">@_aWho.Icon @_aWho.Who <button title="Другой" @onclick="() => _aWho = null">×</button></span></span>
                     <label>Роль</label>
                     <select class="input" @bind="_aRole">
-                        @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
+                        @foreach (var r in _roles.Where(S.MayGrant)) { <option value="@r.Id">@r.Name</option> }
                     </select>
                     <label>На что</label>
                     <select class="input" @bind="_aObject">
@@ -454,6 +454,7 @@ else
 
     private async Task FindDisks()
     {
+        if (!S.Can(Perm.Settings)) return;
         _stBusy = true; _stMsg = ""; _stSource = ""; _stConfirm = "";
         try
         {
@@ -487,7 +488,8 @@ else
             var req = new Dictionary<string, string> { ["op"] = "mount", ["type"] = _stType, ["source"] = src };
             if (_stType == "smb") { req["user"] = _stUser.Trim(); req["domain"] = _stDomain.Trim(); req["password"] = _stPass; }
             if (_stType == "disk") req["confirm"] = _stConfirm.Trim();
-            var r = await RecordingStorage.RequestAsync(req, TimeSpan.FromMinutes(10));
+            // помощник обрывается через 10 мин (TimeoutStartSec) — ждём чуть дольше, чтобы увидеть его ответ
+            var r = await RecordingStorage.RequestAsync(req, TimeSpan.FromMinutes(11));
             _stPass = "";
             var what = $"{(_stType == "disk" ? "диск" : _stType.ToUpperInvariant())} {src}" + (_stType == "smb" ? $", учётка {(_stDomain.Trim().Length > 0 ? _stDomain.Trim() + "\\" : "")}{_stUser.Trim()}" : "");
             if (r.Ok)
@@ -682,6 +684,7 @@ else
         if (!S.Can(Perm.Settings) || _aWho is null) return;
         var role = _roles.FirstOrDefault(r => r.Id == _aRole);
         if (role is null) return;
+        if (!S.MayGrant(role)) { _assignMsg = $"Роль «{role.Name}» назначает только админ."; return; }
         var parts = _aObject.Split(':', 2);
         var a = new Assignment { Who = _aWho.Who, IsGroup = _aWho.IsGroup, Local = _aWho.Local, Api = _aWho.Api, RoleId = role.Id, Scope = parts[0], ObjectId = parts.Length > 1 ? parts[1] : "" };
         if (_assign.Any(x => x.Scope == a.Scope && x.ObjectId == a.ObjectId && x.RoleId == a.RoleId && x.Local == a.Local && x.Api == a.Api && x.IsGroup == a.IsGroup
@@ -700,6 +703,7 @@ else
     private void RemoveAssignment(Assignment a)
     {
         if (!S.Can(Perm.Settings)) return;
+        if (!S.MayGrant(_roles.FirstOrDefault(r => r.Id == a.RoleId))) { _assignMsg = "Назначение с ролью админа снимает только админ."; return; }
         var role = _roles.FirstOrDefault(r => r.Id == a.RoleId)?.Name ?? a.RoleId;
         // последний путь админа в сервис — локальный админ; его назначением не убрать, так что сервис без админа не останется
         Store.DeleteAssignment(a.Id);

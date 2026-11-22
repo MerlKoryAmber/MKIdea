@@ -24,6 +24,21 @@ public sealed partial class WebSession
     /// <summary>Есть ли право хоть где-нибудь (вкладки, кнопки). На объекте — CanOn / CanOnFolder.</summary>
     public bool Can(string perm) => User.Can(perm);
 
+    /// <summary>Админ сервиса — есть права только для админов (vCenter и Inventory), а их даёт лишь встроенная «Админ» на всё.</summary>
+    public bool IsAdmin => Perm.AdminOnly.All(Can);
+
+    /// <summary>Выдать или снять назначение с этой ролью: роль с админскими правами — только админ (иначе «Настройки» → назначить себе «Админ»).</summary>
+    public bool MayGrant(Role? r) => r is not null && (IsAdmin || !r.Perms.Any(Perm.AdminOnly.Contains));
+
+    /// <summary>Менять учётку (пароль, TOTP, токен, вкл/выкл, удалить): с назначенной ролью админа — только админ.</summary>
+    public bool MayManage(string who, bool local, bool api)
+    {
+        if (IsAdmin) return true;
+        var roles = _store.LoadRoles().ToDictionary(r => r.Id);
+        return !_store.LoadAssignments().Any(a => a.Local == local && a.Api == api && string.Equals(a.Who, who, StringComparison.OrdinalIgnoreCase)
+            && roles.TryGetValue(a.RoleId, out var r) && !MayGrant(r));
+    }
+
     /// <summary>Папка id — она сама или внутри папки ancestor.</summary>
     private bool Under(string id, string ancestor) => Access.Under(id, ancestor, _allFolders);
 

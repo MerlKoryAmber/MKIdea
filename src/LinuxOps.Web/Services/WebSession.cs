@@ -241,7 +241,7 @@ public sealed partial class WebSession : IDisposable
                 if (!string.IsNullOrWhiteSpace(p.DistroHint) && stored.Config.DistroHint != p.DistroHint)
                 {
                     stored.Config.DistroHint = p.DistroHint;
-                    try { _store.SaveHost(stored); } catch { }
+                    try { _store.SetDistroHint(stored.Id, p.DistroHint); } catch { }
                 }
                 // «Версии ПО» — последний итог хоста в сводку по парку
                 if (p.Row?.Versions is { } vr) try { _store.SaveFleet(FleetSnapshot.From(stored, vr, Who)); } catch { }
@@ -476,7 +476,7 @@ public sealed partial class WebSession : IDisposable
             if (ok && !string.IsNullOrWhiteSpace(hint) && h.Config.DistroHint != hint)
             {
                 h.Config.DistroHint = hint;
-                _store.SaveHost(h);
+                _store.SetDistroHint(h.Id, hint);
             }
         }
         Notify();
@@ -683,7 +683,9 @@ public sealed partial class WebSession : IDisposable
     public async Task<(bool Ok, string Text)> TestConnect(StoredHost existing, HostConfig cfg, string? password, string? key)
     {
         if (!CanTestHost(existing, "хост: проверка подключения")) return (false, "Нет права менять этот хост.");
-        var stored = Hosts.Contains(existing) ? _store.ForConnect(existing) : null;
+        // сохранённый пароль или ключ — только на тот же адрес и порт: иначе их можно увести на свой сервер
+        var same = string.Equals(cfg.Host.Trim(), existing.Config.Host.Trim(), StringComparison.OrdinalIgnoreCase) && cfg.Port == existing.Config.Port;
+        var stored = Hosts.Contains(existing) && same ? _store.ForConnect(existing) : null;
         var test = new HostConfig
         {
             Name = cfg.Name, Host = cfg.Host, Port = cfg.Port, Username = cfg.Username, Auth = cfg.Auth, UseSudo = cfg.UseSudo,
@@ -753,7 +755,7 @@ public sealed partial class WebSession : IDisposable
         var mine = Folders.FirstOrDefault(x => x.Id == f.Id);
         if (mine is null) return;
         mine.IsExpanded = !mine.IsExpanded;
-        _store.SaveFolder(mine);
+        _store.SetFolderExpanded(mine.Id, mine.IsExpanded);
     }
 
     public void Dispose()

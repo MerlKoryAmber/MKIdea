@@ -4,7 +4,7 @@ namespace LinuxOps.Web.Services.Auth;
 /// Смена своего пароля в интерфейсе (0.7.3): локальный админ и локальные пользователи; у AD пароль меняется в домене.
 /// Нужны текущий пароль и код TOTP — открытое без присмотра окно пароль не поменяет. Неудачи считаются вместе со входом
 /// (5 за 15 минут — пауза). Лабораторный режим (admin / admin без TOTP) — только меню на сервере: там же он и выключается.
-/// Другие открытые окна этого пользователя остаются войденными.
+/// После смены все входы учётки закрываются (отпечаток пароля в cookie, <see cref="PasswordStamp"/>) — и это окно тоже: вход заново.
 /// </summary>
 public sealed partial class LoginService
 {
@@ -16,6 +16,21 @@ public sealed partial class LoginService
         UserKind.Local => store.LoadLocalUser(u.Login) is { Enabled: true, TotpConfirmed: true },
         _ => false
     };
+
+    /// <summary>
+    /// Отпечаток текущего пароля локальной учётки (в cookie входа): пароль сменили — отпечаток другой, вход закрывается.
+    /// AD и API — пусто (пароль AD живёт в домене).
+    /// </summary>
+    public string PasswordStamp(string login, string kind)
+    {
+        var hash = kind switch
+        {
+            UserKind.Admin => store.LoadLocalAdmin() is var la && string.Equals(la.Login, login, StringComparison.OrdinalIgnoreCase) ? la.PasswordHash : "",
+            UserKind.Local => store.LoadLocalUser(login)?.PasswordHash ?? "",
+            _ => ""
+        };
+        return hash.Length == 0 ? "" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("pws:" + hash)))[..16];
+    }
 
     /// <summary>Сменить свой пароль. null — готово, иначе текст ошибки для окна.</summary>
     public string? ChangeOwnPassword(UserInfo u, string current, string next, string repeat, string code, string ip)
@@ -30,6 +45,8 @@ public sealed partial class LoginService
 
         lock (TotpGate)
         {
+            // ещё раз под замком: параллельные попытки иначе проскочат предел все разом
+            if (Locked(kLogin) || Locked(kIp)) return "Слишком много неудачных попыток. Подождите 15 минут.";
             ITotpAccount? acc = u.Kind == UserKind.Admin ? store.LoadLocalAdmin() : store.LoadLocalUser(u.Login);
             switch (acc)
             {

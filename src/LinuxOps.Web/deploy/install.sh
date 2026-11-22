@@ -24,6 +24,7 @@ done
 need_root
 [[ -f "$SRC/LinuxOps.Web" ]] || die "no LinuxOps.Web in $SRC — run from an unpacked release"
 VER=$(release_version "$SRC")
+[[ "$VER" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "bad version: $VER (deploy/VERSION)"
 log "LinuxOps Web $VER from $SRC"
 
 # --- пакеты ---
@@ -51,7 +52,8 @@ fi
 # --- пользователь и каталоги ---
 id "$SVC_USER" >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d "$DATA_DIR" "$SVC_USER"
 install -d -m 755 "$APP_DIR" "$RELEASES_DIR"
-install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$DATA_DIR" "$ETC_DIR"
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$DATA_DIR"
+etc_dir_ensure   # /etc/linuxops-web — root:служба 0750, мастер-ключ
 install -d -m 700 "$BACKUP_DIR"
 release_conf_default
 

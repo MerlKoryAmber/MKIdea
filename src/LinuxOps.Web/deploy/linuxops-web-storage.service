@@ -6,4 +6,4 @@ Description=LinuxOps Web: recordings storage helper
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/linuxops-web storage apply
-TimeoutStartSec=15min
+TimeoutStartSec=10min

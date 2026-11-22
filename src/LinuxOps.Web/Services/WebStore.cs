@@ -100,27 +100,54 @@ public sealed partial class WebStore
     }
 
     /// <summary>Сохранить хост. password / key: null — не менять, "" — убрать.</summary>
-    public void SaveHost(StoredHost h, string? password = null, string? key = null, string? keyName = null)
+    public void SaveHost(StoredHost h, string? password = null, string? key = null, string? keyName = null) =>
+        SaveHosts([(h, h.Config, password, key, keyName)]);
+
+    /// <summary>
+    /// Несколько хостов одной транзакцией: либо все, либо ни одного. Пишется переданный cfg;
+    /// в памяти (h.Config, HasPassword, HasKey) — только после commit.
+    /// </summary>
+    public void SaveHosts(IReadOnlyList<(StoredHost H, HostConfig Cfg, string? Password, string? Key, string? KeyName)> items)
     {
-        var cfg = h.Config;
-        var clean = new HostConfig
-        {
-            Name = cfg.Name, Host = cfg.Host, Port = cfg.Port, Username = cfg.Username, Auth = cfg.Auth,
-            UseSudo = cfg.UseSudo, DistroHint = cfg.DistroHint, FolderId = cfg.FolderId, IsSelected = cfg.IsSelected
-        };
         using var c = Open();
         using var tx = c.BeginTransaction();
-        Exec(c, "INSERT INTO hosts(id, json, sort) VALUES($id, $json, (SELECT COALESCE(MAX(sort),0)+1 FROM hosts)) ON CONFLICT(id) DO UPDATE SET json=$json",
-            ("$id", h.Id), ("$json", JsonSerializer.Serialize(clean)));
-        if (password is not null) SetSecret(c, h.Id, "password", password);
-        if (key is not null)
+        foreach (var (h, cfg, password, key, keyName) in items)
         {
-            SetSecret(c, h.Id, "key", key);
-            SetSetting(c, "keyname:" + h.Id, key.Length == 0 ? "" : keyName ?? "");
+            var clean = new HostConfig
+            {
+                Name = cfg.Name, Host = cfg.Host, Port = cfg.Port, Username = cfg.Username, Auth = cfg.Auth,
+                UseSudo = cfg.UseSudo, DistroHint = cfg.DistroHint, FolderId = cfg.FolderId, IsSelected = cfg.IsSelected
+            };
+            Exec(c, "INSERT INTO hosts(id, json, sort) VALUES($id, $json, (SELECT COALESCE(MAX(sort),0)+1 FROM hosts)) ON CONFLICT(id) DO UPDATE SET json=$json",
+                ("$id", h.Id), ("$json", JsonSerializer.Serialize(clean)));
+            if (password is not null) SetSecret(c, h.Id, "password", password);
+            if (key is not null)
+            {
+                SetSecret(c, h.Id, "key", key);
+                SetSetting(c, "keyname:" + h.Id, key.Length == 0 ? "" : keyName ?? "");
+            }
         }
         tx.Commit();
-        if (password is not null) h.HasPassword = password.Length > 0;
-        if (key is not null) { h.HasKey = key.Length > 0; h.KeyName = key.Length == 0 ? "" : keyName ?? ""; }
+        foreach (var (h, cfg, password, key, keyName) in items)
+        {
+            if (!ReferenceEquals(h.Config, cfg))
+            {
+                h.Config.Name = cfg.Name; h.Config.Host = cfg.Host; h.Config.Port = cfg.Port; h.Config.Username = cfg.Username;
+                h.Config.Auth = cfg.Auth; h.Config.UseSudo = cfg.UseSudo; h.Config.DistroHint = cfg.DistroHint; h.Config.FolderId = cfg.FolderId;
+            }
+            if (password is not null) h.HasPassword = password.Length > 0;
+            if (key is not null) { h.HasKey = key.Length > 0; h.KeyName = key.Length == 0 ? "" : keyName ?? ""; }
+        }
+    }
+
+    /// <summary>
+    /// Только признак дистрибутива (опрос, Dry-run). Не пишет хост целиком: копия окна могла устареть —
+    /// откатила бы правки админа, вернула бы удалённый хост или папку. Нет хоста — ничего.
+    /// </summary>
+    public void SetDistroHint(string id, string hint)
+    {
+        using var c = Open();
+        Exec(c, "UPDATE hosts SET json=json_set(json, '$.DistroHint', $v) WHERE id=$id", ("$id", id), ("$v", hint));
     }
 
     public void DeleteHost(string id)
@@ -178,6 +205,13 @@ public sealed partial class WebStore
         Exec(c, "INSERT INTO folders(id, name, parent, expanded, sort) VALUES($id, $n, $p, $e, (SELECT COALESCE(MAX(sort),0)+1 FROM folders)) " +
                 "ON CONFLICT(id) DO UPDATE SET name=$n, parent=$p, expanded=$e",
             ("$id", f.Id), ("$n", f.Name), ("$p", f.ParentId), ("$e", f.IsExpanded ? 1 : 0));
+    }
+
+    /// <summary>Только «раскрыта ли» (щелчок по треугольнику) — без имени и родителя из, возможно, устаревшей копии.</summary>
+    public void SetFolderExpanded(string id, bool expanded)
+    {
+        using var c = Open();
+        Exec(c, "UPDATE folders SET expanded=$e WHERE id=$id", ("$id", id), ("$e", expanded ? 1 : 0));
     }
 
     public void DeleteFolder(string id)

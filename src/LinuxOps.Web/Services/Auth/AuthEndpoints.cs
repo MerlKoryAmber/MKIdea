@@ -62,7 +62,9 @@ public static class AuthEndpoints
         var claims = new List<Claim>
         {
             new(ClaimTypes.Name, user.Login), new("display", user.Display), new("kind", user.Kind),
-            new("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
+            new("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()),
+            // отпечаток пароля: сменили пароль (сам или админ) — все прежние входы этой учётки закрываются
+            new("pws", ctx.RequestServices.GetRequiredService<LoginService>().PasswordStamp(user.Login, user.Kind))
         };
         // группы AD — для назначений на группы (права перечитываются на каждом запросе)
         claims.AddRange(user.Groups.Select(g => new Claim("grp", g)));
@@ -177,7 +179,8 @@ public static class AuthEndpoints
         var iat = long.TryParse(p.FindFirstValue("iat"), out var t) ? DateTimeOffset.FromUnixTimeSeconds(t) : DateTimeOffset.MinValue;
         var issued = ctx.Properties.IssuedUtc ?? iat;
         var user = svc.Resolve(p.Identity?.Name ?? "", p.FindFirstValue("kind") ?? "", p.FindFirstValue("display") ?? "", p.FindAll("grp").Select(c => c.Value));
-        if (now - iat > TimeSpan.FromHours(Math.Max(1, s.MaxHours)) || now - issued > TimeSpan.FromMinutes(Math.Max(5, s.IdleMinutes)) || user is null)
+        var pwChanged = (p.FindFirstValue("pws") ?? "") != svc.PasswordStamp(p.Identity?.Name ?? "", p.FindFirstValue("kind") ?? "");
+        if (now - iat > TimeSpan.FromHours(Math.Max(1, s.MaxHours)) || now - issued > TimeSpan.FromMinutes(Math.Max(5, s.IdleMinutes)) || user is null || pwChanged)
         {
             ctx.RejectPrincipal();
             await ctx.HttpContext.SignOutAsync(Scheme);

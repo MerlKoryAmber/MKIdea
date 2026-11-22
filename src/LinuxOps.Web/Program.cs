@@ -70,6 +70,14 @@ app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache"
 });
+// Страницы (вход, приложение) и ответы /auth — не хранить вовсе: форма входа с токеном, QR и строка TOTP при привязке.
+app.Use((ctx, next) =>
+{
+    var p = ctx.Request.Path;
+    if (p == "/" || p.StartsWithSegments("/login") || p.StartsWithSegments("/auth"))
+        ctx.Response.OnStarting(() => { ctx.Response.Headers.CacheControl = "no-store"; return Task.CompletedTask; });
+    return next();
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();

@@ -2,13 +2,16 @@
 # Хранилище записей сеансов (0.7.4): SMB, NFS или отдельный диск, смонтированные в $ARCH_DIR.
 # Служба (без прав root, NoNewPrivileges) кладёт запрос в $STORAGE_DIR/request (JSON) — path-юнит
 # linuxops-web-storage.path запускает linuxops-web-storage.service (root): `linuxops-web storage apply`.
-# Запрос читается и сразу удаляется, каждое поле проверяется по шаблону; итог — $STORAGE_DIR/result (JSON, владелец — служба).
+# Запрос читается (только обычный файл службы, не ссылка) и сразу удаляется, каждое поле проверяется по шаблону.
+# Итог — $RESULT_DIR/result: каталог root (служба только читает) — root не пишет туда, где служба может подложить ссылку.
+# Учётка SMB — в /etc/linuxops-web (root:служба 0750, файл root 0600).
 # Монтирование — строкой в /etc/fstab с пометкой «# linuxops-web-archive» (переживает перезагрузку; nofail — сервер грузится и без хранилища).
 # guacd пишет как раньше в буфер $REC_DIR, готовые записи переносит в хранилище сама служба.
 # shellcheck disable=SC2034
 
 ARCH_DIR=/var/lib/linuxops-web-archive
 STORAGE_DIR=$DATA_DIR/storage
+RESULT_DIR=/run/linuxops-web-storage
 SMB_CRED=$ETC_DIR/smb-archive.cred
 FSTAB_MARK="# linuxops-web-archive"
 STORAGE_UNIT=linuxops-web-storage
@@ -16,7 +19,10 @@ STORAGE_UNIT=linuxops-web-storage
 # Каталоги и юниты (установка и обновление)
 storage_ensure() {
   local dir="$1"
+  # служба могла заменить каталог запросов ссылкой — убрать, создать заново
+  [[ -L $STORAGE_DIR ]] && rm -f "$STORAGE_DIR"
   install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$STORAGE_DIR"
+  _st_result_dir
   # точка монтирования: пока ничего не смонтировано — root 0755, служба туда не пишет (проверяет, что это точка монтирования)
   [[ -d $ARCH_DIR ]] || install -d -o root -g root -m 755 "$ARCH_DIR"
   install -m 644 "$dir/deploy/$STORAGE_UNIT.service" "/etc/systemd/system/$STORAGE_UNIT.service"
@@ -45,12 +51,20 @@ storage_status() {
   fi
 }
 
+_st_result_dir() { # /run — после перезагрузки пусто; root:служба 0750
+  [[ -L $RESULT_DIR ]] && rm -f "$RESULT_DIR"
+  install -d -o root -g "$SVC_USER" -m 750 "$RESULT_DIR"
+  chown root:"$SVC_USER" "$RESULT_DIR"; chmod 750 "$RESULT_DIR"
+}
+
 _st_result() { # _st_result ID OK MESSAGE [EXTRA_JSON]
-  local tmp="$STORAGE_DIR/result.tmp"
+  _st_result_dir
+  local tmp; tmp=$(mktemp "$RESULT_DIR/.result.XXXXXX")
   jq -n --arg id "$1" --argjson ok "$2" --arg msg "$3" --argjson extra "${4:-{\}}" \
-    '{id:$id, ok:$ok, message:$msg, at:(now|todate)} + $extra' >"$tmp"
-  chown "$SVC_USER:$SVC_USER" "$tmp"; chmod 600 "$tmp"
-  mv -f "$tmp" "$STORAGE_DIR/result"
+    '{id:$id, ok:$ok, message:$msg, at:(now|todate)} + $extra' >"$tmp" \
+    || printf '{"id":"%s","ok":false,"message":"internal error"}\n' "$1" >"$tmp"
+  chown root:"$SVC_USER" "$tmp"; chmod 640 "$tmp"
+  mv -f "$tmp" "$RESULT_DIR/result"
 }
 
 _st_pkg() { # пакет для монтирования — из репозиториев ОС, если ещё нет
@@ -65,7 +79,8 @@ _st_write_test() { # запись и чтение тестового файла 
 }
 
 _st_umount() {
-  if mountpoint -q "$ARCH_DIR"; then umount "$ARCH_DIR" 2>/dev/null || umount -l "$ARCH_DIR" 2>/dev/null || return 1; fi
+  # зависшее сетевое хранилище: не ждать бесконечно — 20 с, потом принудительно, потом «ленивое»
+  if timeout 20 mountpoint -q "$ARCH_DIR"; then timeout 20 umount "$ARCH_DIR" 2>/dev/null || timeout 20 umount -f "$ARCH_DIR" 2>/dev/null || umount -l "$ARCH_DIR" 2>/dev/null || return 1; fi
   return 0
 }
 
@@ -122,8 +137,14 @@ _st_mount_common() { # после mount: права, проверка запис
 
 cmd_storage_apply() {
   local req="$STORAGE_DIR/request" body id op type
-  [[ -f $req ]] || exit 0
-  body=$(head -c 65536 "$req"); rm -f "$req"
+  [[ -L $STORAGE_DIR || ! -d $STORAGE_DIR ]] && exit 0
+  [[ -e $req || -L $req ]] || exit 0
+  # запрос — сначала к себе (каталог root): дальше служба его не подменит; ссылка, FIFO, чужой файл — отбросить
+  _st_result_dir
+  local mine="$RESULT_DIR/.request"
+  rm -f "$mine"; mv -f -- "$req" "$mine" 2>/dev/null || { rm -f -- "$req"; exit 0; }
+  if [[ -L $mine || ! -f $mine || $(stat -c %u "$mine") != "$(id -u "$SVC_USER")" ]]; then rm -f "$mine"; exit 0; fi
+  body=$(head -c 65536 "$mine"); rm -f "$mine"
   id=$(jq -r '.id // ""' <<<"$body" 2>/dev/null || true)
   [[ $id =~ ^[a-f0-9]{32}$ ]] || { _st_result "" false "bad request"; return 0; }
   op=$(jq -r '.op // ""' <<<"$body"); type=$(jq -r '.type // ""' <<<"$body")
@@ -138,9 +159,12 @@ cmd_storage_apply() {
       _st_result "$id" true "disconnected" ;;
     mount)
       local src opts line
+      # любая неожиданная ошибка дальше (set -e) — вернуть прежнее и ответить, а не оставить полусостояние
+      set -E
+      trap 'trap - ERR; _st_back; _st_result "$id" false "helper error (line $LINENO)$(_st_kept)"; exit 0' ERR
       # прежнее хранилище — на случай неудачи
       ST_PREV=$(storage_line | sed "s| $FSTAB_MARK$||")
-      rm -f "$SMB_CRED.prev"; [[ -f $SMB_CRED ]] && cp -p "$SMB_CRED" "$SMB_CRED.prev"
+      rm -f "$SMB_CRED.prev"; [[ -f $SMB_CRED && ! -L $SMB_CRED ]] && install -o root -g root -m 600 "$SMB_CRED" "$SMB_CRED.prev"
       src=$(jq -r '.source // ""' <<<"$body")
       case "$type" in
         smb)
@@ -149,19 +173,21 @@ cmd_storage_apply() {
           user=$(jq -r '.user // ""' <<<"$body"); dom=$(jq -r '.domain // ""' <<<"$body"); pass=$(jq -r '.password // ""' <<<"$body")
           [[ $user =~ ^[A-Za-z0-9._@-]{1,64}$ ]] || { _st_result "$id" false "SMB user: letters, digits, . _ @ -"; return 0; }
           [[ -z $dom || $dom =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { _st_result "$id" false "SMB domain: letters, digits, . _ -"; return 0; }
-          [[ $pass != *$'\n'* && -n $pass ]] || { _st_result "$id" false "SMB password is empty"; return 0; }
+          [[ $pass =~ ^[[:print:]]{1,256}$ ]] || { _st_result "$id" false "SMB password: printable characters, 1 to 256"; return 0; }
           _st_pkg cifs-utils || { _st_result "$id" false "cannot install cifs-utils (OS repositories)"; return 0; }
           _st_umount || { _st_result "$id" false "cannot unmount the previous storage"; return 0; }
-          umask 077; { printf 'username=%s\n' "$user"; printf 'password=%s\n' "$pass"; [[ -n $dom ]] && printf 'domain=%s\n' "$dom"; } >"$SMB_CRED"; umask 022
-          chmod 600 "$SMB_CRED"
-          opts="credentials=$SMB_CRED,uid=$(id -u "$SVC_USER"),gid=$(id -g "$SVC_USER"),file_mode=0640,dir_mode=0750,soft,_netdev,nofail,x-systemd.mount-timeout=30"
+          # во временный файл в /etc/linuxops-web (каталог root) и mv — не по ссылке и не частично записанный
+          local ct; ct=$(mktemp "$ETC_DIR/.smb.XXXXXX")
+          { printf 'username=%s\n' "$user"; printf 'password=%s\n' "$pass"; [[ -n $dom ]] && printf 'domain=%s\n' "$dom"; } >"$ct"
+          chown root:root "$ct"; chmod 600 "$ct"; mv -f "$ct" "$SMB_CRED"
+          opts="credentials=$SMB_CRED,uid=$(id -u "$SVC_USER"),gid=$(id -g "$SVC_USER"),file_mode=0640,dir_mode=0750,soft,nosuid,nodev,noexec,_netdev,nofail,x-systemd.mount-timeout=30"
           line="$src $ARCH_DIR cifs $opts 0 0" ;;
         nfs)
           [[ $src =~ ^[A-Za-z0-9._-]+:/[^[:space:],\'\"\\]*$ ]] || { _st_result "$id" false "NFS path: server:/export[/folder]"; return 0; }
           _st_pkg nfs-utils || { _st_result "$id" false "cannot install nfs-utils (OS repositories)"; return 0; }
           _st_umount || { _st_result "$id" false "cannot unmount the previous storage"; return 0; }
           # soft: пропал сервер — ошибка, а не зависание службы (перенос сверяет размер, недописанное не удаляет из буфера)
-          opts="_netdev,nofail,soft,timeo=100,retrans=2,x-systemd.mount-timeout=30"
+          opts="_netdev,nofail,soft,timeo=100,retrans=2,nosuid,nodev,noexec,x-systemd.mount-timeout=30"
           line="$src $ARCH_DIR nfs $opts 0 0" ;;
         disk)
           local confirm uuid name
@@ -175,13 +201,13 @@ cmd_storage_apply() {
           log "mkfs.xfs $src"
           mkfs.xfs -q -L lo-rec "$src" >/dev/null 2>&1 || { _st_back; _st_result "$id" false "mkfs.xfs $src failed"; return 0; }
           udevadm settle 2>/dev/null || true
-          uuid=$(blkid -s UUID -o value "$src")
+          uuid=$(blkid -s UUID -o value "$src" 2>/dev/null || true)
           [[ -n $uuid ]] || { _st_back; _st_result "$id" false "no UUID after mkfs"; return 0; }
           logger -t linuxops-web "хранилище записей: диск $src размечен (xfs, UUID=$uuid)" 2>/dev/null || true
-          line="UUID=$uuid $ARCH_DIR xfs defaults,nofail 0 0" ;;
+          line="UUID=$uuid $ARCH_DIR xfs defaults,nofail,nosuid,nodev,noexec 0 0" ;;
         *) _st_result "$id" false "unknown storage type"; return 0 ;;
       esac
-      install -d -m 755 "$ARCH_DIR"
+      install -d -m 755 "$ARCH_DIR" || true
       _st_fstab_set "$line"
       local err
       if ! err=$(mount "$ARCH_DIR" 2>&1); then
