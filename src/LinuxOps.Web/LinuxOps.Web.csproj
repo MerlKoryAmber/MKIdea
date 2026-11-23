@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LinuxOps.Web</RootNamespace>
-    <Version>0.7.9</Version>
+    <Version>0.7.10</Version>
     <!-- Ð½Ð¾Ð¼ÐµÑ€Ð° ÑÐ±Ð¾Ñ€ÐºÐ¸ â€” Ð¸Ð· Version (Ð¼ÐµÐ½ÑÑ‚ÑŒ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ÐµÑ‘): Ð¿Ð¾ AssemblyVersion ÑˆÐ°Ð¿ÐºÐ° Ð¸ ?v= Ñƒ ÑÑ‚Ð¸Ð»ÐµÐ¹ Ð¸ ÑÐºÑ€Ð¸Ð¿Ñ‚Ð¾Ð² -->
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>

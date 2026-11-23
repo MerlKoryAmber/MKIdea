@@ -153,12 +153,25 @@
     private static string Explain(string m) => m switch
     {
         _ when m.StartsWith("Authentication failure", StringComparison.OrdinalIgnoreCase) => "RDP: неверная учётная запись или пароль.",
-        _ when m.Contains("wrong security type", StringComparison.OrdinalIgnoreCase) => "RDP: пароль принят, но сервер не пустил — у учётной записи нет права входа по RDP на этот хост (или он не принимает NLA).",
+        _ when m.Contains("wrong security type", StringComparison.OrdinalIgnoreCase) => "RDP: сервер закрыл подключение при проверке входа — у учётной записи нет права входа по RDP на этот хост, или он не принимает NLA.",
         _ when m.StartsWith("Aborted", StringComparison.Ordinal) => "Сеанс прерван шлюзом (ключ хоста, сеть или учётка) — подробности в History → Сеансы.",
         _ when m.Contains("unreachable", StringComparison.OrdinalIgnoreCase) || m.Contains("Upstream", StringComparison.OrdinalIgnoreCase) => "Хост не отвечает — проверьте адрес и порт.",
         _ when m.StartsWith("Открыто сеансов", StringComparison.Ordinal) || m.Contains("администратор", StringComparison.Ordinal) => m,
         _ => "Сеанс: " + m
     };
+
+    /// <summary>Отвечает ли порт хоста с сервера (3 с).</summary>
+    private static async Task<bool> PortAnswers(string host, int port)
+    {
+        try
+        {
+            using var tcp = new System.Net.Sockets.TcpClient();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await tcp.ConnectAsync(host, port, cts.Token);
+            return true;
+        }
+        catch (Exception) { return false; }
+    }
 
     private static string Need(StoredHost h) => h.IsWindows ? Perm.Rdp : Perm.Terminal;
     private bool CanOpen(StoredHost h) => S.CanOn(Need(h), h);
@@ -382,13 +395,26 @@
         StateHasChanged();
     });
 
-    private Task Error(Sess t, string message) => InvokeAsync(() =>
+    private Task Error(Sess t, string message) => InvokeAsync(async () =>
     {
         if (!_tabs.Contains(t)) return;
         t.State = "ошибка";
         t.ErrorShown = true;
         // причина остаётся в строке состояния и после отключения (сообщение сверху гаснет через 7 с)
         t.LastError = Explain(message);
+        // FreeRDP пишет «wrong security type» и когда хост выключен — проверить порт с сервера (guacd стоит там же)
+        if (t.Rdp && message.Contains("wrong security type", StringComparison.OrdinalIgnoreCase))
+        {
+            var port = t.Host.Config.Port > 0 ? t.Host.Config.Port : 3389;
+            t.LastError = "RDP: проверяю, отвечает ли хост…";
+            StateHasChanged();
+            if (!await PortAnswers(t.Host.Config.Host, port))
+                t.LastError = $"RDP: с сервера LinuxOps {t.Host.Config.Host}:{port} не отвечает — хост выключен или недоступен по сети; до проверки учётной записи, скорее всего, не дошло.";
+            else t.LastError = Explain(message);
+            if (!_tabs.Contains(t)) return;
+        }
+        // «отключено» могло прийти раньше ошибки или во время проверки — строка состояния с причиной
+        if (t.St == 5) t.State = "отключено: " + t.LastError;
         S.ShowNotice($"{t.Label}: {t.LastError}");
         StateHasChanged();
     });
