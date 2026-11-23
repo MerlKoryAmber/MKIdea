@@ -214,6 +214,28 @@ public sealed partial class WebStore
         Exec(c, "UPDATE folders SET expanded=$e WHERE id=$id", ("$id", id), ("$e", expanded ? 1 : 0));
     }
 
+    /// <summary>Переложить папку (0.7.9): только родитель — имя и «раскрыта» из чужого сеанса не затираются. false — папки нет.</summary>
+    public bool SetFolderParent(string id, string parent)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE folders SET parent=$p WHERE id=$id";
+        cmd.Parameters.AddWithValue("$p", parent);
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    /// <summary>Переложить хост (0.7.9): только папка в JSON — остальные поля из чужого сеанса не затираются. false — хоста нет.</summary>
+    public bool SetHostFolder(string id, string folderId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE hosts SET json=json_set(json, '$.FolderId', $f) WHERE id=$id";
+        cmd.Parameters.AddWithValue("$f", folderId);
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
     public void DeleteFolder(string id)
     {
         using var c = Open();

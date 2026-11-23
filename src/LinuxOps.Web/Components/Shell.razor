@@ -42,9 +42,8 @@
             case "actions": <ActionsTab S="S" />; break;
             case "fleet": <FleetTab S="S" />; break;
             case "settings": <SettingsTab S="S" />; break;
-            case "ssh": <FilesTab S="S" />; break;
         }
-        @* Сеансы (терминалы, RDP, PowerShell, просмотр и проигрывание в History) живут при смене вкладки: однажды открытая
+        @* Сеансы (терминалы, RDP, PowerShell, Files с открытой правкой, просмотр и проигрывание в History) живут при смене вкладки: однажды открытая
            вкладка не пересоздаётся, а прячется (0.7.8). Иначе уход с вкладки рвал сеанс. *@
         @{ Keep(); }
         @foreach (var k in _kept)
@@ -55,6 +54,7 @@
                     case "history": <HistoryTab S="S" Active="@(S.Tab == k)" />; break;
                     case "terminal": <TerminalTab S="S" Active="@(S.Tab == k)" />; break;
                     case "powershell": <PowerShellTab S="S" Active="@(S.Tab == k)" />; break;
+                    case "ssh": <FilesTab S="S" Active="@(S.Tab == k)" />; break;
                 }
             </div>
         }
@@ -158,7 +158,7 @@
     private async Task Logout() => await JS.InvokeVoidAsync("lo.logout");
 
     // вкладки, которые не пересоздаются (сеансы в них переживают смену вкладки); порядок — как открывали
-    private static readonly string[] KeepAlive = { "history", "terminal", "powershell" };
+    private static readonly string[] KeepAlive = { "history", "terminal", "powershell", "ssh" };
     private readonly List<string> _kept = new();
 
 

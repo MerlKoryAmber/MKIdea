@@ -95,12 +95,13 @@ else
                 break;
 
             case "fleet":
-                <div class="muted small" style="margin-bottom:6px">Раз в сутки — «Версии ПО» по всем хостам Linux; итог — на вкладке Vulnerabilities. Ключи хостов — только уже подтверждённые. «Проверить сейчас» идёт от имени «расписание», кто нажал — в аудите.</div>
+                <div class="muted small" style="margin-bottom:6px">Раз в сутки — «Версии ПО» по всем хостам Linux; итог — на вкладке Vulnerabilities. Ключи хостов — только уже подтверждённые. «Проверить сейчас» идёт от имени «расписание», кто нажал — в аудите. Окна «Параметры действий» здесь нет: параметры — ниже; CVE сверяются всегда, через прокси из «Выход в интернет».</div>
                 <label class="check"><input type="checkbox" @bind="_fleetOn" /> Проверять ежедневно</label>
                 <div class="form-grid">
                     <label>Время (ЧЧ:ММ)</label><input class="input" @bind="_fleetTime" style="width:100px" placeholder="03:00" />
                 </div>
-                <label class="check" title="Хостам без интернета: базы CVE сверяются на сервере"><input type="checkbox" @bind="_fleetVia" /> Сверка CVE через сервер</label>
+                <label class="check"><input type="checkbox" @bind="_fleetVia" /> Списки обновлений — через сервер (туннель SSH)</label>
+                <div class="muted small" style="margin:2px 0 0 22px">Для хостов без интернета: на время проверки хост ходит к репозиториям через сервер LinuxOps Web и его прокси (порты 80 и 443). Туннель могут заметить SIEM / EDR — по согласованию с ИБ. Без галки — напрямую с хоста, не ответили — кэш хоста.</div>
                 <div class="wrap" style="margin-top:10px">
                     <button class="btn primary" @onclick="SaveFleet">Сохранить</button>
                     <button class="btn" style="margin-left:6px" @onclick="RunFleet" disabled="@Fleet.Running">@(Fleet.Running ? "Идёт проверка…" : "Проверить сейчас")</button>
@@ -110,6 +111,10 @@ else
                 {
                     <div class="muted small" style="margin-top:6px">Последний запуск: @Fleet.LastText</div>
                 }
+                break;
+
+            case "net":
+                <NetProxyPanel S="S" />
                 break;
 
             case "rec":
@@ -237,6 +242,7 @@ else
         new("api", "🔌", "Сервисы API", "Сервисные учётки и токены"),
         new("ps", "⌨", "PowerShell и PowerCLI", "Консоль на сервере и модули — только «Админ»"),
         new("fleet", "📊", "Проверка уязвимостей", "«Версии ПО» и CVE по всем хостам — по расписанию"),
+        new("net", "🌐", "Выход в интернет", "Прокси сервера для сверки CVE и туннеля «через сервер»"),
         new("rec", "🎞", "Сеансы и записи", "Предел сеансов на человека; записи: срок, объём, нажатия клавиш, где хранить")
     };
 

@@ -34,7 +34,7 @@ public sealed class FleetCheck(WebStore store, HostLocks locks, AuditLog audit, 
         // включили после времени запуска — первый раз завтра, а не сразу
         if (s.Enabled && ValidTime(s.Time) is { } t && DateTime.Now >= DateTime.Now.Date + TimeOnly.ParseExact(t, "HH:mm").ToTimeSpan())
             store.PutSetting("fleet.day", DateTime.Now.ToString("yyyy-MM-dd"));
-        audit.Write(who, "настройки: проверка по расписанию", s.Enabled ? $"ежедневно в {s.Time}" + (s.ViaServer ? ", CVE через сервер" : "") : "выключена");
+        audit.Write(who, "настройки: проверка по расписанию", s.Enabled ? $"ежедневно в {s.Time}" + (s.ViaServer ? ", списки обновлений через сервер (туннель SSH)" : "") : "выключена");
     }
 
     public static string? ValidTime(string? s) =>

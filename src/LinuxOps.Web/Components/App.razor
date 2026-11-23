@@ -35,6 +35,17 @@
                 if (!p) { legacy(); return; }
                 p.then(function () { show('Скопировано'); }, legacy);
             },
+            // скопировать текст (Files → «Копировать путь»): true — получилось
+            copyText: function (text) {
+                var legacy = function () {
+                    var a = document.createElement('textarea'); a.value = text; a.style.position = 'fixed'; a.style.opacity = '0';
+                    document.body.appendChild(a); a.select(); var ok = false;
+                    try { ok = document.execCommand('copy'); } catch (e) { }
+                    a.remove(); return ok;
+                };
+                var p = lo.copy(text);
+                return p ? p.then(function () { return true; }, legacy) : Promise.resolve(legacy());
+            },
             // файл из памяти (base64) — шаблон CSV и т. п.
             saveData: function (name, type, b64) {
                 const bin = atob(b64), buf = new Uint8Array(bin.length);
@@ -46,6 +57,21 @@
             download: function (url) { const a = document.createElement("a"); a.href = url; a.download = ""; document.body.appendChild(a); a.click(); a.remove(); },
             logout: function () { document.getElementById("lo-logout")?.submit(); }
         };
+        // Перетаскивание в дереве Inventory (0.7.9): браузер шлёт drop, только если dragover отменён, — Blazor без своего
+        // обработчика этого не делает. Firefox без setData перетаскивание не начинает.
+        (function () {
+            var inTree = function (e) { return e.target && e.target.closest && e.target.closest('.tree[data-drop]'); };
+            document.addEventListener('dragstart', function (e) {
+                if (!inTree(e) || !e.dataTransfer) return;
+                try { e.dataTransfer.setData('text/plain', ''); } catch (x) { }
+                e.dataTransfer.effectAllowed = 'move';
+            });
+            document.addEventListener('dragover', function (e) {
+                if (!inTree(e)) return;
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+            });
+        })();
         // Сессия: есть движение мыши / клавиши — раз в минуту продлить (/auth/ping); простой дольше IdleMinutes — на вход.
         (function () {
             var last = Date.now(), pinged = Date.now();

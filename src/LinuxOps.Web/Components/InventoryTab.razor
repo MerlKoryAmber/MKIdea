@@ -2,7 +2,7 @@
     <section class="surface">
         <div class="surface-header">
             <div class="section-title">Inventory · хосты и vCenter</div>
-            <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) и Windows (RDP) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку, правая кнопка — меню (правка, «Доступ…»).</div>
+            <div class="muted small" style="margin:2px 0 8px">Хосты Linux (SSH) и Windows (RDP) по папкам. Пароли и ключи — в хранилище сервиса (зашифрованы), в браузер не возвращаются. Щелчок по треугольнику сворачивает папку, правая кнопка — меню (правка, «Переместить в папку…», «Доступ…»); хост и папку можно перетащить мышью на папку.</div>
             <div class="wrap">
                 <button class="btn" style="min-width:110px" title="Новый хост — в выделенную папку" @onclick="AddHost" disabled="@(!CanAdd)">+ Хост Linux</button>
                 <button class="btn" style="min-width:120px" title="Хост Windows (RDP) — в выделенную папку" @onclick="AddWinHost" disabled="@(!CanAdd)">+ Хост Windows</button>
@@ -16,7 +16,7 @@
             </div>
         </div>
         <div class="scroll tree-wrap" style="margin:8px">
-            <HostTree S="S" @bind-Selected="_sel" Activated="Open" Context="@(Ro && !S.Can(Perm.Settings) ? default : EventCallback.Factory.Create<(object Item, double X, double Y)>(this, ShowMenu))" Empty="Пусто. Добавьте хост кнопкой выше." />
+            <HostTree S="S" @bind-Selected="_sel" Activated="Open" Drop="@(Ro ? default : EventCallback.Factory.Create<(object Item, string FolderId)>(this, OnDrop))" Context="@(Ro && !S.Can(Perm.Settings) ? default : EventCallback.Factory.Create<(object Item, double X, double Y)>(this, ShowMenu))" Empty="Пусто. Добавьте хост кнопкой выше." />
         </div>
     </section>
 </div>
@@ -24,7 +24,7 @@
 @if (_menu is { } m)
 {
     <div class="ctx-overlay" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
-    <div class="ctx-menu" style="left:min(@Px(m.X)px, calc(100vw - 210px));top:min(@Px(m.Y)px, calc(100vh - 230px))">
+    <div class="ctx-menu" style="left:min(@Px(m.X)px, calc(100vw - 210px));top:min(@Px(m.Y)px, calc(100vh - 262px))">
         <button @onclick="() => Do(Edit)" disabled="@(!CanEdit(m.Item))">@(m.Item is HostFolder ? "Переименовать" : "Изменить")</button>
         @if (m.Item is StoredHost)
         {
@@ -36,6 +36,7 @@
             <button @onclick="() => Do(AddWinHost)" disabled="@(!CanAdd)">+ Хост Windows сюда</button>
             <button @onclick="() => Do(AddFolder)" disabled="@(!CanAdd)">+ Папка внутри</button>
         }
+        <button @onclick="() => Do(OpenMove)" disabled="@(!CanDelete(m.Item))">@MoveText(m.Item)</button>
         <hr />
         <button @onclick="() => Do(OpenAccess)" disabled="@(!S.Can(Perm.Settings))" title="@(S.Can(Perm.Settings) ? "Кто и с какой ролью имеет доступ" : "Нужно право «Настройки»")">Доступ…</button>
         <hr />
@@ -46,6 +47,10 @@
 @if (_access is not null)
 {
     <AccessPanel S="S" Item="_access" OnClose="() => _access = null" />
+}
+@if (_move is { } mv)
+{
+    <MovePanel S="S" Hosts="mv.Hosts" Folder="mv.Folder" OnClose="() => _move = null" />
 }
 @if (_import)
 {
@@ -71,6 +76,42 @@
 
     private async Task Do(Func<Task> act) { _menu = null; await act(); }
     private Task Do(Action act) { _menu = null; act(); return Task.CompletedTask; }
+
+    // ---------- переместить (0.7.9) ----------
+    private (IReadOnlyList<StoredHost> Hosts, HostFolder? Folder)? _move;
+
+    /// <summary>Хост среди отмеченных (галки в Actions) — переезжают все отмеченные.</summary>
+    private List<StoredHost> MoveSet(StoredHost h)
+    {
+        var marked = S.Hosts.Where(x => x.Config.IsSelected).ToList();
+        return marked.Count > 1 && marked.Contains(h) ? marked : new List<StoredHost> { h };
+    }
+
+    private string MoveText(object item) => item is StoredHost h && MoveSet(h) is { Count: > 1 } set
+        ? $"Переместить отмеченные ({set.Count})…" : "Переместить в папку…";
+
+    private void OpenMove()
+    {
+        _move = _sel switch
+        {
+            StoredHost h => (MoveSet(h), null),
+            HostFolder f => (Array.Empty<StoredHost>(), f),
+            _ => null
+        };
+    }
+
+    /// <summary>Перетаскивание в дереве: на папку — внутрь, на хост — в его папку, на пустое место — в корень.</summary>
+    private void OnDrop((object Item, string FolderId) d)
+    {
+        var (ok, text) = d.Item switch
+        {
+            // мышью — только то, что тянут: галки Actions здесь не видны
+            StoredHost h => S.MoveHosts(new[] { h }, d.FolderId),
+            HostFolder f => S.MoveFolder(f, d.FolderId),
+            _ => (true, "")
+        };
+        if (!ok) S.ShowNotice(text);
+    }
 
     private void OpenAccess() { if (S.Can(Perm.Settings)) _access = _sel; }
 

@@ -37,7 +37,12 @@
     private string _proxy = "", _msg = "";
     private bool _busy, _confirmRemove;
 
-    protected override async Task OnInitializedAsync() => _status = await Ps.GetStatus();
+    protected override async Task OnInitializedAsync()
+    {
+        // по умолчанию — прокси из ⚙ → «Выход в интернет» (0.7.9)
+        if (OutProxy.Address.Length > 0) _proxy = "http://" + OutProxy.Address;
+        _status = await Ps.GetStatus();
+    }
 
     private async Task Online()
     {

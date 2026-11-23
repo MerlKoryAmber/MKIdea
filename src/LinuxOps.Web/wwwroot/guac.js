@@ -46,6 +46,13 @@ export function open(elId, ticket, dotnet, protocol, viewOnly) {
     if (mouse.onEach) mouse.onEach(['mousedown', 'mousemove', 'mouseup'], sendMouse);
     else mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = st => client.sendMouseState(st);
     view.addEventListener('mousedown', () => host.focus());
+    // Курсор хоста — браузеру (CSS cursor): ходит за мышью сразу. Иначе его рисует экран сеанса по ответу сервера,
+    // и он отстаёт на время пути до хоста и обратно. Не вышло (картинка курсора слишком велика) — рисует экран, как было.
+    display.oncursor = (canvas, x, y) => {
+        let local = false;
+        try { local = !!mouse.setCursor(canvas, x, y); } catch { }
+        display.showCursor(!local);
+    };
 
     // клавиатура — только когда фокус на экране сеанса, остальная страница печатает как обычно
     const keyboard = new Guacamole.Keyboard(host);

@@ -141,7 +141,7 @@ public sealed class PcProxy : IDisposable
         _targets.AddOrUpdate($"{host}:{port}", 1, (_, n) => n + 1);
 
         var dest = new Uri($"{(port == 443 ? "https" : "http")}://{host}:{port}/");
-        var proxy = _upstreamOverride ?? HttpClient.DefaultProxy;
+        var proxy = _upstreamOverride ?? OutProxy.Current;
         Uri? up = null;
         try
         {

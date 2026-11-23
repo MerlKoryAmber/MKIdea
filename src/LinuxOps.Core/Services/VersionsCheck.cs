@@ -73,12 +73,19 @@ public sealed class VersionItem : System.ComponentModel.INotifyPropertyChanged
     /// <summary>С какой базой сверялось.</summary>
     public string CveSource { get; set; } = "";
 
-    public void SetCve(string level, List<CveHit> hits, string note)
+    /// <summary>Сверить пытались, но база не ответила (сеть, прокси, время) — в отличие от «базы для этого нет».</summary>
+    public bool CveFailed { get; private set; }
+
+    public void SetCve(string level, List<CveHit> hits, string note, bool failed = false)
     {
         CveLevel = level;
         Cves = hits;
         CveNote = note;
+        CveFailed = failed;
     }
+
+    /// <summary>Выпуск новее в той же ветке у разработчика (endoflife.date) — для контейнеров и собранного вручную.</summary>
+    public string Latest { get; set; } = "";
 
     /// <summary>Плашка — только когда есть что закрыть сейчас.</summary>
     public string CveText => CveLevel == "now" ? $"{Cves.Count} CVE" : "";
@@ -140,8 +147,13 @@ public sealed class VersionReport
                 .GroupBy(i => (i.Container, Cves: string.Join(",", i.Cves.Select(c => c.Id))))
                 .Select(g => $"{string.Join("/", g.Select(i => i.ProductText).Distinct())}{(g.Key.Container.Length > 0 ? $" в {g.Key.Container}" : "")} — {g.First().Cves.Count}")
                 .ToList();
-            var text = now.Count > 0 ? "Закрыть сейчас: " + string.Join(", ", now) : "CVE: срочного нет";
-            if (CveErrors.Length > 0 || CveStale is not null) text += " (не все базы ответили)";
+            var failed = Items.Where(i => i.CveFailed)
+                .Select(i => i.ProductText + (i.Container.Length > 0 ? $" в {i.Container}" : "")).Distinct().ToList();
+            var text = now.Count > 0 ? "Закрыть сейчас: " + string.Join(", ", now)
+                : failed.Count == 0 ? "CVE: срочного нет"
+                : Items.Any(i => i.CveLevel == "ok") ? "CVE: среди проверенных срочного нет" : "CVE: не проверены";
+            if (failed.Count > 0) text += " · не проверены (база не ответила): " + string.Join(", ", failed);
+            else if (CveErrors.Length > 0 || CveStale is not null) text += " (не все базы ответили)";
             return text;
         }
     }
@@ -610,6 +622,8 @@ public static class VersionsCheck
                 sb.AppendLine($"      {i.SourceText}" + (i.Note.Length > 0 ? $"; {i.Note}" : ""));
                 if (i.CveLevel == "now")
                     foreach (var c in i.Cves) sb.AppendLine("      ! " + c.Line);
+                else if (i.CveFailed)
+                    sb.AppendLine("      ? CVE не проверены — база не ответила: " + i.CveNote);
             }
             sb.AppendLine();
         }

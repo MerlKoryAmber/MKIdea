@@ -1,0 +1,53 @@
+@* Inventory → «Переместить в папку…» (0.7.9): хост, отмеченные хосты или папка — в выбранную папку. *@
+
+<div class="overlay">
+    <div class="window">
+        <div class="window-title">Переместить в папку</div>
+        <div class="window-body">
+            <div style="margin-bottom:6px">@What</div>
+            <select class="input" @bind="_target" style="width:100%">
+                @foreach (var (id, path) in Targets)
+                {
+                    <option value="@id">@path</option>
+                }
+            </select>
+            <div class="muted small" style="margin-top:4px">Только папки, где у вас есть право «Inventory». Доступы, выданные на папку, будут действовать по новому месту.</div>
+            @if (_msg.Length > 0) { <div class="error" style="margin-top:6px">@_msg</div> }
+        </div>
+        <div class="window-buttons">
+            <button class="btn" style="width:100px" @onclick="OnClose">Отмена</button>
+            <button class="btn primary" style="width:140px" @onclick="Go" disabled="@(Targets.Count == 0)">Переместить</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    /// <summary>Хосты или одна папка.</summary>
+    [Parameter] public IReadOnlyList<StoredHost> Hosts { get; set; } = Array.Empty<StoredHost>();
+    [Parameter] public HostFolder? Folder { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string _target = "", _msg = "";
+
+    private string What => Folder is { } f ? $"Папка «{S.FolderPath(f.Id)}» со всем содержимым"
+        : Hosts.Count == 1 ? $"Хост «{Hosts[0].Config.Title}» (сейчас: {S.FolderPath(Hosts[0].Config.FolderId)})"
+        : $"Хосты ({Hosts.Count}): {string.Join(", ", Hosts.Take(8).Select(h => h.Config.Title))}{(Hosts.Count > 8 ? " и ещё " + (Hosts.Count - 8) : "")}";
+
+    // куда можно: корень и видимые папки с правом; для папки — не в неё саму и не внутрь
+    private List<(string Id, string Path)> Targets =>
+        new[] { "" }.Concat(S.Folders.Select(f => f.Id))
+            .Where(id => Folder is { } f ? S.CanMoveFolder(f, id) : S.CanOnFolder(LinuxOps.Web.Services.Auth.Perm.HostsEdit, id) && Hosts.Any(h => h.Config.FolderId != id))
+            .Select(id => (id, S.FolderPath(id)))
+            .OrderBy(x => x.Item1.Length == 0 ? "" : x.Item2, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    protected override void OnInitialized() => _target = Targets.FirstOrDefault().Id ?? "";
+
+    private async Task Go()
+    {
+        var (ok, text) = Folder is { } f ? S.MoveFolder(f, _target) : S.MoveHosts(Hosts, _target);
+        if (!ok) { _msg = text; return; }
+        if (text.Length > 0) S.ShowNotice(text);
+        await OnClose.InvokeAsync();
+    }
+}

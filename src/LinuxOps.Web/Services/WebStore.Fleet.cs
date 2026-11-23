@@ -34,10 +34,12 @@ public sealed class FleetSnapshot
         Urgent = r.CveNowCount,
         Bad = r.BadCount, Warn = r.WarnCount,
         Items = r.Items
-            .Where(i => i.CveLevel == "now" || i.SecurityUpdate || i.Severity is "bad" or "warn")
+            .Where(i => i.CveLevel == "now" || i.SecurityUpdate || i.Severity is "bad" or "warn" || i.CveFailed)
             .OrderByDescending(i => i.CveLevel == "now").ThenByDescending(i => i.Severity == "bad").ThenByDescending(i => i.SecurityUpdate)
             .Select(i => new FleetItem(i.WhereText, i.ProductText, i.Version, i.Update, i.SecurityUpdate, i.CveText,
-                string.Join(", ", i.Cves.Select(c => c.Id)), i.StateText, i.CveLevel == "now" ? "bad" : i.Severity))
+                string.Join(", ", i.Cves.Select(c => c.Id)),
+                i.CveFailed ? $"CVE не проверены — база не ответила · {i.StateText}" : i.StateText,
+                i.CveLevel == "now" ? "bad" : i.Severity))
             .ToList()
     };
 }

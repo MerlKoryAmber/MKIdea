@@ -1,4 +1,4 @@
-@* SSH Files (урезанно): одна панель — папки хоста по SFTP; скачать в браузер, загрузить с ПК. *@
+@* SSH Files (урезанно): одна панель — папки хоста по SFTP; скачать в браузер, загрузить с ПК, правка текстовых файлов (0.7.9). *@
 @inject IJSRuntime JS
 @inject LinuxOps.Web.Services.Files.FileDownloads Downloads
 @implements IDisposable
@@ -25,29 +25,35 @@
                 <div class="row" style="margin-top:8px;gap:6px">
                     <button class="btn sm" @onclick="Up" disabled="@(_dir == "/" || _busy)" title="Вверх">↑</button>
                     <button class="btn sm" @onclick="Home" disabled="@_busy" title="Домашняя папка">⌂</button>
-                    <input class="input grow" style="height:28px" @bind="_pathInput" @onkeydown="PathKey" title="Путь — Enter, чтобы перейти" />
+                    <input class="input grow" style="height:28px" @bind="_pathInput" @bind:event="oninput" @onkeydown="PathKey" title="Путь — Enter, чтобы перейти" />
                     <button class="btn sm" @onclick="() => Go(_dir)" disabled="@_busy">Обновить</button>
-                    <button class="btn sm" @onclick="Download" disabled="@(_pick is not { IsDirectory: false } || _busy)" title="Скачать выбранный файл на этот ПК">Скачать</button>
+                    <button class="btn sm" @onclick="Download" disabled="@(_pick is not { IsDirectory: false } || _busy || _viaSudo)" title="Скачать выбранный файл на этот ПК">Скачать</button>
                     @if (CanWrite)
                     {
-                        <label class="btn sm file-btn @(_busy ? "disabled" : "")" title="Загрузить файл с этого ПК в текущую папку (до @FileEntry.FormatSize(WebSession.MaxUpload))">Загрузить…<InputFile OnChange="Upload" style="display:none" disabled="@_busy" /></label>
+                        <label class="btn sm file-btn @(_busy || _viaSudo ? "disabled" : "")" title="Загрузить файл с этого ПК в текущую папку (до @FileEntry.FormatSize(WebSession.MaxUpload))">Загрузить…<InputFile OnChange="Upload" style="display:none" disabled="@(_busy || _viaSudo)" /></label>
                     }
                 </div>
             }
         </div>
         @if (_b is null)
         {
-            <div class="conn-empty muted"><div>Выберите хост слева и нажмите «Открыть».</div><div class="small">Скачать — право «Файлы: чтение», загрузить — «Файлы: запись».</div></div>
+            <div class="conn-empty muted"><div>Выберите хост слева и нажмите «Открыть».</div><div class="small">Скачать и просмотр — право «Файлы: чтение», загрузить и править — «Файлы: запись». Правая кнопка по файлу — меню.</div></div>
         }
         else
         {
             <div class="scroll grid-wrap" style="flex:1;min-height:0">
                 <table class="grid">
-                    <thead><tr><th>Имя</th><th style="width:90px">Размер</th><th style="width:130px">Изменён</th><th style="width:100px">Права</th><th style="width:140px">Владелец</th></tr></thead>
-                    <tbody>
-                        @foreach (var e in _items)
+                    <thead><tr>
+                        @foreach (var (key, title, w) in Cols)
                         {
-                            <tr class="@(ReferenceEquals(e, _pick) ? "selected" : "")" @onclick="() => _pick = e" @ondblclick="() => Open(e)">
+                            <th class="sort-th" style="@(w > 0 ? $"width:{w}px" : "")" title="Сортировать" @onclick="() => SortBy(key)">@title@(_sort == key ? (_desc ? " ▼" : " ▲") : "")</th>
+                        }
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var e in Sorted())
+                        {
+                            <tr class="@(ReferenceEquals(e, _pick) ? "selected" : "")" @onclick="() => _pick = e" @ondblclick="() => Open(e)"
+                                @oncontextmenu="m => RowMenu(e, m)" @oncontextmenu:preventDefault="true">
                                 <td title="@e.FullPath">@(e.IsDirectory || e.IsParentNav ? "📁 " : "")@e.DisplayName</td>
                                 <td>@e.SizeText</td><td>@e.ModifiedText</td><td class="mono">@e.RightsText</td><td>@e.OwnerText</td>
                             </tr>
@@ -60,6 +66,29 @@
     </section>
 </div>
 
+@if (_rowMenu is { } rm)
+{
+    <div class="ctx-overlay" @onclick="() => _rowMenu = null" @oncontextmenu="() => _rowMenu = null" @oncontextmenu:preventDefault="true"></div>
+    <div class="ctx-menu" style="left:min(@Px(rm.X)px, calc(100vw - 230px));top:min(@Px(rm.Y)px, calc(100vh - 170px))">
+        @if (rm.E.IsDirectory || rm.E.IsParentNav)
+        {
+            <button @onclick="() => RowDo(() => Go(rm.E.FullPath))">Открыть</button>
+        }
+        else
+        {
+            <button @onclick="() => RowDo(() => Edit(rm.E))" title="Текстовый файл до 2 МБ, UTF-8">@(CanWrite ? "Изменить" : "Просмотр")</button>
+            @if (!_viaSudo) { <button @onclick="() => RowDo(Download)">Скачать</button> }
+        }
+        <hr />
+        <button @onclick="() => RowDo(() => CopyPath(rm.E.FullPath))">Копировать путь</button>
+    </div>
+}
+
+@if (_doc is { } doc && _b is not null && _host is not null)
+{
+    <TextEditor @key="doc" S="S" B="_b" Host="_host" Doc="doc" ReadOnly="@(!CanWrite)" OnClose="() => _doc = null" />
+}
+
 <HostMenu S="S" Here="ssh" Item="@_menu?.Item" X="@(_menu?.X ?? 0)" Y="@(_menu?.Y ?? 0)" OnClose="() => _menu = null" Connect="Connect" />
 
 @code {
@@ -68,10 +97,44 @@
     private (object Item, double X, double Y)? _menu;
     private void ShowMenu((object Item, double X, double Y) m) { if (m.Item is StoredHost) _menu = m; }
 
+    /// <summary>Вкладка на экране; открытая папка и правка живут и когда вкладка спрятана (0.7.9).</summary>
+    [Parameter] public bool Active { get; set; } = true;
+    protected override bool ShouldRender() => Active;
+
+    // ---------- меню по строке и правка (0.7.9) ----------
+    private (FileEntry E, double X, double Y)? _rowMenu;
+    private LinuxOps.Web.Services.Files.TextDoc? _doc;
+
+    private static string Px(double v) => Math.Max(4, v).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private void RowMenu(FileEntry e, MouseEventArgs m) { _pick = e; _rowMenu = (e, m.ClientX, m.ClientY); }
+
+    private async Task RowDo(Func<Task> act) { _rowMenu = null; if (_busy) return; await act(); }
+
+    private async Task Edit(FileEntry e)
+    {
+        if (_b is null || _host is null || _busy) return;
+        _busy = true;
+        _status = $"открываю {e.Name}…";
+        try
+        {
+            var b = _b;
+            _doc = await S.OpenText(b, _host, e.FullPath);
+            _status = _doc is null ? "" : $"{e.FullPath} открыт";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CopyPath(string path)
+    {
+        var ok = await JS.InvokeAsync<bool>("lo.copyText", path);
+        _status = ok ? $"скопировано: {path}" : $"не скопировалось — путь: {path}";
+    }
+
     /// <summary>Пришли сюда из меню другой вкладки («Открыть в …») — сразу открыть хост.</summary>
     protected override async Task OnAfterRenderAsync(bool first)
     {
-        if (!first || S.OpenHost is not { } h) return;
+        if (!Active || S.OpenHost is not { } h || h.IsWindows) return;
         S.OpenHost = null;
         _sel = h;
         StateHasChanged();
@@ -85,6 +148,33 @@
     private string _dir = "/", _pathInput = "/", _status = "";
     private IReadOnlyList<FileEntry> _items = [];
     private FileEntry? _pick;
+    private string _sort = "Name";
+    private bool _viaSudo;  // папка показана через sudo: SFTP туда не пускает
+    private bool _desc;
+
+    private static readonly (string Key, string Title, int Width)[] Cols =
+        [("Name", "Имя", 0), ("Size", "Размер", 90), ("Modified", "Изменён", 130), ("Rights", "Права", 100), ("Owner", "Владелец", 140)];
+
+    private void SortBy(string key)
+    {
+        if (_sort == key) _desc = !_desc;
+        else { _sort = key; _desc = false; }
+    }
+
+    // как в настольной версии: «..» первой, папки над файлами, внутри — по выбранной колонке
+    private IEnumerable<FileEntry> Sorted()
+    {
+        var rest = _items.Where(f => !f.IsParentNav).OrderByDescending(f => f.IsDirectory);
+        rest = _sort switch
+        {
+            "Size" => _desc ? rest.ThenByDescending(f => f.Size) : rest.ThenBy(f => f.Size),
+            "Modified" => _desc ? rest.ThenByDescending(f => f.Modified) : rest.ThenBy(f => f.Modified),
+            "Rights" => _desc ? rest.ThenByDescending(f => f.RightsText, StringComparer.Ordinal) : rest.ThenBy(f => f.RightsText, StringComparer.Ordinal),
+            "Owner" => _desc ? rest.ThenByDescending(f => f.OwnerText, StringComparer.OrdinalIgnoreCase) : rest.ThenBy(f => f.OwnerText, StringComparer.OrdinalIgnoreCase),
+            _ => _desc ? rest.ThenByDescending(f => f.Name, StringComparer.OrdinalIgnoreCase) : rest.ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+        };
+        return _items.Where(f => f.IsParentNav).Concat(rest.ThenBy(f => f.Name, StringComparer.Ordinal));
+    }
     private bool _busy;
     private CancellationTokenSource? _cts;
 
@@ -123,12 +213,27 @@
         try
         {
             var b = _b;
-            _items = await Task.Run(() => b.List(dir));
-            _dir = dir.Length > 1 ? dir.TrimEnd('/') : "/";
+            try
+            {
+                _items = await Task.Run(() => b.List(dir));
+                _dir = dir.Length > 1 ? dir.TrimEnd('/') : "/";
+                _viaSudo = false;
+            }
+            catch (Renci.SshNet.Common.SftpPermissionDeniedException) when (_host is not null)
+            {
+                // закрытая папка (/etc/sshd_config.d, /root…) — список от root, если хосту и пользователю можно
+                string? why = null;
+                var r = await S.ListAsRoot(_host, dir, t => why = t);
+                if (r is not { } ok) { _pathInput = _dir; S.ShowNotice($"{_host.Config.Title}: {dir}: {why}"); return; }
+                _items = ok.Items;
+                _dir = ok.Dir;
+                _viaSudo = true;
+            }
             _pathInput = _dir;
             _pick = null;
             var files = _items.Count(e => !e.IsDirectory && !e.IsParentNav);
-            _status = $"{_items.Count(e => e.IsDirectory && !e.IsParentNav)} папок, {files} файлов";
+            _status = $"{_items.Count(e => e.IsDirectory && !e.IsParentNav)} папок, {files} файлов" +
+                      (_viaSudo ? " · папка закрыта — список через sudo; файлы открываются через «Изменить», скачать и загрузить здесь нельзя" : "");
         }
         catch (Exception ex)
         {
@@ -149,6 +254,7 @@
     private async Task Open(FileEntry e)
     {
         if (e.IsDirectory || e.IsParentNav) await Go(e.FullPath);
+        else if (_viaSudo) await Edit(e);
         else { _pick = e; await Download(); }
     }
 
@@ -195,7 +301,9 @@
         _b?.Dispose();
         _b = null;
         _host = null;
+        _doc = null;
         _items = [];
+        _viaSudo = false;
     }
 
     public void Dispose() => Close();

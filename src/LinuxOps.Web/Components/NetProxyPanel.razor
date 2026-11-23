@@ -1,0 +1,43 @@
+@* ⚙ → «Выход в интернет» (0.7.9): прокси сервера для сверки CVE и туннеля «через сервер». Системный прокси не берётся. *@
+
+<div class="muted small" style="margin-bottom:6px">Через этот прокси сервер LinuxOps Web ходит в интернет: сверка CVE (NVD, Red Hat, CISA KEV, EPSS), последние выпуски (endoflife.date) и туннель «Списки обновлений — через сервер». Настройки системы (<code>/etc/environment</code>, dnf) не используются. Пусто — напрямую.</div>
+<div class="form-grid">
+    <label>Прокси</label>
+    <div>
+        <input class="input" @bind="_address" placeholder="proxy.corp.local:3128" autocomplete="off" style="width:320px" />
+        <div class="muted small">Адрес и порт HTTP-прокси; логин и пароль не поддерживаются.</div>
+    </div>
+    <label>Кроме</label>
+    <div>
+        <input class="input" @bind="_bypass" placeholder="*.corp.local, 10.1.2.3" autocomplete="off" style="width:320px" />
+        <div class="muted small">Имена и маски через запятую — к ним напрямую. Локальные адреса — всегда напрямую.</div>
+    </div>
+</div>
+<div class="wrap" style="margin-top:10px">
+    <button class="btn primary" @onclick="Save">Сохранить</button>
+    <button class="btn" style="margin-left:6px" @onclick="Probe" disabled="@_busy">@(_busy ? "Проверяю…" : "Проверить связь")</button>
+    <span class="muted small" style="margin-left:8px">@_msg</span>
+</div>
+<div class="muted small" style="margin-top:6px">«Проверить связь» — по сохранённому; запросы к NVD, EPSS и endoflife.date видны в журнале прокси.</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    private string _address = "", _bypass = "", _msg = "";
+    private bool _busy;
+
+    protected override void OnInitialized() { _address = S.NetProxyAddress; _bypass = S.NetProxyBypass; }
+
+    private void Save()
+    {
+        _msg = S.SetNetProxy(_address, _bypass);
+        if (_msg.StartsWith("Сохранено", StringComparison.Ordinal)) { _address = S.NetProxyAddress; _bypass = S.NetProxyBypass; }
+    }
+
+    private async Task Probe()
+    {
+        _busy = true;
+        _msg = "";
+        try { _msg = await S.ProbeNetProxy(); }
+        finally { _busy = false; }
+    }
+}

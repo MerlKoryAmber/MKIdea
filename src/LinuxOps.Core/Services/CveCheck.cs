@@ -72,7 +72,7 @@ public static partial class CveCheck
         var h = new SocketsHttpHandler
         {
             UseProxy = true,
-            Proxy = HttpClient.DefaultProxy,
+            Proxy = OutProxy.Dynamic,
             DefaultProxyCredentials = CredentialCache.DefaultCredentials,
             AutomaticDecompression = DecompressionMethods.All,
             ConnectTimeout = TimeSpan.FromSeconds(15)
@@ -112,27 +112,30 @@ public static partial class CveCheck
                 {
                     var ev = await task;
                     var hits = ev.Hits.Select(h => h with { Fix = WithRepoUpdate(h, ev, item) }).ToList();
-                    item.SetCve(ev.Error.Length > 0 && hits.Count == 0 ? "none" : hits.Count == 0 ? "ok" : "now",
-                        hits, ev.Error);
+                    var failed = ev.Error.Length > 0 && hits.Count == 0;
+                    item.SetCve(failed ? "none" : hits.Count == 0 ? "ok" : "now", hits, ev.Error, failed);
                 }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
-                    item.SetCve("none", new List<CveHit>(), $"не уложились в {Budget.TotalMinutes:0} мин");
+                    item.SetCve("none", new List<CveHit>(), $"не уложились в {Budget.TotalMinutes:0} мин", true);
                 }
             }
+            await Releases(r, ctx);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             ctx.Errors.Add($"не уложились в {Budget.TotalMinutes:0} мин");
-            foreach (var i in r.Items.Where(i => i.CveLevel.Length == 0)) i.SetCve("none", new List<CveHit>(), "не уложились по времени");
+            foreach (var i in r.Items.Where(i => i.CveLevel.Length == 0)) i.SetCve("none", new List<CveHit>(), "не уложились по времени", true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             ctx.Errors.Add(ex.Message);
             CrashLog.Write("Сверка CVE", ex);
-            foreach (var i in r.Items.Where(i => i.CveLevel.Length == 0)) i.SetCve("none", new List<CveHit>(), ex.Message);
+            foreach (var i in r.Items.Where(i => i.CveLevel.Length == 0)) i.SetCve("none", new List<CveHit>(), ex.Message, true);
         }
 
+        // сбой связи — сказать, через что шли (веб: прокси из ⚙ или «не задан»)
+        if ((ctx.Errors.Count > 0 || r.Items.Any(i => i.CveFailed)) && OutProxy.Note.Length > 0) ctx.Errors.Add(OutProxy.Note);
         r.CveDone = true;
         r.CveErrors = string.Join("; ", ctx.Errors.Distinct());
         r.CveStale = ctx.Stale.Count > 0 ? ctx.Stale.Min() : null;

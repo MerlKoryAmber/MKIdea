@@ -1,0 +1,92 @@
+@* Files → «Изменить» / «Просмотр» (0.7.9): текстовый файл хоста в окне; сохранить — на место, с копией прежней версии. *@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="overlay">
+    <div class="window editor-window">
+        <div class="window-title">@(ReadOnly ? "Просмотр" : "Правка") — @Doc.Path · @Host.Config.Title@(Doc.Elevated ? " · sudo" : "")@(_dirty ? " ●" : "")</div>
+        <div class="window-body editor-body">
+            <textarea id="@Id" class="editor-area mono" spellcheck="false" readonly="@ReadOnly">@_initial</textarea>
+        </div>
+        <div class="window-buttons">
+            <span class="muted small grow ell" style="text-align:left" title="@_status">@_status</span>
+            <button class="btn" style="width:110px" @onclick="Close">Закрыть</button>
+            @if (!ReadOnly)
+            {
+                <button class="btn primary" style="width:130px" @onclick="Save" disabled="@_busy" title="Ctrl+S">Сохранить</button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter, EditorRequired] public SftpBrowser B { get; set; } = null!;
+    [Parameter, EditorRequired] public StoredHost Host { get; set; } = null!;
+    [Parameter, EditorRequired] public LinuxOps.Web.Services.Files.TextDoc Doc { get; set; } = null!;
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private readonly string Id = "ed-" + Guid.NewGuid().ToString("N")[..8];
+    private string _status = "", _initial = "";
+    private bool _dirty, _busy;
+    private IJSObjectReference? _mod;
+    private DotNetObjectReference<TextEditor>? _self;
+
+    protected override void OnInitialized()
+    {
+        _initial = Doc.Text;
+        _status = ReadOnly ? "Только просмотр: нет права «Файлы: запись»." : "Перед записью прежняя версия копируется на хосте в ~/.linuxops-bak (через sudo — в ~root/.linuxops-bak). Ctrl+S — сохранить.";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _mod = await JS.InvokeAsync<IJSObjectReference>("import", WebPaths.Asset("./editor.js"));
+        _self = DotNetObjectReference.Create(this);
+        await _mod.InvokeVoidAsync("init", Id, _self);
+    }
+
+    [JSInvokable] public Task Dirty() => InvokeAsync(() => { _dirty = true; StateHasChanged(); });
+    [JSInvokable] public Task SaveKey() => InvokeAsync(Save);
+
+    private async Task Save()
+    {
+        if (_busy || ReadOnly || _mod is null) return;
+        _busy = true;
+        _status = "сохраняю…";
+        StateHasChanged();
+        try
+        {
+            var stream = await _mod.InvokeAsync<IJSStreamReference>("text", Id);
+            await using var s = await stream.OpenReadStreamAsync(LinuxOps.Web.Services.Files.RemoteText.MaxBytes + 1);
+            using var reader = new StreamReader(s, new System.Text.UTF8Encoding(false));
+            var text = await reader.ReadToEndAsync();
+            if (text == Doc.Text) { _status = "изменений нет"; _dirty = await _mod.InvokeAsync<bool>("clean", Id); return; }
+            var r = await S.SaveText(B, Host, Doc, text);
+            if (r is null) { _status = "не сохранено"; return; }
+            _status = r;
+            // дописали во время записи — «несохранённое» остаётся
+            _dirty = await _mod.InvokeAsync<bool>("clean", Id);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or JSException)
+        {
+            _status = "не сохранено: " + ex.Message;
+        }
+        // из Ctrl+S (JS) перерисовка сама не наступит
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    private async Task Close()
+    {
+        var dirty = _mod is not null && await _mod.InvokeAsync<bool>("dirty", Id);
+        if (dirty && !ReadOnly && !await S.Dialogs.Confirm($"В {Doc.Path} есть несохранённые изменения. Закрыть без сохранения?", "Правка")) return;
+        await OnClose.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_mod is not null) { await _mod.InvokeVoidAsync("dispose", Id); await _mod.DisposeAsync(); } } catch (JSDisconnectedException) { }
+        _self?.Dispose();
+    }
+}

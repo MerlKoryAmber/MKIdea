@@ -10,6 +10,10 @@
             {
                 <div class="v-cve">@v.CveSummary</div>
             }
+            @if (v.CveErrors.Length > 0)
+            {
+                <div class="v-updates v-err" title="@v.CveErrors">Связь с базами: @v.CveErrors</div>
+            }
             @if (v.TunnelLog.Length > 0)
             {
                 <div class="v-updates">@v.TunnelLog</div>
@@ -47,6 +51,15 @@
                                         <span class="sbadge sev-bad strong">@i.CveText</span>
                                         <div class="cve-id">@i.CveTop</div>
                                     </div>
+                                }
+                                else if (i.CveFailed)
+                                {
+                                    <span class="sbadge sev-warn" title="@i.CveTooltip">не проверены</span>
+                                    <div class="note" title="@i.CveNote">база не ответила</div>
+                                }
+                                else if (i.CveLevel == "none" && i.CveNote.Length > 0)
+                                {
+                                    <span class="note" title="@i.CveTooltip">не сверялись</span>
                                 }
                             </td>
                             <td class="ell muted-d" title="@i.Path">@i.SourceText</td>

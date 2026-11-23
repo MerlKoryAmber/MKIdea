@@ -48,6 +48,7 @@
                 <div class="section-title" style="margin-bottom:6px">@(_sel?.Host ?? "Детали")</div>
                 @if (_sel is { At: var at } sf && at != default)
                 {
+                    <div class="muted small" style="margin-bottom:4px">@sf.At.ToString("dd.MM HH:mm") · @(sf.Who == LinuxOps.Web.Services.FleetCheck.Who ? "по расписанию — без окна параметров, параметры в ⚙ → «Проверка уязвимостей»" : "запустил " + sf.Who)</div>
                     <div class="small" style="margin-bottom:4px">@sf.Summary</div>
                     <div class="muted small">@sf.UpdatesText</div>
                     @if (sf.CveSummary.Length > 0) { <div class="small" style="margin-top:4px">@sf.CveSummary</div> }

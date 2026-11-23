@@ -147,6 +147,10 @@ input[type=checkbox].partial { opacity: .55; }
 .tree-row.host { min-height: 36px; }
 .tree-row:hover { background: var(--hover-soft); }
 .tree-row.selected { background: var(--selected); }
+/* перетаскивание в Inventory (0.7.9) */
+.tree-row.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.tree-root-drop { margin: 6px 2px; padding: 8px; border: 2px dashed var(--line); border-radius: 6px; text-align: center; font-size: 12px; opacity: .75; }
+.tree-root-drop.drop { border-color: var(--accent); opacity: 1; }
 .tree-row > input[type=checkbox] { margin-right: 6px; }
 .tree-toggle { width: 18px; text-align: center; color: var(--muted); cursor: pointer; font-size: 11px; }
 .folder-icon { margin-right: 8px; flex: none; }
@@ -225,6 +229,7 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .v-summary { color: #E8F1F7; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v-updates { color: #8EB8B0; font-size: 11.5px; margin-top: 3px; }
 .v-cve { color: #F0A0A0; font-size: 12px; font-weight: 600; margin-top: 4px; }
+.v-updates.v-err { color: #E0B070; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .v-list { flex: 1; min-height: 0; margin: 0 6px; }
 .v-list table { border-collapse: collapse; table-layout: fixed; width: 1064px; }
 .v-list th { position: sticky; top: 0; background: #152536; color: #8EB8B0; font-weight: 400; font-size: 12px; text-align: left; padding: 4px 6px; border-bottom: 1px solid #1E3348; }
@@ -242,6 +247,8 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .grid-wrap { margin: 10px; }
 .grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .grid th { position: sticky; top: 0; background: var(--header-cell); text-align: left; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.grid th.sort-th { cursor: pointer; user-select: none; white-space: nowrap; }
+.grid th.sort-th:hover { color: var(--accent, inherit); }
 .grid td { padding: 5px 8px; border-bottom: 1px solid var(--card-line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid tbody tr:nth-child(even) { background: var(--row-alt); }
 .grid tbody tr:hover { background: var(--hover-soft); }
@@ -272,6 +279,11 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
     box-shadow: 0 12px 40px rgba(0, 0, 0, .35);
 }
 .window.wide { width: 560px; }
+/* Files → правка текста (0.7.9) */
+.window.editor-window { width: min(1100px, 94vw); height: 86vh; max-height: 86vh; }
+.window-body.editor-body { flex: 1; min-height: 0; padding: 0; overflow: hidden; display: flex; }
+.editor-area { flex: 1; width: 100%; resize: none; border: 0; outline: 0; padding: 10px 14px; background: var(--surface); color: var(--text); font: 13px/1.45 var(--mono); tab-size: 4; white-space: pre; overflow: auto; }
+.editor-window .window-buttons { padding-top: 10px; align-items: center; }
 .window-title { padding: 10px 16px; font-weight: 600; border-bottom: 1px solid var(--line); background: var(--surface-alt); border-radius: 8px 8px 0 0; }
 .window-body { padding: 16px 20px; overflow: auto; }
 .window-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 16px; }

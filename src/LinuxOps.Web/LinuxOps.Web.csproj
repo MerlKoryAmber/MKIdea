@@ -1,20 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <!-- LinuxOps Web: веб-сервис (Blazor Server) на ядре LinuxOps.Core. План — docs/linuxops/PLAN-web.md. -->
+  <!-- LinuxOps Web: Ð²ÐµÐ±-ÑÐµÑ€Ð²Ð¸Ñ (Blazor Server) Ð½Ð° ÑÐ´Ñ€Ðµ LinuxOps.Core. ÐŸÐ»Ð°Ð½ â€” docs/linuxops/PLAN-web.md. -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LinuxOps.Web</RootNamespace>
-    <Version>0.7.8</Version>
-    <!-- номера сборки — из Version (менять только её): по AssemblyVersion шапка и ?v= у стилей и скриптов -->
+    <Version>0.7.9</Version>
+    <!-- Ð½Ð¾Ð¼ÐµÑ€Ð° ÑÐ±Ð¾Ñ€ÐºÐ¸ â€” Ð¸Ð· Version (Ð¼ÐµÐ½ÑÑ‚ÑŒ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ÐµÑ‘): Ð¿Ð¾ AssemblyVersion ÑˆÐ°Ð¿ÐºÐ° Ð¸ ?v= Ñƒ ÑÑ‚Ð¸Ð»ÐµÐ¹ Ð¸ ÑÐºÑ€Ð¸Ð¿Ñ‚Ð¾Ð² -->
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
     <Company>Merl</Company>
     <Product>LinuxOps Web</Product>
-    <Copyright>Copyright © Merl 2026</Copyright>
-    <!-- без пакета Microsoft.AspNetCore.App.Internal.Assets для отладочных скриптов: не нужен -->
+    <Copyright>Copyright Â© Merl 2026</Copyright>
+    <!-- Ð±ÐµÐ· Ð¿Ð°ÐºÐµÑ‚Ð° Microsoft.AspNetCore.App.Internal.Assets Ð´Ð»Ñ Ð¾Ñ‚Ð»Ð°Ð´Ð¾Ñ‡Ð½Ñ‹Ñ… ÑÐºÑ€Ð¸Ð¿Ñ‚Ð¾Ð²: Ð½Ðµ Ð½ÑƒÐ¶ÐµÐ½ -->
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
@@ -24,7 +24,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.34" />
-    <!-- явно: Microsoft.Data.Sqlite тянет e_sqlite3 2.1.6 (CVE-2025-6965), исправлено в 2.1.12+ -->
+    <!-- ÑÐ²Ð½Ð¾: Microsoft.Data.Sqlite Ñ‚ÑÐ½ÐµÑ‚ e_sqlite3 2.1.6 (CVE-2025-6965), Ð¸ÑÐ¿Ñ€Ð°Ð²Ð»ÐµÐ½Ð¾ Ð² 2.1.12+ -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.14" />
     <PackageReference Include="QRCoder" Version="1.9.0" />
     <PackageReference Include="System.DirectoryServices.Protocols" Version="8.0.1" />
@@ -35,9 +35,9 @@
   </ItemGroup>
 
   <!--
-    .NET внутри сборки (self-contained): на сервере ничего не скачивается, среда выполнения едет в архиве релиза.
-    Последнее исправление .NET 8 — здесь, а не версия, вшитая в SDK на ПК сборки: пакеты среды берутся с NuGet.
-    Новое исправление вышло — поднять LinuxOpsRuntimePatch (скрипт сборки предупредит).
+    .NET Ð²Ð½ÑƒÑ‚Ñ€Ð¸ ÑÐ±Ð¾Ñ€ÐºÐ¸ (self-contained): Ð½Ð° ÑÐµÑ€Ð²ÐµÑ€Ðµ Ð½Ð¸Ñ‡ÐµÐ³Ð¾ Ð½Ðµ ÑÐºÐ°Ñ‡Ð¸Ð²Ð°ÐµÑ‚ÑÑ, ÑÑ€ÐµÐ´Ð° Ð²Ñ‹Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¸Ñ ÐµÐ´ÐµÑ‚ Ð² Ð°Ñ€Ñ…Ð¸Ð²Ðµ Ñ€ÐµÐ»Ð¸Ð·Ð°.
+    ÐŸÐ¾ÑÐ»ÐµÐ´Ð½ÐµÐµ Ð¸ÑÐ¿Ñ€Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ .NET 8 â€” Ð·Ð´ÐµÑÑŒ, Ð° Ð½Ðµ Ð²ÐµÑ€ÑÐ¸Ñ, Ð²ÑˆÐ¸Ñ‚Ð°Ñ Ð² SDK Ð½Ð° ÐŸÐš ÑÐ±Ð¾Ñ€ÐºÐ¸: Ð¿Ð°ÐºÐµÑ‚Ñ‹ ÑÑ€ÐµÐ´Ñ‹ Ð±ÐµÑ€ÑƒÑ‚ÑÑ Ñ NuGet.
+    ÐÐ¾Ð²Ð¾Ðµ Ð¸ÑÐ¿Ñ€Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ Ð²Ñ‹ÑˆÐ»Ð¾ â€” Ð¿Ð¾Ð´Ð½ÑÑ‚ÑŒ LinuxOpsRuntimePatch (ÑÐºÑ€Ð¸Ð¿Ñ‚ ÑÐ±Ð¾Ñ€ÐºÐ¸ Ð¿Ñ€ÐµÐ´ÑƒÐ¿Ñ€ÐµÐ´Ð¸Ñ‚).
   -->
   <PropertyGroup>
     <LinuxOpsRuntimePatch>8.0.34</LinuxOpsRuntimePatch>
@@ -49,7 +49,7 @@
     </ItemGroup>
   </Target>
 
-  <!-- Версия рядом со скриптами установки: deploy/VERSION -->
+  <!-- Ð’ÐµÑ€ÑÐ¸Ñ Ñ€ÑÐ´Ð¾Ð¼ ÑÐ¾ ÑÐºÑ€Ð¸Ð¿Ñ‚Ð°Ð¼Ð¸ ÑƒÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ¸: deploy/VERSION -->
   <Target Name="WriteDeployVersion" AfterTargets="Publish">
     <WriteLinesToFile File="$(PublishDir)deploy/VERSION" Lines="$(Version)" Overwrite="true" />
   </Target>

@@ -6,7 +6,13 @@
 }
 else
 {
-    <div class="tree">@Level("", 0)</div>
+    <div class="tree @(_drag is not null ? "dragging" : "")" data-drop="@(Drop.HasDelegate ? "1" : null)" @ondrop='() => DoDrop("")' @ondragend="EndDrag">
+        @Level("", 0)
+        @if (_drag is not null)
+        {
+            <div class="tree-root-drop @(_over == "" ? "drop" : "")" @ondragenter='() => Over("")'>Сюда — в корень</div>
+        }
+    </div>
 }
 
 @code {
@@ -24,6 +30,25 @@ else
     /// <summary>Правая кнопка: хост или папка и где открыть меню (координаты окна).</summary>
     [Parameter] public EventCallback<(object Item, double X, double Y)> Context { get; set; }
 
+    /// <summary>Inventory: перетащили хост или папку (0.7.9) — куда (id папки, "" — корень).</summary>
+    [Parameter] public EventCallback<(object Item, string FolderId)> Drop { get; set; }
+    private object? _drag;
+    private string? _over;
+
+    private async Task DoDrop(string folderId)
+    {
+        var item = _drag;
+        EndDrag();
+        if (item is null || !Drop.HasDelegate) return;
+        if (item is HostFolder f && f.Id == folderId) return; // на саму себя
+        await Drop.InvokeAsync((item, folderId));
+    }
+
+    // в Actions и Files (без Drop) перетаскивание выделенного текста не должно включать зону «в корень»
+    private void StartDrag(object item) { if (Drop.HasDelegate) _drag = item; }
+    private void Over(string folderId) { if (_drag is not null) _over = folderId; }
+    private void EndDrag() { _drag = null; _over = null; }
+
     private async Task Menu(object item, MouseEventArgs e)
     {
         if (!Context.HasDelegate) return;
@@ -40,7 +65,9 @@ else
             var some = hosts.Any(h => h.Config.IsSelected);
             // галка у папки — только если отметили саму папку; отмеченные внутри хосты — «частично» (черта)
             var on = all && S.CheckedFolders.Contains(f.Id);
-            <div class="tree-row @(ReferenceEquals(Selected, f) ? "selected" : "")" style="padding-left:@(depth * 19 + 2)px"
+            <div class="tree-row @(ReferenceEquals(Selected, f) ? "selected" : "") @(_over == f.Id ? "drop" : "")" style="padding-left:@(depth * 19 + 2)px"
+                 draggable="@(Drop.HasDelegate ? "true" : "false")" @ondragstart="() => StartDrag(f)" @ondragenter="() => Over(f.Id)"
+                 @ondrop="() => DoDrop(f.Id)" @ondrop:stopPropagation="true"
                  @onclick="() => Pick(f)" @ondblclick="() => Activated.InvokeAsync(f)"
                  @oncontextmenu="e => Menu(f, e)" @oncontextmenu:preventDefault="@Context.HasDelegate">
                 <span class="tree-toggle" @onclick="() => Toggle(f)" @onclick:stopPropagation="true">@(f.IsExpanded ? "▾" : "▸")</span>
@@ -72,7 +99,9 @@ else
         foreach (var h in Shown.Where(h => FolderOf(h) == parent))
         {
             var c = h.Config;
-            <div class="tree-row host @(ReferenceEquals(Selected, h) ? "selected" : "")" style="padding-left:@(depth * 19 + 20)px" title="@(h.IsWindows ? c.Title + " · RDP " + c.Host : c.Display)"
+            <div class="tree-row host @(ReferenceEquals(Selected, h) ? "selected" : "")" style="padding-left:@(depth * 19 + 20)px"
+                 draggable="@(Drop.HasDelegate ? "true" : "false")" @ondragstart="() => StartDrag(h)" @ondragenter="() => Over(FolderOf(h))"
+                 @ondrop="() => DoDrop(FolderOf(h))" @ondrop:stopPropagation="true" title="@(h.IsWindows ? c.Title + " · RDP " + c.Host : c.Display)"
                  @onclick="() => Pick(h)" @ondblclick="() => Activated.InvokeAsync(h)"
                  @oncontextmenu="e => Menu(h, e)" @oncontextmenu:preventDefault="@Context.HasDelegate">
                 @if (Checks)
