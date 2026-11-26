@@ -39,10 +39,17 @@
                     @if (_auth == "Key")
                     {
                         <div class="lbl">Закрытый ключ</div>
-                        <div class="row" style="gap:8px">
-                            <div class="input grow readonly ell">@(_key is { Length: > 0 } ? "загружен: " + _keyName : "не выбран — у хостов останется их ключ")</div>
-                            <label class="btn file-btn" style="width:90px">Файл…<InputFile OnChange="PickKey" style="display:none" /></label>
+                        <div class="row key-file-row">
+                            <div class="input grow readonly ell">@(_key is { Length: > 0 } ? "загружен: " + _keyName : S.HasGeneratedKey ? "создан на сервере" : "не выбран — у хостов останется их ключ")</div>
+                            <label class="btn file-btn">Файл…<InputFile OnChange="PickKey" style="display:none" /></label>
+                            <button type="button" class="btn" @onclick="CreateKey" disabled="@_busy">Создать на сервере</button>
                         </div>
+                        @if (S.HasGeneratedKey && _key is not { Length: > 0 })
+                        {
+                            <div class="small" style="margin-top:6px">@S.GeneratedFingerprint · @S.GeneratedComment</div>
+                            <div class="key-pub">@S.GeneratedPublic</div>
+                            <button type="button" class="btn sm" data-copy="@S.GeneratedPublic" data-label="Копировать" onclick="lo.copyBtn(this)">Копировать</button>
+                        }
                     }
                     else
                     {
@@ -55,15 +62,19 @@
                         <option value="1">выполнять через sudo</option>
                         <option value="0">без sudo</option>
                     </select>
-                    <div class="muted small" style="margin-top:10px">На сами хосты ничего не пишется — только в хранилище сервиса (зашифровано). Ключ должен уже быть в authorized_keys на хостах.</div>
+                    <div class="muted small" style="margin-top:10px">@Hint</div>
                     @if (_error.Length > 0) { <div class="error">@_error</div> }
                     @if (_done.Length > 0) { <div class="ok-text small" style="margin-top:8px">@_done</div> }
+                    @foreach (var line in _lines)
+                    {
+                        <div class="@(line.Ok ? "ok-text" : "error") small">@line.Host: @line.Text</div>
+                    }
                 </div>
             </div>
         </div>
         <div class="window-buttons">
             <button class="btn" style="width:100px" @onclick="Close">@(_done.Length > 0 ? "Закрыть" : "Отмена")</button>
-            <button class="btn primary" style="width:180px" @onclick="Apply" disabled="@(_on.Count == 0)">Применить к @_on.Count</button>
+            <button class="btn primary" style="width:180px" @onclick="Apply" disabled="@(_on.Count == 0 || _busy)">@(_busy ? "Ставлю ключ…" : $"Применить к {_on.Count}")</button>
         </div>
     </div>
 </div>
@@ -75,8 +86,14 @@
     [Parameter] public EventCallback OnClose { get; set; }
 
     private readonly HashSet<string> _on = new();
+    private readonly List<KeyInstallLine> _lines = new();
     private string _filter = "", _user = "", _auth = "Key", _password = "", _sudo = "", _error = "", _done = "";
     private string? _key, _keyName;
+    private bool _busy;
+
+    private string Hint => S.HasGeneratedKey && _key is not { Length: > 0 }
+        ? "Открытый ключ дописывается на отмеченные хосты текущим доступом. После проверки входа старая строка ключа службы снимается. Чужие строки не трогаются. Закрытый ключ в браузер не попадает."
+        : "Файл ключа пишется только в хранилище сервиса — на хосты ничего не уходит. «Создать на сервере» ставит открытый ключ на хосты и снимает прежний ключ службы.";
 
     private List<StoredHost> Linux => S.Hosts.Where(h => !h.IsWindows).ToList();
 
@@ -124,27 +141,49 @@
                 return;
             }
             _key = text; _keyName = e.File.Name;
+            S.ClearGeneratedKey();
         }
         catch (Exception ex) { _error = "Файл не прочитан: " + ex.Message; }
     }
 
     private Task Close() => OnClose.InvokeAsync();
 
-    private void Apply()
+    private void CreateKey()
     {
         _error = _done = "";
+        _lines.Clear();
+        _key = null; _keyName = null;
+        var err = S.CreateServerKey();
+        if (err.Length > 0) _error = err;
+    }
+
+    private async Task Apply()
+    {
+        _error = _done = "";
+        _lines.Clear();
         var user = _user.Trim();
         if (user.Any(char.IsWhiteSpace) || user.Length > 64) { _error = "Логин без пробелов, до 64 знаков."; return; }
         if (_auth == "Password" && _password.Length == 0) { _error = "Введите пароль."; return; }
         var hosts = S.Hosts.Where(h => _on.Contains(h.Id)).ToList();
-        if (_auth == "Key" && _key is not { Length: > 0 } && hosts.Any(h => !h.HasKey))
+        var sudo = _sudo switch { "1" => true, "0" => false, _ => (bool?)null };
+        if (_auth == "Key" && S.HasGeneratedKey && _key is not { Length: > 0 })
         {
-            _error = $"У {hosts.Count(h => !h.HasKey)} отмеченных хостов ключа нет — загрузите ключ.";
+            _busy = true;
+            try
+            {
+                var lines = await S.InstallGeneratedKey(hosts, user, sudo);
+                _lines.AddRange(lines);
+                if (lines.Count > 0 && lines.All(l => l.Ok)) _done = "Готово.";
+            }
+            finally { _busy = false; }
             return;
         }
-        var r = S.BulkCredential(hosts, user, _auth == "Key", _key, _keyName, _auth == "Password" ? _password : null,
-            _sudo switch { "1" => true, "0" => false, _ => null });
-        // успех — «Готово: …», остальное — отказ (красным)
+        if (_auth == "Key" && _key is not { Length: > 0 } && hosts.Any(h => !h.HasKey))
+        {
+            _error = $"У {hosts.Count(h => !h.HasKey)} отмеченных хостов ключа нет — загрузите ключ или создайте на сервере.";
+            return;
+        }
+        var r = S.BulkCredential(hosts, user, _auth == "Key", _key, _keyName, _auth == "Password" ? _password : null, sudo);
         if (r.StartsWith("Готово", StringComparison.Ordinal)) _done = r; else _error = r;
         _password = "";
     }

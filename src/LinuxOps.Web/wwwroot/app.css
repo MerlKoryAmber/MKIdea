@@ -428,6 +428,9 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .creds-list { height: 50vh; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .creds-folder { font-size: 12px; font-weight: 600; margin: 8px 0 2px; color: var(--muted); }
 .creds-host { display: flex; gap: 6px; align-items: center; padding: 2px 0 2px 12px; }
+.key-pub { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; max-height: 4.5em; overflow: auto; }
+.key-file-row { gap: 8px; flex-wrap: wrap; }
+.key-file-row > .btn { flex: 0 0 auto; }
 @media (max-width: 760px) { .creds-grid { grid-template-columns: 1fr; } }
 
 /* ---------- сеансы: идут сейчас, проигрыватель на весь экран (0.7.7) ---------- */

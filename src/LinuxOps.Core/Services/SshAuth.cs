@@ -54,6 +54,28 @@ public static class SshAuth
             KeyPassphrases.Load(host, path, path, pass => pass is null ? new PrivateKeyFile(path) : new PrivateKeyFile(path, pass)));
     }
 
+    /// <summary>Тело открытого ключа из того закрытого, которым входим. Пароль ключа спрашивается один раз и кэшируется. Парольный вход — null.</summary>
+    public static string? OpenSshPublicBlob(HostConfig host)
+    {
+        if (string.Equals(host.Auth, "Password", StringComparison.OrdinalIgnoreCase)) return null;
+        PrivateKeyFile file;
+        if (!string.IsNullOrWhiteSpace(host.PrivateKeyText))
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(host.PrivateKeyText.Replace("\r\n", "\n"));
+            file = KeyPassphrases.Load(host, $"ключ хоста {host.Title}", "mem:" + host.Username + "@" + host.Host,
+                pass => pass is null ? new PrivateKeyFile(new MemoryStream(bytes)) : new PrivateKeyFile(new MemoryStream(bytes), pass));
+        }
+        else
+        {
+            var keyPath = Environment.ExpandEnvironmentVariables(host.PrivateKeyPath ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(keyPath) || !File.Exists(keyPath)) return null;
+            var path = Path.GetFullPath(keyPath);
+            file = KeyPassphrases.Load(host, path, path, pass => pass is null ? new PrivateKeyFile(path) : new PrivateKeyFile(path, pass));
+        }
+        using (file)
+            return SshKeyGen.PublicBlob(file);
+    }
+
     /// <summary>Пароли зашифрованных ключей: спрашиваются при подключении, живут в памяти до закрытия приложения.</summary>
     private static class KeyPassphrases
     {
