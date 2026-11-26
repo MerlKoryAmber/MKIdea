@@ -37,6 +37,8 @@ builder.Services.AddSingleton<LinuxOps.Web.Services.Guac.GuacLive>();
 builder.Services.AddSingleton<LinuxOps.Web.Services.Files.FileDownloads>();
 builder.Services.AddSingleton<FleetCheck>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<FleetCheck>());
+builder.Services.AddSingleton<KeyRotate>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<KeyRotate>());
 builder.Services.AddSingleton<RecordingsKeeper>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordingsKeeper>());
 builder.Services.AddScoped<PromptChannel>();

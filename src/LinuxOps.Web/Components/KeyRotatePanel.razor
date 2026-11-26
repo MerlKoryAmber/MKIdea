@@ -1,0 +1,83 @@
+@* ⚙ → «Ключи SSH» (0.7.12): срок в днях и смена ключа, созданного службой. *@
+@inject KeyRotate Keys
+
+<div class="muted small" style="margin-bottom:6px">Меняется только ключ, созданный в Inventory → «Учётка SSH…» → «Создать на сервере». Одна новая пара на все такие хосты: дописать, проверить вход, записать секрет, снять прежнюю строку службы. Свой файл, чужие строки и пароль в базе не трогаются. Служба была выключена в день срока — смена при следующем запуске, если срок уже вышел.</div>
+<div class="form-grid">
+    <label>Менять каждые, дней</label>
+    <div>
+        <input class="input" @bind="_days" placeholder="пусто — не менять" style="width:180px" autocomplete="off" />
+        <div class="muted small">Число от 1 до @KeyRotate.MaxDays. Пусто или 0 — не менять.</div>
+    </div>
+</div>
+<div class="wrap" style="margin-top:10px">
+    <button class="btn primary" @onclick="Save" disabled="@_busy">Сохранить</button>
+    <button class="btn" style="margin-left:6px" @onclick="Now" disabled="@(_busy || Keys.Running)">@(Keys.Running ? "Меняю ключ…" : "Сменить сейчас")</button>
+    <span class="muted small" style="margin-left:8px">@_msg</span>
+</div>
+@if (Keys.LastText.Length > 0)
+{
+    <div class="muted small" style="margin-top:6px">Последний запуск: @Keys.LastText</div>
+}
+@if (_rows.Count > 0)
+{
+    <table class="grid keys" style="margin-top:12px">
+        <thead><tr><th>Хост</th><th>Отпечаток</th><th>Когда меняли</th><th>Следующая</th><th>Ошибка</th></tr></thead>
+        <tbody>
+        @foreach (var r in _rows)
+        {
+            <tr>
+                <td>@r.Host</td>
+                <td class="mono">@r.Fingerprint</td>
+                <td>@r.Changed</td>
+                <td>@r.Next</td>
+                <td>@r.Error</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="muted small" style="margin-top:10px">Ключей службы пока нет. Они появляются после «Создать на сервере».</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    private string _days = "", _msg = "";
+    private bool _busy;
+    private IReadOnlyList<KeyRotateRow> _rows = [];
+
+    protected override void OnInitialized()
+    {
+        var n = Keys.Days;
+        _days = n > 0 ? n.ToString() : "";
+        _rows = Keys.Rows();
+    }
+
+    private void Save()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        var err = Keys.SaveDays(_days, S.Who);
+        _msg = err.Length > 0 ? err : (Keys.Days > 0 ? $"Сохранено: каждые {Keys.Days} дн." : "Сохранено: не менять.");
+        if (err.Length == 0) _days = Keys.Days > 0 ? Keys.Days.ToString() : "";
+        _rows = Keys.Rows();
+    }
+
+    private async Task Now()
+    {
+        if (!S.Can(Perm.Settings)) return;
+        if (!Keys.RunNow(S.Who)) { _msg = "Смена уже идёт."; return; }
+        _busy = true;
+        _msg = "Идёт смена ключа службы…";
+        try
+        {
+            for (var i = 0; i < 20 && !Keys.Running; i++)
+                await Task.Delay(100);
+            for (var i = 0; i < 80 && Keys.Running; i++)
+                await Task.Delay(500);
+            _rows = Keys.Rows();
+            _msg = Keys.LastText.Length > 0 ? Keys.LastText : "Готово.";
+        }
+        finally { _busy = false; }
+    }
+}

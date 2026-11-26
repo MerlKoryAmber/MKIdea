@@ -430,6 +430,8 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .creds-host { display: flex; gap: 6px; align-items: center; padding: 2px 0 2px 12px; }
 .key-pub { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; max-height: 4.5em; overflow: auto; }
 .key-file-row { gap: 8px; flex-wrap: wrap; }
+.grid.keys { table-layout: auto; }
+.grid.keys td { white-space: normal; }
 .key-file-row > .btn { flex: 0 0 auto; }
 @media (max-width: 760px) { .creds-grid { grid-template-columns: 1fr; } }
 
