@@ -26,7 +26,9 @@ public static class PsHighlighting
                 "Command" or "Commands" => dark ? "#4EC9B0" : "#2B91AF",
                 "Variable" or "Variables" => dark ? "#9CDCFE" : "#C1440E",
                 "Operators" or "Operator" => dark ? "#C8CFD6" : "#5A5A5A",
-                "Digits" or "Number" => dark ? "#B5CEA8" : "#800080",
+                "NumberLiteral" or "Digits" or "Number" => dark ? "#B5CEA8" : "#098658",
+                "ExceptionKeywords" or "GotoKeywords" => dark ? "#C586C0" : "#AF00DB",
+                "ReferenceTypes" => dark ? "#4EC9B0" : "#267F99",
                 _ => null
             };
             if (rgb is not null) c.Foreground = new SimpleHighlightingBrush((Color)ColorConverter.ConvertFromString(rgb));

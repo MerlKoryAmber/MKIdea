@@ -24,7 +24,7 @@ public partial class AddUserWindow : Window
             InitialDirectory = Environment.ExpandEnvironmentVariables(@"%USERPROFILE%\.ssh")
         };
         if (dlg.ShowDialog(this) != true) return;
-        KeysBox.Text = File.ReadAllText(dlg.FileName);
+        KeysBox.Text = LinuxOps.Services.ScriptFile.Read(dlg.FileName).Text;
         ShowFingerprint();
     }
 

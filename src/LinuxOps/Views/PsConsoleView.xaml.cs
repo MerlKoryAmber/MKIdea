@@ -93,7 +93,7 @@ public partial class PsConsoleView : UserControl
     public void SendLines(string text, bool submit)
     {
         if (_session is null) return;
-        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\t", "    ").Split('\n');
+        var lines = text.Replace("\0", "").Replace("\r\n", "\n").Replace('\r', '\n').Replace("\t", "    ").Split('\n');
         var count = lines.Length;
         while (count > 1 && lines[count - 1].Length == 0) count--; // хвостовой перевод строки — не пустая строка ввода
         if (!_session.Win32Input)

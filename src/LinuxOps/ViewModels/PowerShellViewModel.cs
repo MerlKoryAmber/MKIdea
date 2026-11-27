@@ -21,6 +21,12 @@ public sealed partial class PsScript : ObservableObject
     }
 
     public TextDocument Document { get; }
+
+    /// <summary>
+    /// Кодировка файла на диске такая, что PowerShell 7 сам его не прочтёт (UTF-16 без BOM, ANSI) — F5 запускает копию в UTF-8.
+    /// После «Сохранить» файл уже в UTF-8 с BOM.
+    /// </summary>
+    public string? UnreadableEncoding { get; set; }
     [ObservableProperty] private string? filePath;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header))] private string title;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header))] private bool dirty;
@@ -83,7 +89,7 @@ public sealed partial class PowerShellViewModel : ObservableObject, IDisposable
     {
         if (s.Document.TextLength == 0) return null;
         var path = s.FilePath;
-        if (path is null)
+        if (path is null || s.UnreadableEncoding is not null)
         {
             var dir = Path.Combine(Path.GetTempPath(), "LinuxOps", "PowerShell");
             Directory.CreateDirectory(dir);
@@ -111,7 +117,12 @@ public sealed partial class PowerShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var script = new PsScript(path, File.ReadAllText(path)) { Dirty = false };
+        // Кодировку определяем сами: File.ReadAllText считает файл без BOM UTF-8, и UTF-16 без BOM
+        // превращался в текст с «\0» между символами — в консоли «#» переставал быть комментарием (замечание владельца).
+        var read = ScriptFile.Read(path);
+        var script = new PsScript(path, read.Text) { Dirty = false, UnreadableEncoding = read.PwshReadable ? null : read.EncodingName };
+        if (!read.PwshReadable)
+            Status = $"{script.Title}: файл в кодировке {read.EncodingName} — PowerShell сам его так не прочтёт; F5 запускает копию в UTF-8, «Сохранить» перезапишет файл в UTF-8 с BOM";
         // Пустая нетронутая вкладка «Без имени» заменяется открытым файлом.
         if (SelectedScript is { FilePath: null, Dirty: false, Document.TextLength: 0 } blank) Scripts.Remove(blank);
         Scripts.Add(script);
@@ -122,6 +133,7 @@ public sealed partial class PowerShellViewModel : ObservableObject, IDisposable
     {
         File.WriteAllText(path, s.Document.Text, new System.Text.UTF8Encoding(true)); // BOM — Windows PowerShell 5.1 тоже прочтёт кириллицу
         s.FilePath = path;
+        s.UnreadableEncoding = null;
         s.Title = Path.GetFileName(path);
         s.Dirty = false;
     }

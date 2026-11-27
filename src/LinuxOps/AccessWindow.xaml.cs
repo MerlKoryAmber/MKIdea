@@ -170,7 +170,7 @@ public partial class AccessWindow : Window
             InitialDirectory = Environment.ExpandEnvironmentVariables(@"%USERPROFILE%\.ssh")
         };
         if (dlg.ShowDialog(this) != true) return;
-        KeyBox.Text = File.ReadAllText(dlg.FileName).Trim();
+        KeyBox.Text = LinuxOps.Services.ScriptFile.Read(dlg.FileName).Text.Trim();
     }
 
     private AccessRequest? BuildRequest()
