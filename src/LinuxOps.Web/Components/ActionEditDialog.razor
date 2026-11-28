@@ -1,0 +1,242 @@
+@* Окно создания / правки / дублирования своего Bash-действия (как ActionEditWindow; PowerShell в вебе нет). *@
+@using System.Text
+@using System.Text.RegularExpressions
+
+<div class="window-body scroll">
+    <div class="muted small" style="margin-bottom:10px">@_banner</div>
+
+    <div class="lbl muted small">Имя</div>
+    <input class="input" @bind="_name" @bind:event="oninput" />
+
+    <div class="lbl muted small">Описание</div>
+    <textarea class="input" rows="2" @bind="_desc"></textarea>
+
+    <div class="lbl muted small">Параметры</div>
+    <textarea class="input mono" rows="3" @bind="_params" spellcheck="false"
+              placeholder="Имя = значение | подпись"></textarea>
+    <div class="muted small" style="margin:2px 0 10px">По строке: Имя = значение по умолчанию | подпись. В скрипте — переменная окружения $Имя.</div>
+
+    <div class="lbl muted small">Дистрибутивы</div>
+    <div class="wrap" style="margin-bottom:10px;gap:4px 12px">
+        <label class="check"><input type="checkbox" @bind="_dUbuntu" /> Ubuntu</label>
+        <label class="check"><input type="checkbox" @bind="_dDebian" /> Debian</label>
+        <label class="check"><input type="checkbox" @bind="_dRhel" /> RHEL</label>
+        <label class="check"><input type="checkbox" @bind="_dAlma" /> Alma</label>
+        <label class="check"><input type="checkbox" @bind="_dSuse" /> SUSE</label>
+        <label class="check"><input type="checkbox" @bind="_dAny" /> any</label>
+    </div>
+
+    <div class="row" style="gap:16px;margin-bottom:10px">
+        <div style="width:200px">
+            <div class="lbl muted small">Привилегии</div>
+            <select class="input" @bind="_priv">
+                <option value="sudo/root">sudo/root</option>
+                <option value="user">user</option>
+            </select>
+        </div>
+        <div style="width:120px">
+            <div class="lbl muted small">Таймаут, сек</div>
+            <input class="input" @bind="_timeout" />
+            <div class="muted small" style="margin-top:2px">10–3600</div>
+        </div>
+    </div>
+
+    <div class="lbl muted small">Скрипт (Bash по SSH)</div>
+    <textarea class="input mono action-script" rows="14" @bind="_script" @bind:event="oninput" spellcheck="false"
+              onkeydown="if(event.key==='Tab'&&!event.shiftKey&&!event.ctrlKey&&!event.altKey){event.preventDefault();if(!document.execCommand||!document.execCommand('insertText',false,'\t')){this.setRangeText('\t',this.selectionStart,this.selectionEnd,'end');this.dispatchEvent(new Event('input',{bubbles:true}));}}"></textarea>
+    <div class="muted small" style="margin:2px 0 6px">Tab вставляет отступ. Плейсхолдеры: {{host}}, {{user}}.</div>
+
+    @if (_error.Length > 0)
+    {
+        <div class="error">@_error</div>
+    }
+</div>
+<div class="window-buttons">
+    <button class="btn" style="width:100px" @onclick="() => D.Result.TrySetResult(null)">Отмена</button>
+    <button class="btn primary" style="width:170px" @onclick="Ok">Сохранить действие</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public UiDialog D { get; set; } = null!;
+
+    private string _name = "", _desc = "", _params = "", _script = DefaultScript, _timeout = "60", _priv = "sudo/root";
+    private string _banner = "", _error = "", _id = "";
+    private bool _newId = true, _dUbuntu = true, _dDebian = true, _dRhel = true, _dAlma = true, _dSuse, _dAny;
+    private int? _prevScriptLen;
+
+    private const string DefaultScript = "# {{host}} {{user}}\nset -e\nuname -a\n";
+
+    protected override void OnInitialized()
+    {
+        var existing = D.Action;
+        var clone = D.Values.TryGetValue("clone", out var c) && c == "1";
+        if (existing is null)
+        {
+            _banner = "Создание своего действия: Bash по SSH на отмеченных хостах.";
+            return;
+        }
+
+        _name = clone ? existing.Name + " (custom)" : existing.Name;
+        _desc = existing.Description;
+        _script = string.IsNullOrWhiteSpace(existing.Script)
+            ? PreviewBuiltin(existing.Id)
+            : existing.Script;
+        _timeout = (existing.TimeoutSeconds > 0 ? existing.TimeoutSeconds : 60).ToString();
+        _priv = string.Equals(existing.Privilege, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "sudo/root";
+        SetDistros(existing.Distros);
+        _params = FormatParams(existing.Parameters);
+        _newId = clone || string.IsNullOrWhiteSpace(existing.Id);
+        _id = clone ? existing.Id + "-custom" : existing.Id;
+        if (!clone && !existing.BuiltIn)
+            _prevScriptLen = (existing.Script ?? "").Length;
+        _banner = clone
+            ? "Копия как своё действие (можно править)."
+            : existing.BuiltIn
+                ? "Встроенное — только через «Дублировать»."
+                : "Правка своего действия.";
+    }
+
+    private void Ok()
+    {
+        _error = "";
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Укажите имя.";
+            return;
+        }
+
+        if (!int.TryParse(_timeout.Trim(), out var timeout) || timeout < 10 || timeout > 3600)
+        {
+            _error = "Таймаут: целое число от 10 до 3600.";
+            return;
+        }
+
+        var parameters = ParseParams(_params, out var paramError);
+        if (parameters is null)
+        {
+            _error = paramError;
+            return;
+        }
+
+        var id = _newId || string.IsNullOrWhiteSpace(_id)
+            ? (_id.Length > 0 ? _id : Slug(_name))
+            : _id;
+
+        var def = new ActionDefinition
+        {
+            Id = id,
+            Name = _name.Trim(),
+            Description = _desc.Trim(),
+            Script = _script.Replace("\r\n", "\n"),
+            Distros = CollectDistros(),
+            Privilege = _priv,
+            Kind = "bash",
+            Parameters = parameters,
+            TimeoutSeconds = timeout,
+            Destructive = true,
+            ReadOnly = false,
+            BuiltIn = false
+        };
+        D.Values["prevScriptLen"] = _prevScriptLen?.ToString() ?? "";
+        D.Result.TrySetResult(def);
+    }
+
+    private static string FormatParams(IEnumerable<ActionParam> ps) =>
+        string.Join("\n", ps.Select(p => p.Name + " = " + p.Default + (string.IsNullOrWhiteSpace(p.Label) ? "" : " | " + p.Label)));
+
+    private static List<ActionParam>? ParseParams(string text, out string error)
+    {
+        error = "";
+        var list = new List<ActionParam>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in text.Replace("\r", "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            var label = "";
+            var bar = line.IndexOf('|');
+            if (bar >= 0)
+            {
+                label = line[(bar + 1)..].Trim();
+                line = line[..bar].Trim();
+            }
+
+            var eq = line.IndexOf('=');
+            var name = (eq >= 0 ? line[..eq] : line).Trim().TrimStart('$');
+            if (!Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]*$"))
+            {
+                error = $"Имя параметра «{name}»: только латиница, цифры и _, не с цифры.";
+                return null;
+            }
+
+            if (!seen.Add(name))
+            {
+                error = $"Параметр «{name}» указан дважды.";
+                return null;
+            }
+
+            if (!SshRunner.IsSafeEnvName(name) || name.StartsWith("LINUXOPS_", StringComparison.OrdinalIgnoreCase))
+            {
+                error = $"Имя параметра «{name}» занято системой (PATH, HOME, LD_… и т.п.) — выберите другое.";
+                return null;
+            }
+
+            list.Add(new ActionParam { Name = name, Default = eq >= 0 ? line[(eq + 1)..].Trim() : "", Label = label });
+        }
+
+        return list;
+    }
+
+    private static string PreviewBuiltin(string id)
+    {
+        var sample = new DistroInfo { Id = "centos", Family = "rhel", Like = "rhel", PrettyName = "CentOS" };
+        try { return BuiltinActions.ResolveScript(id, sample); }
+        catch { return DefaultScript; }
+    }
+
+    private void SetDistros(IEnumerable<string> distros)
+    {
+        var set = new HashSet<string>(distros, StringComparer.OrdinalIgnoreCase);
+        _dAny = set.Contains("any");
+        _dUbuntu = set.Contains("ubuntu");
+        _dDebian = set.Contains("debian");
+        _dRhel = set.Contains("rhel") || set.Contains("centos") || set.Contains("rocky") || set.Contains("fedora");
+        _dAlma = set.Contains("alma");
+        _dSuse = set.Contains("suse") || set.Contains("sles") || set.Contains("opensuse");
+    }
+
+    private List<string> CollectDistros()
+    {
+        if (_dAny) return new List<string> { "any" };
+        var list = new List<string>();
+        if (_dUbuntu) list.Add("ubuntu");
+        if (_dDebian) list.Add("debian");
+        if (_dRhel) list.Add("rhel");
+        if (_dAlma) list.Add("alma");
+        if (_dSuse) list.Add("suse");
+        if (list.Count == 0) list.Add("any");
+        return list;
+    }
+
+    private static string Slug(string name)
+    {
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name.Trim().ToLowerInvariant())
+        {
+            if (Cyrillic.TryGetValue(ch, out var lat)) sb.Append(lat);
+            else sb.Append(ch);
+        }
+
+        var s = Regex.Replace(sb.ToString(), @"[^a-z0-9]+", "-").Trim('-');
+        return string.IsNullOrWhiteSpace(s) ? "custom-action" : s;
+    }
+
+    private static readonly Dictionary<char, string> Cyrillic = new()
+    {
+        ['а'] = "a", ['б'] = "b", ['в'] = "v", ['г'] = "g", ['д'] = "d", ['е'] = "e", ['ё'] = "e",
+        ['ж'] = "zh", ['з'] = "z", ['и'] = "i", ['й'] = "y", ['к'] = "k", ['л'] = "l", ['м'] = "m",
+        ['н'] = "n", ['о'] = "o", ['п'] = "p", ['р'] = "r", ['с'] = "s", ['т'] = "t", ['у'] = "u",
+        ['ф'] = "f", ['х'] = "h", ['ц'] = "ts", ['ч'] = "ch", ['ш'] = "sh", ['щ'] = "sch",
+        ['ъ'] = "", ['ы'] = "y", ['ь'] = "", ['э'] = "e", ['ю'] = "yu", ['я'] = "ya"
+    };
+}

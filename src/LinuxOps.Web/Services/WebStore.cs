@@ -155,7 +155,8 @@ public sealed partial class WebStore
         using var c = Open();
         Exec(c, "DELETE FROM hosts WHERE id=$id", ("$id", id));
         Exec(c, "DELETE FROM secrets WHERE owner=$id", ("$id", id));
-        Exec(c, "DELETE FROM settings WHERE key=$k", ("$k", "keyname:" + id));
+        // имя ключа, отметка и ошибка смены ключа службы (0.7.11–0.7.12) — иначе остаются в базе после хоста
+        Exec(c, "DELETE FROM settings WHERE key IN ($n, $a, $e)", ("$n", "keyname:" + id), ("$a", "keyat:" + id), ("$e", "keyerr:" + id));
     }
 
     private void SetSecret(SqliteConnection c, string owner, string kind, string plain)
@@ -265,6 +266,35 @@ public sealed partial class WebStore
     {
         using var c = Open();
         SetSetting(c, key, value);
+    }
+
+    // ---------- базовые пользователи (0.7.14) ----------
+
+    private const string BaseUsersKey = "baseusers";
+
+    /// <summary>Список базовых пользователей; пароли — расшифрованы (только для постановки на хосты, в интерфейс не уходят).</summary>
+    public List<BaseUser> LoadBaseUsers()
+    {
+        var json = GetSetting(BaseUsersKey);
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<BaseUser>>(json) ?? new();
+            foreach (var u in list) u.Password = u.Password.Length > 0 ? _box.Unprotect(u.Password) : "";
+            return list;
+        }
+        catch { return new(); }
+    }
+
+    /// <summary>Сохранить список; пароли шифруются тем же ключом, что секреты хостов.</summary>
+    public void SaveBaseUsers(IEnumerable<BaseUser> users)
+    {
+        var copy = users.Select(u => new BaseUser
+        {
+            Login = u.Login, Sudo = u.Sudo, Keys = u.Keys, Comment = u.Comment, Enabled = u.Enabled,
+            Password = u.Password.Length > 0 ? _box.Protect(u.Password) : ""
+        }).ToList();
+        PutSetting(BaseUsersKey, System.Text.Json.JsonSerializer.Serialize(copy));
     }
 
     // ---------- история ----------

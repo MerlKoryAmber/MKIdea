@@ -464,3 +464,7 @@ td .sbadge, .cve-cell .sbadge, .row > .sbadge:first-child { margin-left: 0; }
 .sess-dot.wait { background: var(--warn); opacity: 1; }
 .sess-x { border: none; background: none; color: var(--muted); font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 4px; cursor: pointer; }
 .sess-x:hover { background: var(--hover); color: var(--text); }
+
+/* Actions: окно своего действия (Bash) */
+.window.action-edit { width: min(720px, calc(100vw - 32px)); max-height: 92vh; }
+.action-script { min-height: 280px; resize: vertical; tab-size: 4; white-space: pre; overflow: auto; }

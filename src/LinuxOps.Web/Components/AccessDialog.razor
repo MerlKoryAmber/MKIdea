@@ -1,0 +1,214 @@
+@* «Закрыть доступ» / «Открыть доступ» — как AccessWindow настольной версии (0.7.14).
+   Сначала «Проверить» (только чтение), потом кнопка действия — только на хостах, где проверка нашла что делать.
+   Удаление — после ввода логина. *@
+@using LinuxOps.Services
+
+<div class="window-body">
+    <div class="muted small">Хосты: @string.Join(", ", D.Targets.Select(h => h.Config.Title))</div>
+
+    @if (_unlock)
+    {
+        <div class="small" style="margin:8px 0">Вернёт пароль, срок, ключи, группы и файл sudoers как были до блокировки LinuxOps. Чужие блокировки не снимает.</div>
+    }
+    else
+    {
+        <div class="wrap" style="gap:14px;margin:8px 0">
+            <label class="check"><input type="radio" name="am" checked="@(_mode == AccessMode.Lock)" @onchange="() => SetMode(AccessMode.Lock)" /> Заблокировать (обратимо)</label>
+            <label class="check"><input type="radio" name="am" checked="@(_mode == AccessMode.RevokeKey)" @onchange="() => SetMode(AccessMode.RevokeKey)" /> Отозвать ключ</label>
+            <label class="check"><input type="radio" name="am" checked="@(_mode == AccessMode.Delete)" @onchange="() => SetMode(AccessMode.Delete)" /> Удалить учётную запись</label>
+        </div>
+        <div class="muted small">@ModeHint</div>
+    }
+
+    <div class="lbl muted small">Логин</div>
+    <input class="input" list="access-logins" @bind="_login" @bind:event="oninput" @bind:after="LoginChanged" autocomplete="off" />
+    <datalist id="access-logins">
+        @foreach (var l in _known) { <option value="@l"></option> }
+    </datalist>
+    @if (_auditInfo.Length > 0) { <div class="muted small" style="margin-top:4px;white-space:pre-wrap">@_auditInfo</div> }
+
+    @if (!_unlock && _mode == AccessMode.RevokeKey)
+    {
+        @if (_picks.Count > 0)
+        {
+            <div class="lbl muted small">Ключи этой учётки по аудиту</div>
+            @foreach (var p in _picks)
+            {
+                <label class="check small" style="display:block"><input type="checkbox" checked="@p.Picked" @onchange="e => Pick(p, (bool)e.Value!)" />
+                    <span class="mono">@p.Type @p.Fingerprint</span> <span class="muted">@(p.Comment.Length > 0 ? p.Comment + " · " : "")@string.Join(", ", p.Hosts)</span></label>
+            }
+        }
+        <div class="row" style="margin-top:8px;margin-bottom:4px">
+            <span class="muted small grow">Открытый ключ, который нужно убрать</span>
+            <label class="btn sm file-btn" style="min-width:80px">Файл…<InputFile OnChange="PickKey" accept=".pub" style="display:none" /></label>
+        </div>
+        <textarea class="input mono" rows="3" @bind="_keys" @bind:event="oninput" @bind:after="Invalidate"></textarea>
+        @if (_keys.Trim().Length > 0)
+        {
+            var prints = UserProvisioning.KeyFingerprints(_keys);
+            <div class="mono small muted" style="white-space:pre-wrap;margin-top:2px">@(prints.Count == 0 ? "Не похоже на открытый ключ" : string.Join("\n", prints))</div>
+        }
+    }
+
+    <div class="row" style="margin-top:10px">
+        <button class="btn" @onclick="Check" disabled="@_checking">@(_checking ? "Проверка…" : "Проверить")</button>
+        <span class="muted small" style="margin-left:10px">Проверка только читает: ничего на хостах не меняет.</span>
+    </div>
+
+    @if (_rows is not null)
+    {
+        <table class="grid" style="margin-top:8px">
+            <thead><tr><th style="width:22%">Хост</th><th style="width:39%">Сейчас</th><th>Будет сделано</th></tr></thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.Applicable ? "" : "muted")">
+                        <td title="@r.Host.Config.Title">@r.Host.Config.Title</td>
+                        <td style="white-space:normal">@r.Now</td>
+                        <td style="white-space:normal">@r.Plan</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (_confirm)
+    {
+        <div class="login-msg" style="margin-top:8px">Удаление не отменить. Хостов: @_targets.Count. Чтобы продолжить, введите логин <b>@_checked!.Login</b>:</div>
+        <input class="input" @bind="_confirmText" @bind:event="oninput" autocomplete="off" />
+    }
+
+    @if (_error.Length > 0) { <div class="error">@_error</div> }
+</div>
+<div class="window-buttons">
+    <button class="btn" style="margin-right:auto" @onclick="Switch">@(_unlock ? "← Закрыть доступ" : "Открыть доступ…")</button>
+    <button class="btn" style="width:110px" @onclick="() => D.Result.TrySetResult(null)">Отмена</button>
+    <button class="btn primary" style="min-width:150px" @onclick="Ok" disabled="@(!Ready)">@OkText</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter, EditorRequired] public UiDialog D { get; set; } = null!;
+
+    /// <summary>Итог окна: что делать и на каких хостах (только где проверка нашла что делать).</summary>
+    public sealed record Go(AccessRequest Request, List<StoredHost> Targets);
+
+    private bool _unlock, _checking, _confirm;
+    private AccessMode _mode = AccessMode.Lock;
+    private string _login = "", _keys = "", _error = "", _auditInfo = "", _confirmText = "";
+    private List<string> _known = new();
+    private List<AuditKeyPick> _picks = new();
+    private List<AccessPreview>? _rows;
+    private AccessRequest? _checked;
+    private List<StoredHost> _targets = new();
+    private int _gen;
+
+    private AccessMode Mode => _unlock ? AccessMode.Unlock : _mode;
+
+    private string ModeHint => _mode switch
+    {
+        AccessMode.Lock => "Пароль закрыт, срок учётки истёк (не пустит и по ключу), ключи убраны в сторону, sudo снят, процессы завершены. Всё прежнее сохраняется на хосте — «Открыть доступ» вернёт.",
+        AccessMode.RevokeKey => "Убрать ключ из authorized_keys. Учётка и остальные ключи остаются.",
+        _ => "Домашняя папка, crontab и процессы — в архив /root/linuxops-removed на том же хосте, затем userdel -r. Не заархивировалось — не удаляет."
+    };
+
+    private string OkText => _unlock ? "Открыть доступ" : _mode switch
+    {
+        AccessMode.RevokeKey => "Отозвать ключ",
+        AccessMode.Delete => "Удалить учётную запись",
+        _ => "Закрыть доступ"
+    };
+
+    private bool Ready => _checked is not null && _targets.Count > 0 && !_checking &&
+                          (Mode != AccessMode.Delete || string.Equals(_confirmText.Trim(), _checked.Login, StringComparison.Ordinal));
+
+    protected override void OnInitialized() => _known = S.KnownLogins(D.Targets);
+
+    private void SetMode(AccessMode m) { _mode = m; Invalidate(); }
+    private void Switch()
+    {
+        _unlock = !_unlock;
+        D.Title = _unlock ? "Открыть доступ" : "Закрыть доступ";
+        S.Dialogs.Touch();
+        Invalidate();
+    }
+
+    private void LoginChanged()
+    {
+        (_auditInfo, _picks) = S.AuditOf(_login.Trim(), D.Targets);
+        Invalidate();
+    }
+
+    /// <summary>Любое изменение ввода — проверка устарела.</summary>
+    private void Invalidate()
+    {
+        _gen++;
+        _checked = null;
+        _rows = null;
+        _targets = new();
+        _confirm = false;
+        _confirmText = "";
+        _error = "";
+    }
+
+    private void Pick(AuditKeyPick p, bool on)
+    {
+        p.Picked = on;
+        _keys = string.Join("\n", _picks.Where(x => x.Picked).Select(x => x.Line));
+        Invalidate();
+    }
+
+    private async Task PickKey(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var r = new StreamReader(e.File.OpenReadStream(64 * 1024));
+            _keys = (await r.ReadToEndAsync()).Trim();
+            Invalidate();
+        }
+        catch (Exception ex) { _error = "Файл не прочитан: " + ex.Message; }
+    }
+
+    private AccessRequest? Build()
+    {
+        var login = _login.Trim();
+        if (UserAccess.ValidateLogin(login) is { } err) { _error = err; return null; }
+        var blobs = "";
+        if (Mode == AccessMode.RevokeKey)
+        {
+            var list = UserAccess.KeyBlobs(_keys);
+            if (list.Count == 0) { _error = "Вставьте открытый ключ, который нужно отозвать (строка ssh-ed25519 … / ssh-rsa …) или отметьте его в списке."; return null; }
+            blobs = string.Join("\n", list);
+        }
+        return new AccessRequest { Login = login, Mode = Mode, KeyBlobs = blobs };
+    }
+
+    private async Task Check()
+    {
+        Invalidate();
+        var request = Build();
+        if (request is null) return;
+        var gen = _gen;
+        _checking = true;
+        StateHasChanged();
+        try
+        {
+            var rows = await S.CheckAccess(request, D.Targets);
+            if (gen != _gen) return; // пока шла проверка, ввод поменяли — результат не наш
+            if (rows is null) { _error = "Нет права на проверку на отмеченных хостах."; return; }
+            _rows = rows;
+            _checked = request;
+            _targets = rows.Where(r => r.Applicable).Select(r => r.Host).ToList();
+            if (_targets.Count == 0) _error = "Делать нечего: ни на одном отмеченном хосте нет подходящей учётной записи.";
+            else if (request.Mode == AccessMode.Delete) _confirm = true;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _checking = false; }
+    }
+
+    private void Ok()
+    {
+        if (!Ready) return;
+        D.Result.TrySetResult(new Go(_checked!, _targets));
+    }
+}

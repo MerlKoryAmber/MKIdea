@@ -89,7 +89,15 @@ public sealed partial class WebSession : IDisposable
         var planned = new HashSet<string>(Actions.Where(a => a.IsSelected).Select(a => a.Definition.Id));
         Actions.Clear();
         foreach (var def in ActionCatalog.LoadAll().Where(a => !a.IsPowerShell))
+        {
+            // Свои (не BuiltIn): всегда Destructive и не ReadOnly — иначе Dry-run реально выполнит скрипт.
+            if (!def.BuiltIn)
+            {
+                def.Destructive = true;
+                def.ReadOnly = false;
+            }
             Actions.Add(ActionItemView.From(def, planned.Contains(def.Id)));
+        }
     }
 
     /// <summary>Хосты Linux (Actions, опрос, терминал, файлы); Windows — только RDP.</summary>
@@ -403,10 +411,12 @@ public sealed partial class WebSession : IDisposable
             Selected ??= p.Row;
         }
 
-        if (p.Status is not null)
+        // Progress<T> доставляет отчёт через контекст Blazor: последний «хост 1 из 1» (ядро шлёт его в finally)
+        // мог прийти после итога и затереть «готово» — после остановки запуска статусы из прогресса не берём.
+        if (p.Status is not null && IsRunning)
         {
             _statusBase = p.Status;
-            RunStatus = IsRunning ? $"{p.Status} · {Elapsed(_runStarted)}" : p.Status;
+            RunStatus = $"{p.Status} · {Elapsed(_runStarted)}";
         }
     }
 

@@ -1,0 +1,261 @@
+@* «Базовые пользователи» — как UserListWindow настольной версии (0.7.14): список учёток, которые ставятся на хосты одной кнопкой.
+   Список общий для сервиса, пароли — в базе зашифрованы и в браузер не уходят. «Применить» ничего не удаляет. *@
+@using LinuxOps.Services
+
+<div class="window-body">
+    @switch (_pane)
+    {
+        case Pane.List:
+            <div class="muted small" style="margin-bottom:6px">Учётки, которые ставятся на отмеченные хосты одной кнопкой «Применить» (тем же способом, что «Добавить пользователя»). Ничего не удаляется. «Закрыть доступ» выключает запись здесь, чтобы доступ не вернулся.</div>
+            @if (_users.Count == 0)
+            {
+                <div class="muted" style="padding:14px 0">Список пуст. «Добавить», «С хоста…» или «Из аудита».</div>
+            }
+            else
+            {
+                <table class="grid">
+                    <thead><tr><th style="width:36px">Вкл</th><th style="width:22%">Логин</th><th>Ключи</th><th style="width:24%">Комментарий</th></tr></thead>
+                    <tbody>
+                        @foreach (var u in _users)
+                        {
+                            <tr class="@(u.Login == _sel ? "selected" : "")" @onclick="() => _sel = u.Login" @ondblclick="() => Edit(u)">
+                                <td><input type="checkbox" checked="@u.Enabled" @onclick:stopPropagation="true" @onchange="e => Enable(u, (bool)e.Value!)" title="Выключенный не ставится при «Применить»" /></td>
+                                <td title="@u.Login">@u.Login<span class="muted small">@(u.Sudo ? " · sudo" : "")@(u.HasPassword ? " · пароль" : "")</span></td>
+                                <td class="mono small" title="@u.KeysText">@u.KeysText</td>
+                                <td title="@u.Comment">@u.Comment</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            @if (_askDelete is { } del)
+            {
+                <div class="login-msg" style="margin-top:8px">
+                    Убрать @del из списка? На хостах учётка не удалится.
+                    <button class="btn sm" style="margin-left:8px" @onclick="DeleteYes">Да, убрать</button>
+                    <button class="btn sm" @onclick="() => _askDelete = null">Нет</button>
+                </div>
+            }
+            break;
+
+        case Pane.Edit:
+            <div class="lbl muted small">Логин</div>
+            <input class="input" @bind="_eLogin" @bind:event="oninput" autocomplete="off" />
+            <div class="wrap" style="gap:16px;margin:8px 0">
+                <label class="check"><input type="checkbox" @bind="_eSudo" /> sudo (с ключом — без пароля; без ключа — по паролю учётки)</label>
+                <label class="check"><input type="checkbox" @bind="_eEnabled" /> включён</label>
+            </div>
+            <div class="row" style="margin-bottom:4px">
+                <span class="muted small grow">Открытые ключи SSH (по строке)</span>
+                <label class="btn sm file-btn" style="min-width:80px">Файл…<InputFile OnChange="PickKey" accept=".pub" style="display:none" /></label>
+            </div>
+            <textarea class="input mono" rows="4" @bind="_eKeys" @bind:event="oninput"></textarea>
+            var prints = UserProvisioning.KeyFingerprints(_eKeys);
+            @if (prints.Count > 0) { <div class="mono small muted" style="white-space:pre-wrap;margin-top:2px">@string.Join("\n", prints)</div> }
+            <div class="lbl muted small">Пароль @(_eHadPassword ? "(задан — пусто: оставить прежний)" : "(пусто — только ключ)")</div>
+            <input class="input" type="password" autocomplete="new-password" @bind="_ePass" />
+            @if (_eHadPassword) { <label class="check small" style="margin-top:4px"><input type="checkbox" @bind="_eClearPass" /> убрать пароль</label> }
+            <div class="lbl muted small">Комментарий</div>
+            <input class="input" @bind="_eComment" />
+            break;
+
+        case Pane.Import:
+            <div class="muted small" style="margin-bottom:6px">@_importTitle</div>
+            @if (_importFromHost)
+            {
+                <div class="row" style="gap:6px;margin-bottom:6px">
+                    <select class="input grow" @bind="_importHost">
+                        @foreach (var h in S.LinuxHosts) { <option value="@h.Id">@h.Config.Title · @h.Config.Host</option> }
+                    </select>
+                    <button class="btn" @onclick="ReadHost" disabled="@_busy">@(_busy ? "Читаю…" : "Прочитать")</button>
+                </div>
+            }
+            @foreach (var r in _rows)
+            {
+                <label class="check" style="display:block;margin:3px 0"><input type="checkbox" @bind="r.Selected" />
+                    <b>@r.C.Login</b> <span class="muted small">@(r.C.Sudo ? "sudo · " : "")@(r.C.Fingerprints.Length > 0 ? r.C.Fingerprints : "без ключа")@(r.Note.Length > 0 ? " · " + r.Note : "")</span></label>
+            }
+            @if (_importNote.Length > 0) { <div class="muted small" style="margin-top:6px">@_importNote</div> }
+            break;
+
+        case Pane.Confirm:
+            <div style="margin-bottom:6px">@_confirm.Count(c => c.Selected) из @_confirm.Count пользователей на @D.Targets.Count хостов: @string.Join(", ", D.Targets.Select(h => h.Config.Title)). Снимите галочку, если кого-то применять не нужно. Ничего не удаляется.</div>
+            @foreach (var c in _confirm)
+            {
+                <label class="check" style="display:block;margin:3px 0"><input type="checkbox" @bind="c.Selected" /> @c.Login</label>
+            }
+            break;
+    }
+    @if (_error.Length > 0) { <div class="error">@_error</div> }
+</div>
+<div class="window-buttons">
+    @switch (_pane)
+    {
+        case Pane.List:
+            <button class="btn" @onclick="() => Edit(null)">Добавить</button>
+            <button class="btn" @onclick="() => Edit(_users.FirstOrDefault(u => u.Login == _sel))" disabled="@(_sel is null)">Изменить</button>
+            <button class="btn" @onclick="Delete" disabled="@(_sel is null)">Убрать</button>
+            <button class="btn" @onclick="FromHost">С хоста…</button>
+            <button class="btn" style="margin-right:auto" @onclick="FromAudit">Из аудита</button>
+            <button class="btn" style="width:110px" @onclick="() => D.Result.TrySetResult(null)">Закрыть</button>
+            <button class="btn primary" style="min-width:120px" @onclick="ToConfirm" disabled="@(D.Targets.Count == 0 || !_users.Any(u => u.Enabled))"
+                    title="@(D.Targets.Count == 0 ? "Отметьте хосты слева" : "Поставить включённых на отмеченные хосты")">Применить…</button>
+            break;
+        case Pane.Edit:
+            <button class="btn" style="width:110px" @onclick="Back">Отмена</button>
+            <button class="btn primary" style="width:120px" @onclick="SaveEdit">Сохранить</button>
+            break;
+        case Pane.Import:
+            <button class="btn" style="width:110px" @onclick="Back">Назад</button>
+            <button class="btn primary" style="min-width:120px" @onclick="ImportAdd" disabled="@(!_rows.Any(r => r.Selected))">Добавить в список</button>
+            break;
+        case Pane.Confirm:
+            <button class="btn" style="width:110px" @onclick="Back">Назад</button>
+            <button class="btn primary" style="min-width:120px" @onclick="Apply" disabled="@(!_confirm.Any(c => c.Selected))">Применить</button>
+            break;
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
+    [Parameter, EditorRequired] public UiDialog D { get; set; } = null!;
+
+    /// <summary>Итог окна: кого ставить на отмеченные хосты.</summary>
+    public sealed record ApplyThese(List<string> Logins);
+
+    private enum Pane { List, Edit, Import, Confirm }
+    private sealed class Row(UserProvisioning.HostUserCandidate c) { public UserProvisioning.HostUserCandidate C { get; } = c; public bool Selected { get; set; } = true; public string Note { get; set; } = ""; }
+    private sealed class Pick(string login) { public string Login { get; } = login; public bool Selected { get; set; } = true; }
+
+    private Pane _pane = Pane.List;
+    private List<BaseUserView> _users = new();
+    private string? _sel, _editOld;
+    private string _eLogin = "", _eKeys = "", _ePass = "", _eComment = "", _error = "";
+    private bool _eSudo, _eEnabled = true, _eHadPassword, _eClearPass, _busy, _importFromHost;
+    private string _importTitle = "", _importNote = "", _importHost = "";
+    private List<Row> _rows = new();
+    private List<Pick> _confirm = new();
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload()
+    {
+        _users = S.BaseUsers();
+        if (_sel is not null && _users.All(u => u.Login != _sel)) _sel = null;
+    }
+
+    private void Back() { _error = ""; _pane = Pane.List; Reload(); }
+
+    private void Edit(BaseUserView? u)
+    {
+        _editOld = u?.Login;
+        _eLogin = u?.Login ?? ""; _eKeys = u?.Keys ?? ""; _eComment = u?.Comment ?? "";
+        _eSudo = u?.Sudo ?? false; _eEnabled = u?.Enabled ?? true; _eHadPassword = u?.HasPassword ?? false;
+        _ePass = ""; _eClearPass = false; _error = "";
+        _pane = Pane.Edit;
+    }
+
+    private async Task PickKey(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var r = new StreamReader(e.File.OpenReadStream(64 * 1024));
+            _eKeys = (await r.ReadToEndAsync()).Trim();
+        }
+        catch (Exception ex) { _error = "Файл не прочитан: " + ex.Message; }
+    }
+
+    private void SaveEdit()
+    {
+        string? pass = _eClearPass ? "" : _ePass.Length > 0 ? _ePass : _editOld is null ? "" : null;
+        var err = S.SaveBaseUser(_editOld, new BaseUserView(_eLogin, _eSudo, _eKeys, _eComment, _eEnabled, false), pass);
+        if (err is not null) { _error = err; return; }
+        _sel = _eLogin.Trim();
+        _ePass = "";
+        Back();
+    }
+
+    private void Enable(BaseUserView u, bool on) { S.SetBaseUserEnabled(u.Login, on); Reload(); }
+
+    // подтверждение — внутри окна: второе окно поверх пересоздало бы это (DialogHost показывает только верхнее)
+    private string? _askDelete;
+
+    private void Delete() => _askDelete = _sel;
+
+    private void DeleteYes()
+    {
+        if (_askDelete is { } login) S.DeleteBaseUser(login);
+        _askDelete = null;
+        Reload();
+    }
+
+    private void FromHost()
+    {
+        _importFromHost = true;
+        _importTitle = "Учётки с ключом или sudo с хоста. Пароли не читаются.";
+        _importHost = (D.Targets.FirstOrDefault() ?? S.LinuxHosts.FirstOrDefault())?.Id ?? "";
+        _rows = new(); _importNote = ""; _error = "";
+        _pane = Pane.Import;
+    }
+
+    private async Task ReadHost()
+    {
+        var h = S.LinuxHosts.FirstOrDefault(x => x.Id == _importHost);
+        if (h is null) { _error = "Выберите хост."; return; }
+        _busy = true; _error = ""; _rows = new();
+        StateHasChanged();
+        try
+        {
+            var (users, note) = await S.ReadUsersFromHost(h);
+            _rows = Mark(users);
+            _importNote = note;
+            if (_rows.Count == 0 && _error.Length == 0) _error = "Подходящих учёток нет.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void FromAudit()
+    {
+        _importFromHost = false;
+        _importTitle = "Учётки из аудита этого окна со входом по ключу.";
+        var (users, note) = S.BaseUsersFromAudit();
+        _rows = Mark(users);
+        _importNote = note;
+        _error = _rows.Count == 0 ? "В аудите нет учёток со входом по ключу." : "";
+        _pane = Pane.Import;
+    }
+
+    /// <summary>Кто уже есть с теми же ключами — без галки (как в настольной).</summary>
+    private List<Row> Mark(List<UserProvisioning.HostUserCandidate> users) => users.Select(c =>
+    {
+        var row = new Row(c);
+        if (_users.FirstOrDefault(u => u.Login == c.Login) is { } have)
+        {
+            var keys = UserAccess.KeyBlobs(have.Keys).ToHashSet(StringComparer.Ordinal);
+            row.Selected = !UserAccess.KeyBlobs(c.Keys).All(keys.Contains) || (c.Sudo && !have.Sudo);
+            row.Note = row.Selected ? "уже в списке — добавятся новые ключи" : "уже в списке с этими ключами";
+        }
+        return row;
+    }).ToList();
+
+    private void ImportAdd()
+    {
+        S.ImportBaseUsers(_rows.Where(r => r.Selected).Select(r => r.C), _importFromHost ? "с хоста " + (S.LinuxHosts.FirstOrDefault(h => h.Id == _importHost)?.Config.Title ?? "") : "из аудита");
+        Back();
+    }
+
+    private void ToConfirm()
+    {
+        _confirm = _users.Where(u => u.Enabled).Select(u => new Pick(u.Login)).ToList();
+        _error = "";
+        _pane = Pane.Confirm;
+    }
+
+    private void Apply()
+    {
+        var chosen = _confirm.Where(c => c.Selected).Select(c => c.Login).ToList();
+        if (chosen.Count == 0) return;
+        D.Result.TrySetResult(new ApplyThese(chosen));
+    }
+}

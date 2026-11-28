@@ -3,7 +3,7 @@
 @if (S.Dialogs.Top is { } d)
 {
     <div class="overlay">
-        <div class="window @(d.Kind is "params" or "adduser" ? "wide" : "")" @key="d">
+        <div class="window @(d.Kind is "params" or "adduser" or "access" or "baseusers" ? "wide" : d.Kind == "action" ? "action-edit" : "")" @key="d">
             <div class="window-title">@d.Title</div>
             @switch (d.Kind)
             {
@@ -87,6 +87,18 @@
 
                 case "adduser":
                     <AddUserDialog D="d" />
+                    break;
+
+                case "access":
+                    <AccessDialog S="S" D="d" />
+                    break;
+
+                case "baseusers":
+                    <BaseUsersDialog S="S" D="d" />
+                    break;
+
+                case "action":
+                    <ActionEditDialog D="d" />
                     break;
             }
         </div>

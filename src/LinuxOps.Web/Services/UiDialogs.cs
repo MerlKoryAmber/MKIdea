@@ -7,7 +7,7 @@ namespace LinuxOps.Web.Services;
 public sealed class UiDialog
 {
     public required string Kind { get; init; } // info | confirm | params | adduser | host | folder | action
-    public string Title { get; init; } = "LinuxOps";
+    public string Title { get; set; } = "LinuxOps";
     public string Message { get; init; } = "";
     public string Hint { get; set; } = "";
     /// <summary>params: действия с параметрами; значения — в Values по ключу «id:Name».</summary>
@@ -17,6 +17,8 @@ public sealed class UiDialog
     public HostFolder? Folder { get; init; }
     public ActionDefinition? Action { get; init; }
     public List<HostConfig> Hosts { get; init; } = new();
+    /// <summary>access, baseusers: отмеченные хосты сервиса (с id и папкой — для прав и подключения).</summary>
+    public List<StoredHost> Targets { get; init; } = new();
     public TaskCompletionSource<object?> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
@@ -47,6 +49,9 @@ public sealed class UiDialogs
             Changed?.Invoke();
         }
     }
+
+    /// <summary>Окно поменяло свой заголовок — перерисовать рамку.</summary>
+    public void Touch() => Changed?.Invoke();
 
     public Task Info(string message, string title = "LinuxOps") => Show(new UiDialog { Kind = "info", Message = message, Title = title });
 

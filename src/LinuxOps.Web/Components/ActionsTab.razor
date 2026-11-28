@@ -11,8 +11,10 @@
             </div>
             <div class="wrap" style="margin-top:8px">
                 <button class="btn sm" @onclick="AddUser" disabled="@(S.IsRunning || !S.Can(Perm.RunApply))">Добавить пользователя</button>
-                <button class="btn sm" disabled title="Следующая версия веба">Закрыть доступ</button>
-                <button class="btn sm" disabled title="Следующая версия веба">Базовые пользователи (0)</button>
+                <button class="btn sm" @onclick="CloseAccess" disabled="@(S.IsRunning || !S.Can(Perm.RunApply) || !S.SelectedHosts.Any())"
+                        title="Заблокировать, отозвать ключ или удалить учётку на отмеченных хостах; там же — «Открыть доступ»">Закрыть доступ</button>
+                <button class="btn sm" @onclick="BaseUsers" disabled="@(S.IsRunning || !S.Can(Perm.RunApply))"
+                        title="Список учёток, которые ставятся на отмеченные хосты одной кнопкой">Базовые пользователи (@_baseCount)</button>
             </div>
         </div>
         <div class="scroll tree-wrap">
@@ -28,13 +30,14 @@
         <div class="surface-header slim">
             <div class="row">
                 <span class="section-title grow" title="Щелчок — в план или из плана">Каталог действий</span>
-                <button class="btn sm" style="min-width:72px" disabled title="Свои действия — следующая версия веба">Новое</button>
+                <button class="btn sm" style="min-width:72px" @onclick="NewAction" disabled="@(!S.CanEditActions)" title="@S.EditActionsHint">Новое</button>
             </div>
         </div>
         <div class="scroll cards">
             @foreach (var a in S.Actions)
             {
-                <div class="card-chrome @(a.IsSelected ? "planned" : "")" @onclick="() => Toggle(a)">
+                <div class="card-chrome @(a.IsSelected ? "planned" : "")" @onclick="() => Toggle(a)"
+                     @oncontextmenu="e => ShowCardMenu(e, a)" @oncontextmenu:preventDefault="true">
                     <div class="card">
                         <input type="checkbox" checked="@a.IsSelected" title="В плане" @onclick:stopPropagation="true" @onchange="() => Toggle(a)" />
                         <div class="card-body">
@@ -95,11 +98,76 @@
     </section>
 </div>
 
+@if (_cardMenu is { } cm)
+{
+    <div class="ctx-overlay" @onclick="() => _cardMenu = null" @oncontextmenu="() => _cardMenu = null" @oncontextmenu:preventDefault="true"></div>
+    <div class="ctx-menu" style="left:min(@Px(cm.X)px, calc(100vw - 210px));top:min(@Px(cm.Y)px, calc(100vh - 140px))">
+        @if (!cm.A.Definition.BuiltIn)
+        {
+            <button @onclick="() => CardDo(() => EditAction(cm.A, clone: false))" disabled="@(!S.CanEditActions)" title="@S.EditActionsHint">Изменить</button>
+        }
+        <button @onclick="() => CardDo(() => EditAction(cm.A, clone: true))" disabled="@(!S.CanEditActions)" title="@S.EditActionsHint">Дублировать</button>
+        @if (!cm.A.Definition.BuiltIn)
+        {
+            <hr />
+            <button @onclick="() => CardDo(() => DeleteAction(cm.A))" disabled="@(!S.CanEditActions)" title="@S.EditActionsHint">Удалить</button>
+        }
+    </div>
+}
+
 @code {
     [Parameter, EditorRequired] public WebSession S { get; set; } = null!;
 
     private bool _probing;
     private string _copyText = "Копировать";
+    private (ActionItemView A, double X, double Y)? _cardMenu;
+
+    private static string Px(double v) => Math.Max(4, v).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private void ShowCardMenu(MouseEventArgs e, ActionItemView a) => _cardMenu = (a, e.ClientX, e.ClientY);
+
+    private async Task CardDo(Func<Task> act)
+    {
+        var item = _cardMenu?.A;
+        _cardMenu = null;
+        if (item is null) return;
+        await act();
+    }
+
+    private Task NewAction() => EditAction(null, clone: false);
+
+    private async Task EditAction(ActionItemView? item, bool clone)
+    {
+        if (!S.CanEditActions)
+        {
+            await S.Dialogs.Info(S.EditActionsHint, "Свои действия");
+            return;
+        }
+
+        var d = new UiDialog
+        {
+            Kind = "action",
+            Title = item is null ? "Новое действие" : clone ? "Дублировать действие" : "Изменить действие",
+            Action = item?.Definition,
+            Values = { ["clone"] = clone ? "1" : "0" }
+        };
+        if (await S.Dialogs.Show(d) is not ActionDefinition def) return;
+        int? prev = null;
+        if (d.Values.TryGetValue("prevScriptLen", out var raw) && int.TryParse(raw, out var n))
+            prev = n;
+        S.SaveCustomAction(def, prev);
+    }
+
+    private async Task DeleteAction(ActionItemView item)
+    {
+        if (!S.CanEditActions)
+        {
+            await S.Dialogs.Info(S.EditActionsHint, "Свои действия");
+            return;
+        }
+        if (!await S.Dialogs.Confirm($"Удалить «{item.Definition.Name}»?", "Удалить действие")) return;
+        S.DeleteCustomAction(item.Definition);
+    }
 
     private bool AllChecked => S.LinuxHosts.Any() && S.LinuxHosts.All(h => h.Config.IsSelected);
 
@@ -137,6 +205,27 @@
         var d = new UiDialog { Kind = "adduser", Title = "Добавить пользователя", Hosts = hosts.Select(h => h.Config).ToList() };
         if (await S.Dialogs.Show(d) is not AddUserRequest req) return;
         await S.AddUser(req, hosts);
+    }
+
+    private async Task CloseAccess()
+    {
+        var hosts = S.SelectedHosts.ToList();
+        var d = new UiDialog { Kind = "access", Title = "Закрыть доступ", Targets = hosts };
+        if (await S.Dialogs.Show(d) is not AccessDialog.Go go) return;
+        await S.CloseAccess(go.Request, go.Targets);
+        _baseCount = S.BaseUsersCount; // «Закрыть доступ» мог выключить запись
+    }
+
+    private int _baseCount;
+    protected override void OnInitialized() => _baseCount = S.BaseUsersCount;
+
+    private async Task BaseUsers()
+    {
+        var hosts = S.SelectedHosts.ToList();
+        var d = new UiDialog { Kind = "baseusers", Title = "Базовые пользователи", Targets = hosts };
+        var r = await S.Dialogs.Show(d);
+        _baseCount = S.BaseUsersCount;
+        if (r is BaseUsersDialog.ApplyThese go) await S.ApplyBaseUsers(go.Logins, hosts);
     }
 
     private async Task Copy()
